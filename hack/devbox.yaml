@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: direwolf
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: direwolf
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+- kind: ServiceAccount
+  name: direwolf
+  namespace: default
+---  
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: devbox
+spec:
+  serviceName: devbox
+  replicas: 1
+  selector:
+    matchLabels:
+      app: direwolf
+  template:
+    metadata:
+      labels:
+        app: direwolf
+    spec:
+      serviceAccountName: direwolf
+      containers:
+      - name: devbox
+        image: ubuntu:latest
+        ports:
+        - name: dlv
+          containerPort: 2345
+        - name: http
+          containerPort: 47989
+        - name: https
+          containerPort: 47984
+        resources:
+          requests: {}
+          limits: {}
+        command: ["/bin/bash"]
+        args: ["-c", "trap 'exit 0' SIGTERM; while true; do sleep 10; done"]
+        volumeMounts:
+        - name: app
+          mountPath: /app
+  volumeClaimTemplates:
+  - metadata:
+      name: app
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: devbox
+spec:
+  clusterIP: None
+  selector:
+    app: direwolf
+  ports:
+    - name: dlv
+      port: 2345
+      targetPort: 2345
+    - name: http
+      port: 47989
+      targetPort: 47989
+    - name: https
+      port: 47984
+      targetPort: 47984

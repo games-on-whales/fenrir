@@ -1,0 +1,657 @@
+# Hacky test pod i used for initial POC 
+apiVersion: v1
+kind: Service
+metadata:
+  name: wolf-mini
+  labels:
+    app: wolf-mini
+spec:
+  selector:
+    app: wolf-mini
+  ports:
+  - name: https
+    port: 47984
+  - name: http
+    port: 47989
+  - name: control
+    port: 47999
+    protocol: UDP
+  - port: 47998
+    protocol: UDP
+    name: rtp-video
+  - port: 48000
+    protocol: UDP
+    name: rtp-audio
+  - name: rtsp
+    port: 48010
+  - name: rtsp-udp-0
+    port: 48100
+    protocol: UDP
+  - name: rtsp-udp-1
+    port: 48101
+    protocol: UDP
+  - name: rtsp-udp-2
+    port: 48102
+    protocol: UDP
+  - name: rtsp-udp-3
+    port: 48103
+    protocol: UDP
+  - name: rtsp-udp-4
+    port: 48104
+    protocol: UDP
+  - name: rtsp-udp-5
+    port: 48105
+    protocol: UDP
+  - name: rtsp-udp-6
+    port: 48106
+    protocol: UDP
+  - name: rtsp-udp-7
+    port: 48107
+    protocol: UDP
+  - name: rtsp-udp-8
+    port: 48108
+    protocol: UDP
+  - name: rtsp-udp-9
+    port: 48109
+    protocol: UDP
+  - name: rtsp-udp-10
+    port: 48110
+    protocol: UDP
+  - name: rtsp-udp-a-0
+    port: 48200
+    protocol: UDP
+  - name: rtsp-udp-a-1
+    port: 48201
+    protocol: UDP
+  - name: rtsp-udp-a-2
+    port: 48202
+    protocol: UDP
+  - name: rtsp-udp-a-3
+    port: 48203
+    protocol: UDP
+  - name: rtsp-udp-a-4
+    port: 48204
+    protocol: UDP
+  - name: rtsp-udp-a-5
+    port: 48205
+    protocol: UDP
+  - name: rtsp-udp-a-6
+    port: 48206
+    protocol: UDP
+  - name: rtsp-udp-a-7
+    port: 48207
+    protocol: UDP
+  - name: rtsp-udp-a-8
+    port: 48208
+    protocol: UDP
+  - name: rtsp-udp-a-9
+    port: 48209
+    protocol: UDP
+  - name: rtsp-udp-a-10
+    port: 48210
+    protocol: UDP
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: wolf-mini
+  labels:
+    app: wolf-mini
+data:
+  cert.pem: |
+    -----BEGIN CERTIFICATE-----
+    MIIC6zCCAdOgAwIBAgIBATANBgkqhkiG9w0BAQsFADA5MQswCQYDVQQGEwJJVDEW
+    MBQGA1UECgwNR2FtZXNPbldoYWxlczESMBAGA1UEAwwJbG9jYWxob3N0MB4XDTI1
+    MDIyNDE3NTY0N1oXDTQ1MDIxOTE3NTY0N1owOTELMAkGA1UEBhMCSVQxFjAUBgNV
+    BAoMDUdhbWVzT25XaGFsZXMxEjAQBgNVBAMMCWxvY2FsaG9zdDCCASIwDQYJKoZI
+    hvcNAQEBBQADggEPADCCAQoCggEBAJwn1pOzMeuS0PM6lXEsYqFcthzKCJoTYzM3
+    TYRHuT6cJC2Y41iJA0bXD0qQc+nGb0umCCN2pNUnNtVWKA3lau5LfjdNw9Q0PAF9
+    q+iCHdC3u87Y0cXTkR5egxBYNmhVaZ97mNYsZh4Isdyf2FKDBwriUwiiSNicC2F6
+    GWyN6TpRYVQ4arB8eGpsxcyJ/cuOHngw+d6G+09HS6gBk56tPU+zq+ypZ2FgoUGL
+    g7hJgNrSUgtQG1YhlXPPiNmkcBvQ/VWb2tRQ9Ydf8l4BAfB4DljQ0Zmhmepu84w/
+    Th5MUp5FTae5emjH+0OkULihc8yXr8sOq0V3Rw+HNT/kLZuXhFUCAwEAATANBgkq
+    hkiG9w0BAQsFAAOCAQEABCXrpT43WsQN0NdD/z9HHvYMySwxNa7VrC5xFJ238cy8
+    yJUq5qTLkHLYsDrNlTfilzagWC5ZrsoH+yrFbkBxKAngnmRrXoZ+kDkp9hqS/ek4
+    +RCq47mAAGgIcL2lUjxCbJccvkJgQId4nOwPEsqWHRCzYfuZqwZokZwkWxFpqkol
+    6u047y1+0oC56Yfn5OnE20rmmFJvoW/cnB0EwxMbNssR5+zbhe7xoTh0LRyS9Ld4
+    ovYEkoISlIdNGYJg2jx2OilPhGidKfUAVx+DZMr8XFd7sKQUoUEPrPJOpb4Hhm53
+    T3Iq1OC5zwR4VumwYeiuzhDZJK8dA8F/8DWksBMV7g==
+    -----END CERTIFICATE-----
+  key.pem: |
+    -----BEGIN PRIVATE KEY-----
+    MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCcJ9aTszHrktDz
+    OpVxLGKhXLYcygiaE2MzN02ER7k+nCQtmONYiQNG1w9KkHPpxm9LpggjdqTVJzbV
+    VigN5WruS343TcPUNDwBfavogh3Qt7vO2NHF05EeXoMQWDZoVWmfe5jWLGYeCLHc
+    n9hSgwcK4lMIokjYnAthehlsjek6UWFUOGqwfHhqbMXMif3Ljh54MPnehvtPR0uo
+    AZOerT1Ps6vsqWdhYKFBi4O4SYDa0lILUBtWIZVzz4jZpHAb0P1Vm9rUUPWHX/Je
+    AQHweA5Y0NGZoZnqbvOMP04eTFKeRU2nuXpox/tDpFC4oXPMl6/LDqtFd0cPhzU/
+    5C2bl4RVAgMBAAECggEABbUxEzIEG5vAtntINhxMuKA2aeP6n4Mg56DYXQLwIvk7
+    G02Q1c4gSAkZXnzcN8nQjJ/TgVRXXxExYGfnS+a8W1x4DxZxF4MXRGivDW8gHt5w
+    Z3WmaUg78DO9L65BwtuIYlN2uTFjRCrGMY3ILu/qJHw0U8b2ybAefGAlqMGhKkf7
+    nE30H409tAYypJTQB1xwJhoaboQy6JDY7Od2ClEK5HYMsHZUzI8kn/86h3rXGRtq
+    6rRaYSnSdZ4JIq176Q349AuZgm1HNBDyNDRquvF5GSQ2c82pfRU7+sFoOH7jQlF4
+    NMOroI0bioFGW0meNXE9UR3O1ymX98vJd+3NAw9uAQKBgQDJkRIDMuXeDxs6kv3g
+    u73NmDfw5B2Nj1Gerzz88MyUiUGQMVdvZj4J2XCWwbP9MiIqdj1mhqi3gcBRR6PT
+    g2wyyIiAB0rsZ02m1DbyHVT7vEAS9tK4e6PPxBs/1qNuaT9oFAvDqb+OIspQ1cGb
+    TxGjuQbEVVYjlcrInhGuwoiDVQKBgQDGU1w4M4s/cB1f9513uEsNOUllPr1GIJf0
+    R1PL3ovx3zEQS7IDpCbLAitvDTNLjzLZt3SWZ67ErY7la5Inu2e6re56zgIRUTbe
+    QCUellyCYdy3lL4tmlFpWnQ1Z1WPtOsfvbDFarCSXAWrZrKWflSlma9ruTTyzzPR
+    60O6OjT9AQKBgQCrRZh/nVUTHdTuLY6J0h0SQGBwUPUHnxskchSpfNbo88QBCNwZ
+    rU/TwK5Ze1g8Mcg0Omor3wone5n1tqDvDgH3GMxbtValj5W8xx+1FNVsXeY39wDQ
+    f0aPOTxKP1B5dfbJshbY+DjrRoaQr0EmfcYoTwT/+N8Lt7EqTJ4L2AJ1TQKBgDfx
+    1ebIq3QWtUKX/+SAqTMuwMR9oTjCAvtWj43H1mRBWH7HS4z5ZjQIBaaK67hZybde
+    p9Wxo7w5VUDkSlNI6ybe35HmwPCPn1GseIwbUDc7Ud67Z7ZHfMWiTXuvDZS/LUBD
+    6zSVNv/iU3sZOjF3q3sXUkOp+ASybGS/39gNiVsBAoGAZVQDzmh5BEYfC3lugPcp
+    bVJJ/wbBcnn2dVepYnf+d0VMY4w5yphBTE964CyzpQcoeMxNiOT/7ibyCsEnzaz9
+    aSNMrfN7rHtkGza2Zxc+Lufim/2UoFzgznqexFSYP2ce9epv3NommKXyvk4Kegnp
+    TpUYD2pbgj/IM9N8fIOBs58=
+    -----END PRIVATE KEY-----
+  config.toml: |
+    config_version = 4
+    hostname = 'Wolf'
+    uuid = 'dd7c60f6-4b88-4ef1-be07-eeec72f96080'
+
+    [gstreamer.audio]
+    default_audio_params = 'queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert'
+    default_opus_encoder = 'opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400'
+    default_sink = '''rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
+    udpsink bind-port={host_port} host={client_ip} port={client_port} sync=true'''
+    default_source = 'interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false'
+
+    [gstreamer.video]
+    default_sink = '''rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
+    udpsink bind-port={host_port} host={client_ip} port={client_port} sync=true'''
+    default_source = 'interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-buffers=1 block=false'
+
+        [gstreamer.video.defaults.nvcodec]
+        video_params = '''queue leaky=downstream max-size-buffers=1 !
+    cudaupload !
+    cudaconvertscale !
+    video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1'''
+
+        [gstreamer.video.defaults.qsv]
+        video_params = '''queue leaky=downstream max-size-buffers=1 !
+    videoconvertscale !
+    video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}'''
+
+        [gstreamer.video.defaults.vaapi]
+        video_params = '''queue leaky=downstream max-size-buffers=1 !
+    videoconvertscale !
+    video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}'''
+
+        [[gstreamer.video.av1_encoders]]
+        check_elements = [ 'nvav1enc', 'cudaconvertscale', 'cudaupload' ]
+        encoder_pipeline = '''nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+    av1parse !
+    video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+        plugin_name = 'nvcodec'
+
+        [[gstreamer.video.av1_encoders]]
+        check_elements = [ 'qsvav1enc', 'videoconvertscale' ]
+        encoder_pipeline = '''qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+    av1parse !
+    video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+        plugin_name = 'qsv'
+
+        [[gstreamer.video.av1_encoders]]
+        check_elements = [ 'vaav1enc', 'videoconvertscale' ]
+        encoder_pipeline = '''vaav1enc ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6 !
+    av1parse !
+    video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+        plugin_name = 'vaapi'
+
+        [[gstreamer.video.av1_encoders]]
+        check_elements = [ 'vaav1lpenc', 'videoconvertscale' ]
+        encoder_pipeline = '''vaav1lpenc ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6 !
+    av1parse !
+    video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+        plugin_name = 'vaapi'
+
+        [[gstreamer.video.av1_encoders]]
+        check_elements = [ 'av1enc' ]
+        encoder_pipeline = '''av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} !
+    av1parse !
+    video/x-av1, stream-format=obu-stream, alignment=frame, profile=main'''
+        plugin_name = 'aom'
+        video_params = '''videoconvertscale !
+    videorate !
+    video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+    chroma-site={color_range}, colorimetry={color_space}'''
+
+        [[gstreamer.video.h264_encoders]]
+        check_elements = [ 'nvh264enc', 'cudaconvertscale', 'cudaupload' ]
+        encoder_pipeline = '''nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
+    h264parse !
+    video/x-h264, profile=main, stream-format=byte-stream'''
+        plugin_name = 'nvcodec'
+
+        [[gstreamer.video.h264_encoders]]
+        check_elements = [ 'qsvh264enc', 'videoconvertscale' ]
+        encoder_pipeline = '''qsvh264enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6  !
+    h264parse !
+    video/x-h264, profile=main, stream-format=byte-stream'''
+        plugin_name = 'qsv'
+
+        [[gstreamer.video.h264_encoders]]
+        check_elements = [ 'vah264lpenc', 'videoconvertscale' ]
+        encoder_pipeline = '''vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} target-usage=6 !
+    h264parse !
+    video/x-h264, profile=main, stream-format=byte-stream'''
+        plugin_name = 'vaapi'
+
+        [[gstreamer.video.h264_encoders]]
+        check_elements = [ 'vah264enc', 'videoconvertscale' ]
+        encoder_pipeline = '''vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} target-usage=6 !
+    h264parse !
+    video/x-h264, profile=main, stream-format=byte-stream'''
+        plugin_name = 'vaapi'
+
+        [[gstreamer.video.h264_encoders]]
+        check_elements = [ 'x264enc' ]
+        encoder_pipeline = '''x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1
+    sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0"
+    b-adapt=false bitrate={bitrate} aud=false !
+    video/x-h264, profile=high, stream-format=byte-stream'''
+        plugin_name = 'x264'
+        video_params = '''videoconvertscale !
+    videorate !
+    video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+    chroma-site={color_range}, colorimetry={color_space}'''
+
+        [[gstreamer.video.hevc_encoders]]
+        check_elements = [ 'nvh265enc', 'cudaconvertscale', 'cudaupload' ]
+        encoder_pipeline = '''nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+    h265parse !
+    video/x-h265, profile=main, stream-format=byte-stream'''
+        plugin_name = 'nvcodec'
+
+        [[gstreamer.video.hevc_encoders]]
+        check_elements = [ 'qsvh265enc', 'videoconvertscale' ]
+        encoder_pipeline = '''qsvh265enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+    h265parse !
+    video/x-h265, profile=main, stream-format=byte-stream'''
+        plugin_name = 'qsv'
+
+        [[gstreamer.video.hevc_encoders]]
+        check_elements = [ 'vah265lpenc', 'videoconvertscale' ]
+        encoder_pipeline = '''vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} mbbrc=1 rate-control=cbr target-usage=6 !
+    h265parse !
+    video/x-h265, profile=main, stream-format=byte-stream'''
+        plugin_name = 'vaapi'
+
+        [[gstreamer.video.hevc_encoders]]
+        check_elements = [ 'vah265enc', 'videoconvertscale' ]
+        encoder_pipeline = '''vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} mbbrc=1 rate-control=cbr target-usage=6 !
+    h265parse !
+    video/x-h265, profile=main, stream-format=byte-stream'''
+        plugin_name = 'vaapi'
+
+        [[gstreamer.video.hevc_encoders]]
+        check_elements = [ 'x265enc' ]
+        encoder_pipeline = '''x265enc tune=zerolatency speed-preset=superfast bitrate={bitrate}
+    option-string="info=0:keyint=-1:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
+    video/x-h265, profile=main, stream-format=byte-stream'''
+        plugin_name = 'x265'
+        video_params = '''videoconvertscale !
+    videorate !
+    video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420,
+    chroma-site={color_range}, colorimetry={color_space}'''
+
+    [[apps]]
+    start_audio_server = true
+    start_virtual_compositor = true
+    title = 'App'
+    id = 'app'
+        [apps.runner]
+        run_cmd = "sh -c \"while :; do echo 'running...'; sleep 10; done\""
+        type = 'process'
+
+    [[apps]]
+    start_audio_server = false
+    start_virtual_compositor = false
+    title = 'Test ball'
+    id = 'test-ball'
+
+        [apps.audio]
+        source = 'audiotestsrc wave=ticks is-live=true'
+
+        [apps.runner]
+        name = 'test-ball'
+        run_cmd = "sh -c \"while :; do echo 'running...'; sleep 10; done\""
+        type = 'process'
+
+        [apps.video]
+        source = '''videotestsrc pattern=ball flip=true is-live=true !
+    video/x-raw, framerate={fps}/1
+    '''
+
+    [[paired_clients]]
+    app_state_folder = '4193251087262667199'
+    client_cert = '''-----BEGIN CERTIFICATE-----
+    MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
+    SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjQxMjE2MDgzMTE4WhcNNDQxMjExMDgz
+    MTE4WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
+    CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCXcEKK/Desa7EcvntGHxtA3ercOxbd
+    kUtkPPacz7mKVZBKayZmbfTMAQV5dS2yqeyZOId+X4JEPO7DeuMkkr9INnvl3etB
+    WIj0q8FTuBrGAb+XozFTb3Tvo3plezpLXecl4mquvXA2mEtVILnm6NltdJ+GYNkT
+    UBbOjneZIdBfFjIP+0k2JZD+VmnxmwCDlPryMa2nFi8rNAkYSfIWdyIlOzUJfZ/i
+    8Hw4wLtSGy5W7YZ3kbQQJzPkW6pLFbREcNmslprwxZduo3mDAyDndj9qsVqopJOF
+    Oj3Nlzj53kNRozgB9b/wkNcxi3lvOoQrNGJNTp39WNDmPFVzfBvCKVDJAgMBAAEw
+    DQYJKoZIhvcNAQELBQADggEBAA+Rh4KAuTYtcH8X5RdUstjGXiYbONMmEuKl/kE/
+    hj8ddefXA4pjf1Vozx6NunMlC4g0QQAZrsxn1NBVe/5L3gxrwyYLn/2kDJUw7P5o
+    aTXnL5xYzhcPjQOER9+36S4aUTpwR/rURK0MyOmZOVk3Ex4rAnyetKg3Dd9v6uL3
+    zaycOje4fxJpVH713NbFaGLMeKPW61lW+Lh9WlXOKrd0EABVBPmSYlk8gYnPrXxA
+    dxohk8q/MqUqcm/k8ZGKYMc998ix6ldXJm5xaPTXSQcSC/xycoLjnUCkcv+sfh1T
+    nKI+KlDXa1HikPGT/uB/b+SS6v9bD8kU03Ci4ahdKb6Mw7Q=
+    -----END CERTIFICATE-----
+    '''
+
+        [paired_clients.settings]
+        controllers_override = []
+        h_scroll_acceleration = 1.0
+        mouse_acceleration = 1.0
+        run_gid = 1000
+        run_uid = 1000
+        v_scroll_acceleration = 1.0
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: wolf-mini
+  labels:
+    app: wolf-mini
+spec:
+  initContainers:
+    - name: init
+      image: ghcr.io/games-on-whales/base:edge
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          chown 1000:1000 /mnt/data/wolf
+          chmod 777 /mnt/data/wolf
+          chown -R ubuntu:ubuntu /tmp/.X11-unix
+          chmod 777 -R /tmp/.X11-unix
+          mkdir -p /etc/wolf/cfg
+          cp -LR /cfg/* /etc/wolf/cfg
+          chown -R ubuntu:ubuntu /etc/wolf
+          chmod 777 -R /etc/wolf
+      volumeMounts:
+        - name: wolf
+          mountPath: /mnt/data/wolf
+        - name: wolf-cfg
+          mountPath: /etc/wolf/
+        - name: wolf-runtime
+          mountPath: /tmp/.X11-unix
+        - name: config
+          mountPath: /cfg
+  containers:
+    - name: pulseaudio
+      image: ghcr.io/games-on-whales/pulseaudio:master
+      # command: ["bash", "-c", "chmod -R 777 /root && chroot --userspec=1000:1000 / pulseaudio --exit-idle-time=-1 --daemonize=false --log-level=debug --log-target=stderr"]
+      resources:
+        requests:
+          cpu: "200m"
+          memory: 1Gi
+      env:
+      - name: TZ
+        value: "America/Los_Angeles"
+      - name: UNAME
+        value: "retro"
+      - name: XDG_RUNTIME_DIR
+        value: "/tmp/pulse"
+      - name: UID
+        value: "1000"
+      - name: GID
+        value: "1000"
+
+      volumeMounts:
+      - name: wolf-runtime
+        mountPath: /tmp/pulse
+
+    - name: firefox
+      image: ghcr.io/games-on-whales/firefox:edge
+      command:
+      - /bin/bash
+      - -c
+      - |
+        # Wait for wayland display to be available
+        while [ ! -S $XDG_RUNTIME_DIR/$WAYLAND_DISPLAY ]; do
+          echo "Waiting for waitland display..." >&2
+          sleep 1
+        done
+        exec /entrypoint.sh
+      resources:
+        requests:
+          nvidia.com/gpu: "1"
+          cpu: "100m"
+          memory: 1Gi
+        limits:
+          nvidia.com/gpu: "1"
+      env:
+      - name: DISPLAY
+        value: ":0"
+      - name: WAYLAND_DISPLAY
+        value: "wayland-1"
+      - name: XDG_RUNTIME_DIR
+        value: "/tmp/.X11-unix"
+      - name: PULSE_SERVER
+        value: unix:/tmp/.X11-unix/pulse-socket
+      - name: LD_LIBRARY_PATH
+        value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib"
+      - name: LIBVA_DRIVER_NAME
+        value:  "nvidia"
+      - name: NVIDIA_VISIBLE_DEVICES
+        value:  "all" # GPU-33ef544d-5a05-d10e-b7c6-a85b8ce32f45
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value:  "all"
+      - name: GST_DEBUG
+        value: "2"
+      - name: GST_VAAPI_ALL_DRIVERS
+        value: "1"
+      volumeMounts:
+        - name: wolf-runtime
+          mountPath: /tmp/.X11-unix
+
+    - name: wolf-agent
+      image: registry.zielenski.dev/direwolf/wolf-agent:latest
+      imagePullPolicy: Always
+      env:
+      - name: XDG_RUNTIME_DIR
+        value: /tmp/.X11-unix
+      - name: WOLF_SOCKET_PATH
+        value: /etc/wolf/wolf.sock
+
+      - name: VIDEO_WIDTH
+        value: "1920"
+      - name: VIDEO_HEIGHT
+        value: "1080"
+      - name: VIDEO_REFRESH_RATE
+        value: "60"
+      - name: CLIENT_ID
+        value: "4193251087262667199" # pre-paired client ID included in the config toml
+      - name: CLIENT_IP
+        value: "10.129.2.231" # one of my router's BGP neighbors in my network used for routing into the cluster
+      volumeMounts:
+        - name: wolf-cfg
+          mountPath: /etc/wolf
+        - name: wolf-runtime
+          mountPath: /tmp/.X11-unix
+      resources:
+        requests:
+          cpu: "10m"
+          memory: 128Mi
+
+    - name: wolf
+      image: ghcr.io/games-on-whales/wolf:stable
+      # command: ["/bin/bash", "-c","sleep infinity"]
+      resources:
+        requests:
+          nvidia.com/gpu: "1"
+          cpu: "1"
+          memory: 1Gi
+        limits:
+          nvidia.com/gpu: "1"
+      env:
+      - name: PUID
+        value: "1000"
+      - name: PGID
+        value: "1000"
+      - name: TZ
+        value: "America/Los_Angeles"
+      - name: UNAME
+        value: "ubuntu"
+
+      - name: PULSE_SERVER
+        value: unix:/tmp/.X11-unix/pulse-socket
+
+      - name: HOST_APPS_STATE_FOLDER
+        value: /mnt/data/wolf
+      - name: WOLF_LOG_LEVEL
+        value: DEBUG
+
+      - name: XDG_RUNTIME_DIR
+        value: "/tmp/.X11-unix"
+
+      - name: LD_LIBRARY_PATH
+        value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib"
+      - name: LIBVA_DRIVER_NAME
+        value:  "nvidia"
+      - name: NVIDIA_VISIBLE_DEVICES
+        value:  "all" # GPU-33ef544d-5a05-d10e-b7c6-a85b8ce32f45
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value:  "all"
+      - name: GST_DEBUG
+        value: "2"
+      - name: GST_VAAPI_ALL_DRIVERS
+        value: "1"
+      - name: __GL_SYNC_TO_VBLANK
+        value:  "0"
+      # - name: WOLF_DOCKER_FAKE_UDEV_PATH
+      #   value:  "/mnt/data/wolf-devbox/fake-udev"
+      # - name: WOLF_DOCKER_SOCKET
+      #   value:  "/var/run/docker.sock"
+      - name: WOLF_PRIVATE_CERT_FILE
+        value:  "/etc/wolf/cfg/cert.pem"
+      - name: WOLF_STOP_CONTAINER_ON_EXIT
+        value:  "TRUE"
+      - name: WOLF_RENDER_NODE
+        value:  "/dev/dri/renderD128"
+      - name: WOLF_CFG_FILE
+        value:  "/etc/wolf/cfg/config.toml"
+      - name: WOLF_PULSE_IMAGE
+        value:  "ghcr.io/games-on-whales/pulseaudio:master"
+      - name: WOLF_PRIVATE_KEY_FILE
+        value: "/etc/wolf/cfg/key.pem"
+      - name: WOLF_CFG_FOLDER
+        value: "/etc/wolf/cfg"
+      - name: WOLF_SOCKET_PATH
+        value: "/etc/wolf/wolf.sock"
+      ports:
+        - containerPort: 47984
+          name: https
+        - containerPort: 47989
+          name: http
+        - containerPort: 47999
+          protocol: UDP
+          name: control
+        - containerPort: 47998
+          protocol: UDP
+          name: rtp-video
+        - containerPort: 48000
+          protocol: UDP
+          name: rtp-audio
+        - containerPort: 48010
+          name: rtsp
+        - containerPort: 48100
+          name: rtsp-udp-0
+          protocol: UDP
+        - containerPort: 48101
+          name: rtsp-udp-1
+          protocol: UDP
+        - containerPort: 48102
+          name: rtsp-udp-2
+          protocol: UDP
+        - containerPort: 48103
+          name: rtsp-udp-3
+          protocol: UDP
+        - containerPort: 48104
+          name: rtsp-udp-4
+          protocol: UDP
+        - containerPort: 48105
+          name: rtsp-udp-5
+          protocol: UDP
+        - containerPort: 48106
+          name: rtsp-udp-6
+          protocol: UDP
+        - containerPort: 48107
+          name: rtsp-udp-7
+          protocol: UDP
+        - containerPort: 48108
+          name: rtsp-udp-8
+          protocol: UDP
+        - containerPort: 48109
+          name: rtsp-udp-9
+          protocol: UDP
+        - containerPort: 48110
+          name: rtsp-udp-10
+          protocol: UDP
+        - containerPort: 48200
+          name: rtsp-udp-a-0
+          protocol: UDP
+        - containerPort: 48201
+          name: rtsp-udp-a-1
+          protocol: UDP
+        - containerPort: 48202
+          name: rtsp-udp-a-2
+          protocol: UDP
+        - containerPort: 48203
+          name: rtsp-udp-a-3
+          protocol: UDP
+        - containerPort: 48204
+          name: rtsp-udp-a-4
+          protocol: UDP
+        - containerPort: 48205
+          name: rtsp-udp-a-5
+          protocol: UDP
+        - containerPort: 48206
+          name: rtsp-udp-a-6
+          protocol: UDP
+        - containerPort: 48207
+          name: rtsp-udp-a-7
+          protocol: UDP
+        - containerPort: 48208
+          name: rtsp-udp-a-8
+          protocol: UDP
+        - containerPort: 48209
+          name: rtsp-udp-a-9
+          protocol: UDP
+        - containerPort: 48210
+          name: rtsp-udp-a-10
+          protocol: UDP
+      volumeMounts:
+        - name: wolf
+          mountPath: /mnt/data/wolf
+        - name: wolf-cfg
+          mountPath: /etc/wolf/
+        - name: wolf-runtime
+          mountPath: /tmp/.X11-unix
+
+  volumes:
+    # Wolf state dir. Doesnt need to be a host mount at all. Just needs to be
+    # persistent and accessible to pod. In k8s environments the state usually wil
+    # be on a slower storage medium like a network share. We will want to have
+    # nodes with pre-installed games to mount into our pod, otherwise we will
+    # need to download the games on every pod start or use hostPath volumes.
+    - name: wolf
+      hostPath:
+        path: /mnt/data/wolf
+
+    - name: config
+      configMap:
+        name: wolf-mini
+
+    - name: wolf-cfg
+      emptyDir: {}
+
+    - name: wolf-runtime
+      emptyDir: {}
