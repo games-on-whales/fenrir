@@ -20,7 +20,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - image: wolf-agent
+          - app: wolf-agent
             context: images/wolf-agent
     steps:
       - name: Checkout
@@ -50,15 +50,18 @@ jobs:
             # Disable latest tag
             latest=false
           images: |
-            name=ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+            name=ghcr.io/${{ github.repository_owner }}/${{ matrix.app }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6.15.0
         with:
-          context: ${{ matrix.context }}
+          file: ${{ matrix.context }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ !github.event.pull_request.head.repo.fork }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
+          build-args: |
+            APP_NAME=${{ matrix.app }}
+          
