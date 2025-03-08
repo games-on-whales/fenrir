@@ -20,8 +20,8 @@ RUN python3 -m venv /app/venv
 RUN /app/venv/bin/pip install --no-cache-dir --upgrade pip
 RUN /app/venv/bin/pip install --no-cache-dir --upgrade requests-unixsocket2
 
-COPY --chown=ubuntu:ubuntu --chmod=755 startup.sh /opt/gow/startup.sh
-COPY --chown=ubuntu:ubuntu --chmod=755 script.py /app/wolf-agent.py
+COPY --chown=ubuntu:ubuntu --chmod=755 images/wolf-agent/startup.sh /opt/gow/startup.sh
+COPY --chown=ubuntu:ubuntu --chmod=755 images/wolf-agent/script.py /app/wolf-agent.py
 COPY --from=builder --chown=ubuntu:ubuntu /app/wolf-agent /app/wolf-agent
 
 ENV PATH="/app/venv/bin:${PATH}"
