@@ -1,3 +1,5 @@
+ARG APP_NAME
+
 # Shared go builder
 FROM golang:1.24 AS builder
 ARG CGO_ENABLED=0
@@ -25,5 +27,4 @@ COPY --from=builder --chown=ubuntu:ubuntu /app/wolf-agent /app/wolf-agent
 ENV PATH="/app/venv/bin:${PATH}"
 ENTRYPOINT ["/opt/gow/startup.sh"]
 
-ARG APP_NAME
 FROM ${APP_NAME} AS output
