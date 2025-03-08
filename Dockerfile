@@ -10,7 +10,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 
-RUN go build ./cmd/$APP_NAME -O /app/$APP_NAME
+RUN go build ./cmd/$APP_NAME -o /app/$APP_NAME
 
 # wolf-agent build
 FROM ghcr.io/games-on-whales/base-app:edge AS wolf-agent
