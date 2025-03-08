@@ -15,4 +15,4 @@ ARG APP_NAME
 WORKDIR /app
 
 COPY --from=builder --chmod=755 /app/$APP_NAME /app/$APP_NAME
-ENTRYPOINT ["/app/$APP_NAME]
+ENTRYPOINT ["/app/$APP_NAME"]
