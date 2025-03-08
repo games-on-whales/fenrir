@@ -1,0 +1,8 @@
+Dockerfile
+.gitignore
+.github/
+crds/
+examples/
+hack/
+poc.svg
+README.md

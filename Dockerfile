@@ -8,7 +8,7 @@ WORKDIR /app
 
 COPY go.mod go.sum ./
 RUN go mod download
-COPY SOURCE_DIRECTORY .
+COPY . .
 
 RUN go build ./cmd/$APP_NAME -O /app/$APP_NAME
 
@@ -22,7 +22,7 @@ RUN /app/venv/bin/pip install --no-cache-dir --upgrade requests-unixsocket2
 
 COPY --chown=ubuntu:ubuntu --chmod=755 images/wolf-agent/startup.sh /opt/gow/startup.sh
 COPY --chown=ubuntu:ubuntu --chmod=755 images/wolf-agent/script.py /app/wolf-agent.py
-COPY --from=builder --chown=ubuntu:ubuntu /app/wolf-agent /app/wolf-agent
+COPY --from=builder --chown=ubuntu:ubuntu --chmod=755 /app/wolf-agent /app/wolf-agent
 
 ENV PATH="/app/venv/bin:${PATH}"
 ENTRYPOINT ["/opt/gow/startup.sh"]
