@@ -19,8 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          - app: wolf-agent
+        app:
+          - wolf-agent
+          - moonlight-proxy
     steps:
       - name: Checkout
         uses: actions/checkout@v4
