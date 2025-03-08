@@ -9,11 +9,10 @@ COPY . .
 
 RUN go build -o /app/$APP_NAME ./cmd/$APP_NAME
 
-FROM ghcr.io/games-on-whales/base-app:edge AS output
+FROM alpine:3.21.3 AS output
 ARG APP_NAME
 
 WORKDIR /app
 
-COPY images/$APP_NAME/startup.sh /app/entrypoint.sh
-COPY --from=builder --chown=ubuntu:ubuntu --chmod=755 /app/$APP_NAME /app/$APP_NAME
-ENTRYPOINT ["/app/entrypoint.sh"]
+COPY --from=builder --chmod=755 /app/$APP_NAME /app/$APP_NAME
+ENTRYPOINT ["/app/$APP_NAME]
