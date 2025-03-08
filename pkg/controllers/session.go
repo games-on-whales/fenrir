@@ -452,7 +452,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 		return s
 	}
 
-	session.Status.ServiceName = fmt.Sprintf("%s-wolf", clampString(fmt.Sprintf("%s-%s-%s", session.Spec.UserReference.Name, session.Spec.GameReference.Name, string(session.UID)), 56))
+	session.Status.ServiceName = fmt.Sprintf("%s-rtp", clampString(session.Name, 56))
 
 	// HACK: Delete all direwolf-worker services that dont match the service name
 	// This is until we can control the ports in wolf
@@ -569,23 +569,40 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				Name:      "wolf-runtime",
 				MountPath: "/tmp/.X11-unix",
 			},
+			corev1.VolumeMount{
+				Name:      "wolf-data",
+				MountPath: "/home/retro",
+				SubPath:   fmt.Sprintf("state/%s", app.Name),
+			},
 		)
 
 		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, mapToEnvApplyList(map[string]string{
-			"DISPLAY":                    ":0",
-			"WAYLAND_DISPLAY":            "wayland-1",
-			"PULSE_SERVER":               "unix:/tmp/.X11-unix/pulse-socket",
-			"TZ":                         "America/Los_Angeles",
-			"UNAME":                      "retro",
-			"XDG_RUNTIME_DIR":            "/tmp/.X11-unix",
-			"UID":                        "1000",
-			"GID":                        "1000",
+			// Standard GOW envars
+			"DISPLAY": ":0",
+			// Container must have extra logic to wait for this to be set up
+			// unfortunately.
+			"WAYLAND_DISPLAY": "wayland-1",
+			"TZ":              "America/Los_Angeles",
+			"UNAME":           "retro",
+			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
+			"UID":             "1000",
+			"GID":             "1000",
+			"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
+			// PULSE_SINK & PULSE_SOURCE set at runtime calculated based off session ID.
+			// But would be nice if unnecessary
+
+			// Assorted NVIDIA. Unsure if required. Probabky not.
 			"LIBVA_DRIVER_NAME":          "nvidia",
 			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 			"NVIDIA_DRIVER_CAPABILITIES": "all",
 			"NVIDIA_VISIBLE_DEVICES":     "all",
 			"GST_VAAPI_ALL_DRIVERS":      "1",
 			"GST_DEBUG":                  "2",
+
+			// Gamescape envar injection. Ham-handed. Why not.
+			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
+			"GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
+			"GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
 		})...)
 
 		if podToCreate.Spec.Containers[i].Resources.Requests == nil {
@@ -612,7 +629,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				chown 1000:1000 /mnt/data/wolf
 				chmod 777 /mnt/data/wolf
 				chown -R ubuntu:ubuntu /tmp/.X11-unix
-				chmod 777 -R /tmp/.X11-unix
+				chmod 1777 -R /tmp/.X11-unix
 				mkdir -p /etc/wolf/cfg
 				cp -LR /cfg/* /etc/wolf/cfg
 				chown -R ubuntu:ubuntu /etc/wolf
@@ -1201,7 +1218,7 @@ func GenerateWolfConfig(
 		// to actually mirror the real moonlight clients into wolf via API
 		"paired_clients": []interface{}{
 			map[string]interface{}{
-				"app_state_folder": "4193251087262667199",
+				"app_state_folder": "state",
 				"client_cert": `-----BEGIN CERTIFICATE-----
 MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
 SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjQxMjE2MDgzMTE4WhcNNDQxMjExMDgz
