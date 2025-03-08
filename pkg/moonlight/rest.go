@@ -27,8 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
@@ -49,7 +47,9 @@ type RESTServer struct {
 	UserLister     generic.NamespacedLister[*v1alpha1types.User]
 	AppLister      generic.NamespacedLister[*v1alpha1types.App]
 	PodLister      generic.NamespacedLister[*v1.Pod]
-	SessionClient  v1alpha1client.SessionInterface
+	SessionLister  generic.NamespacedLister[*v1alpha1types.Session]
+
+	SessionClient v1alpha1client.SessionInterface
 
 	k8sClient     kubernetes.Interface
 	dynamicClient dynamic.Interface
@@ -61,6 +61,7 @@ func NewRESTServer(
 	pairingsLister generic.NamespacedLister[*v1alpha1types.Pairing],
 	userLister generic.NamespacedLister[*v1alpha1types.User],
 	appLister generic.NamespacedLister[*v1alpha1types.App],
+	sessionLister generic.NamespacedLister[*v1alpha1types.Session],
 	podsLister generic.NamespacedLister[*v1.Pod],
 	k8sClient kubernetes.Interface,
 	dynamicClient dynamic.Interface,
@@ -74,6 +75,7 @@ func NewRESTServer(
 		PairingsLister: pairingsLister,
 		UserLister:     userLister,
 		AppLister:      appLister,
+		SessionLister:  sessionLister,
 		PodLister:      podsLister,
 		k8sClient:      k8sClient,
 		dynamicClient:  dynamicClient,
@@ -427,6 +429,27 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
 	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
 
+	// Delete any sessions with the same user x game x pairing
+	existingSessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
+		"direwolf/user": user.Name,
+		"direwolf/app":  app.ObjectMeta.Name,
+	}))
+	if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to list sessions: %s", err))
+		return
+	}
+
+	for _, session := range existingSessions {
+		// If it has same annotation for pairing, delete it. Pairings use annotation
+		if pairingName, exists := session.Annotations["direwolf/pairing"]; exists && pairingName == pairing.Name {
+			log.Printf("Deleting existing session %s", session.Name)
+			if err := s.SessionClient.Delete(r.Context(), session.Name, metav1.DeleteOptions{}); err != nil {
+				writeErrorResponse(w, 500, fmt.Errorf("failed to delete session: %s", err))
+				return
+			}
+		}
+	}
+
 	log.Printf("Launching app %s for user %s", app.ObjectMeta.Name, user.ObjectMeta.Name)
 	session, err := s.SessionClient.Create(
 		r.Context(),
@@ -435,9 +458,11 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 				GenerateName: fmt.Sprintf("%s-%s-", user.Name, app.Name),
 				Namespace:    pairing.Namespace,
 				Labels: map[string]string{
-					"direwolf":         "true",
-					"direwolf/app":     app.ObjectMeta.Name,
-					"direwolf/user":    user.ObjectMeta.Name,
+					"direwolf":      "true",
+					"direwolf/app":  app.ObjectMeta.Name,
+					"direwolf/user": user.ObjectMeta.Name,
+				},
+				Annotations: map[string]string{
 					"direwolf/pairing": pairing.ObjectMeta.Name,
 				},
 			},
@@ -512,58 +537,41 @@ func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
-	appID := r.URL.Query().Get("appid")
-	if appID == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("appid required"))
-		return
-	}
+	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
 
-	app, err := s.getAppByID(appID)
+	// Delete any sessions with the same user x pairing
+	// Unforuntately cancel doesnt seem to be able to cancel a specific app
+	existingSessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
+		"direwolf/user": user.Name,
+	}))
 	if err != nil {
-		writeErrorResponse(w, 404, fmt.Errorf("app not found: %s", err))
+		writeErrorResponse(w, 500, fmt.Errorf("failed to list sessions: %s", err))
 		return
 	}
 
-	deploymentName := fmt.Sprintf("%s-%s", user.ObjectMeta.Name, app.ObjectMeta.Name)
-	log.Printf("Cancelling app %s", deploymentName)
-
-	// 1. Scale down the stateful set
-	log.Printf("Scaling down %s", deploymentName)
-	if _, err := s.dynamicClient.Resource(schema.GroupVersionResource{
-		Group:    "apps",
-		Version:  "v1",
-		Resource: "statefulsets",
-	}).Namespace("default").Apply(r.Context(), deploymentName, &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "apps/v1",
-			"kind":       "StatefulSet",
-			"metadata": map[string]interface{}{
-				"name":      deploymentName,
-				"namespace": "default",
-			},
-			"spec": map[string]interface{}{
-				"replicas": 0,
-			},
-		},
-	}, metav1.ApplyOptions{
-		FieldManager: "direwolf-scale",
-		Force:        true,
-	}); err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to scale down app: %s", err))
-		return
+	for _, session := range existingSessions {
+		// If it has same annotation for pairing, delete it. Pairings use annotation
+		if pairingName, exists := session.Annotations["direwolf/pairing"]; exists && pairingName == pairing.Name {
+			log.Printf("Deleting existing session %s", session.Name)
+			if err := s.SessionClient.Delete(r.Context(), session.Name, metav1.DeleteOptions{}); err != nil {
+				writeErrorResponse(w, 500, fmt.Errorf("failed to delete session: %s", err))
+				return
+			}
+		}
 	}
 
-	log.Printf("Waiting for %s to scale down", deploymentName)
-	err = wait.PollUntilContextTimeout(r.Context(), 100*time.Millisecond, 30*time.Second, true, func(ctx context.Context) (bool, error) {
-		sts, err := s.k8sClient.AppsV1().StatefulSets("default").Get(ctx, deploymentName, metav1.GetOptions{})
+	// Wait for pods to be cleaned up
+	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
+		pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
+			"direwolf/user": user.Name,
+		}))
 		if err != nil {
 			return false, err
 		}
-
-		return sts.Status.ObservedGeneration == sts.Generation && sts.Status.ReadyReplicas == 0 && sts.Status.UpdatedReplicas == 0, nil
+		return len(pods) == 0, nil
 	})
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to scale down app: %s", err))
+		writeErrorResponse(w, 500, fmt.Errorf("failed to wait for pods to be cleaned up: %s", err))
 		return
 	}
 

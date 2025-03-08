@@ -354,6 +354,7 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 	// Pull the fingerprint out of the client certificate and save the AESKey
 	// and certificate as a paired client authenticated as the User used
 	// to input the PIN on the website.
+	//!TODO: Switch to base64 to avoid issues with length limits in some names
 	fingerprint := hex.EncodeToString(util.Hash(clientCache.ClientCert.Raw))
 	_, err = m.PairingsClient.Apply(context.TODO(), &v1alpha1_apply.PairingApplyConfiguration{
 		TypeMetaApplyConfiguration: metav1apply.TypeMetaApplyConfiguration{

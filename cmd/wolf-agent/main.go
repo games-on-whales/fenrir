@@ -10,10 +10,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"sync/atomic"
 	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/util"
+	"github.com/r3labs/sse/v2"
 )
 
 func main() {
@@ -35,14 +37,32 @@ func main() {
 	var ready atomic.Bool
 	go func() {
 		for {
-			conn, err := net.Dial("unix", *wolfSocketPath)
-			if err == nil {
-				defer conn.Close()
-				ready.Store(true)
-				return
+			// Check socket exists
+			if info, err := os.Stat(*wolfSocketPath); err == nil && info != nil && info.Mode()&os.ModeSocket != 0 {
+				conn, err := net.Dial("unix", *wolfSocketPath)
+				if err == nil {
+					defer conn.Close()
+					ready.Store(true)
+					log.Println("wolf.sock is ready")
+
+					go func() {
+						err = ListenToEvents(context.Background(), &client)
+						if err != nil {
+							panic(err)
+						}
+					}()
+
+					return
+				}
+				log.Printf("Waiting for wolf.sock to accept connections: %v\n", err)
+			} else if err == nil && info.Mode()&os.ModeSocket == 0 {
+				log.Printf("wolf.sock is not a socket: %v\n", info.Mode())
+				os.Exit(1)
+
+			} else {
+				log.Printf("Waiting for wolf.sock to appear: %v\n", err)
 			}
-			log.Println("Waiting for wolf.sock to appear:", err)
-			<-time.After(1 * time.Second)
+			<-time.After(200 * time.Millisecond)
 		}
 	}()
 
@@ -136,5 +156,39 @@ func UnixHTTPClient(sockAddr string) http.Client {
 				return net.Dial("unix", sockAddr)
 			},
 		},
+	}
+}
+
+func ListenToEvents(
+	ctx context.Context,
+	client *http.Client,
+) error {
+	sseClient := sse.NewClient("http://wolf.sock/api/v1/events", func(c *sse.Client) {
+		c.Connection = client
+	})
+
+	var events chan *sse.Event
+
+	log.Println("Subscribing to events")
+	err := sseClient.SubscribeChanRaw(events)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to events: %w", err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case event := <-events:
+			if event == nil {
+				continue
+			}
+			log.Printf("Received event")
+			log.Printf("Event ID: %s", event.ID)
+			log.Printf("Event Type: %s", event.Event)
+			log.Printf("Event Data: %s", event.Data)
+			log.Printf("Event Retry: %d", event.Retry)
+			log.Printf("Event Comment: %v", event.Comment)
+		}
 	}
 }

@@ -1105,7 +1105,7 @@ func (c *SessionController) reconcileActiveStreams(
 		// assert wolf session ID non-empty
 	}
 
-	session.Status.StreamURL = fmt.Sprintf("rtsp://%s:%d?sessionID=%v", service.Spec.ClusterIP, session.Status.Ports.RTSP, session.Status.WolfSessionID)
+	session.Status.StreamURL = fmt.Sprintf("rtsp://%s:%d", service.Spec.ClusterIP, session.Status.Ports.RTSP)
 	return nil
 }
 

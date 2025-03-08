@@ -21,6 +21,7 @@ import (
 	_ "embed"
 
 	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -65,6 +66,7 @@ func main() {
 
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(k8sClient, 15*time.Minute, informers.WithNamespace(namespace))
 	deploymentInformer := k8sFactory.Apps().V1().Deployments().Informer()
+	podInformer := k8sFactory.Core().V1().Pods().Informer()
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
 
@@ -82,6 +84,8 @@ func main() {
 		generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(namespace),
 		generic.NewLister[*direwolfv1alpha1.User](userInformer.GetIndexer()).Namespaced(namespace),
 		generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(namespace),
+		generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(namespace),
+		generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(namespace),
 		k8sClient,
 		dynamicClient,
 		direwolfClient.DirewolfV1alpha1().Sessions(namespace),
