@@ -42,6 +42,11 @@ type userGame struct {
 	Game string
 }
 
+type SessionControllerOptions struct {
+	WolfAgentImage string
+	LBSharingKey   string
+}
+
 // Session Controller manages the lifecycle of a streaming session for
 // a given game, of a given user.
 // If is responsible for:
@@ -70,6 +75,7 @@ type SessionController struct {
 
 	controller           generic.Controller[*v1alpha1types.Session]
 	deploymentController generic.Controller[*appsv1.Deployment]
+	SessionControllerOptions
 }
 
 // NewSessionController creates a new session controller.
@@ -82,17 +88,19 @@ func NewSessionController(
 	appInformer generic.Informer[*v1alpha1types.App],
 	userInformer generic.Informer[*v1alpha1types.User],
 	deploymentInformer generic.Informer[*appsv1.Deployment],
+	options SessionControllerOptions,
 ) *SessionController {
 	res := &SessionController{
-		K8sClient:       k8sClient,
-		TCPRouteClient:  tcpRouteClient,
-		UDPRouteClient:  udpRouteClient,
-		SessionClient:   sessionClient,
-		SessionInformer: sessionInformer,
-		AppInformer:     appInformer,
-		UserInformer:    userInformer,
-		trackedSessions: make(map[userGame]sets.Set[string]),
-		trackedGames:    make(map[string]userGame),
+		K8sClient:                k8sClient,
+		TCPRouteClient:           tcpRouteClient,
+		UDPRouteClient:           udpRouteClient,
+		SessionClient:            sessionClient,
+		SessionInformer:          sessionInformer,
+		AppInformer:              appInformer,
+		UserInformer:             userInformer,
+		trackedSessions:          make(map[userGame]sets.Set[string]),
+		trackedGames:             make(map[string]userGame),
+		SessionControllerOptions: options,
 	}
 
 	res.controller = generic.NewController(
@@ -549,7 +557,10 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 			context.Background(),
 			v1ac.Service(session.Status.ServiceName, session.Namespace).
 				WithAnnotations(map[string]string{
-					"lbipam.cilium.io/sharing-key": "per-user-alex",
+					// Try to support popular service LoadBalancer implementation
+					// sharing key annotations.
+					"lbipam.cilium.io/sharing-key":        c.LBSharingKey,
+					"metallb.universe.tf/allow-shared-ip": c.LBSharingKey,
 				}).
 				WithLabels(
 					map[string]string{
@@ -766,8 +777,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
 			Name:            "wolf-agent",
-			Image:           "ghcr.io/bo0tzz/wolf-agent:main", // "registry.zielenski.dev/direwolf/wolf-agent:latest",
+			Image:           c.WolfAgentImage,
 			ImagePullPolicy: corev1.PullAlways,
+			Args: []string{
+				"--socket=/etc/wolf/wolf.sock",
+				"--port=8443",
+			},
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "wa",

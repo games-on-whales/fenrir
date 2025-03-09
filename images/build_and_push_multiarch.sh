@@ -5,9 +5,11 @@ set -euo pipefail
 # Configuration
 DOCKERFILE_PATH="$1"                                    # Path to the Dockerfile (passed as argument)
 IMAGE_NAME="$2"                                         # Name of the image
+shift 2
+EXTRA_BUILD_ARGS=("$@")                                 # Extra build arguments
 
 DOCKERFILE_DIR="$(dirname "$DOCKERFILE_PATH")"          # Directory of the Dockerfile
-PLATFORMS=("linux/amd64" "linux/arm64" )                   # Define target architectures. "linux/arm/v7" used to be here but takes way too long and we have no hosts that need it
+PLATFORMS=("linux/amd64" "linux/arm64")                   # Define target architectures. "linux/arm/v7" used to be here but takes way too long and we have no hosts that need it
 if [ -f "$DOCKERFILE_DIR/PLATFORMS" ]; then
   PLATFORMS=($(cat "$DOCKERFILE_DIR/PLATFORMS"))
 fi
@@ -41,11 +43,12 @@ if [ -f "$PREBUILD_SCRIPT" ]; then
   "$PREBUILD_SCRIPT"
 fi
 
-echo "Building image for paltforms: ${PLATFORMS[*]}" >&2
+echo "Building image for platforms: ${PLATFORMS[*]}" >&2
 docker buildx build \
   --platform "$(IFS=,; echo "${PLATFORMS[*]}")" \
   --tag "${IMAGE_NAME}" \
   --file "$DOCKERFILE_PATH" \
+  "${EXTRA_BUILD_ARGS[@]}" \
   "$(dirname "$DOCKERFILE_PATH")" \
   --push
 

@@ -10,6 +10,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"image/png"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -27,20 +28,22 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
-
 	_ "embed"
 )
 
 //go:embed pin.html
 var pinHTML string
 
+type RESTServerOptions struct {
+	Port       int
+	SecurePort int
+	Cert       tls.Certificate
+}
+
 type RESTServer struct {
 	router       *http.ServeMux
 	secureRouter *http.ServeMux
 
-	cert    tls.Certificate
 	manager *PairingManager
 
 	PairingsLister generic.NamespacedLister[*v1alpha1types.Pairing]
@@ -51,35 +54,30 @@ type RESTServer struct {
 
 	SessionClient v1alpha1client.SessionInterface
 
-	k8sClient     kubernetes.Interface
-	dynamicClient dynamic.Interface
+	RESTServerOptions
 }
 
 func NewRESTServer(
 	manager *PairingManager,
-	cert tls.Certificate,
 	pairingsLister generic.NamespacedLister[*v1alpha1types.Pairing],
 	userLister generic.NamespacedLister[*v1alpha1types.User],
 	appLister generic.NamespacedLister[*v1alpha1types.App],
 	sessionLister generic.NamespacedLister[*v1alpha1types.Session],
 	podsLister generic.NamespacedLister[*v1.Pod],
-	k8sClient kubernetes.Interface,
-	dynamicClient dynamic.Interface,
 	sessionClient v1alpha1client.SessionInterface,
+	opts RESTServerOptions,
 ) *RESTServer {
 	ps := &RESTServer{
-		router:         http.NewServeMux(),
-		secureRouter:   http.NewServeMux(),
-		manager:        manager,
-		cert:           cert,
-		PairingsLister: pairingsLister,
-		UserLister:     userLister,
-		AppLister:      appLister,
-		SessionLister:  sessionLister,
-		PodLister:      podsLister,
-		k8sClient:      k8sClient,
-		dynamicClient:  dynamicClient,
-		SessionClient:  sessionClient,
+		router:            http.NewServeMux(),
+		secureRouter:      http.NewServeMux(),
+		manager:           manager,
+		PairingsLister:    pairingsLister,
+		UserLister:        userLister,
+		AppLister:         appLister,
+		SessionLister:     sessionLister,
+		PodLister:         podsLister,
+		SessionClient:     sessionClient,
+		RESTServerOptions: opts,
 	}
 
 	// Register routes
@@ -105,15 +103,15 @@ func NewRESTServer(
 
 func (s *RESTServer) Run(ctx context.Context) {
 	server := &http.Server{
-		Addr:    ":47989",
+		Addr:    fmt.Sprintf(":%d", s.Port),
 		Handler: loggingMiddleware(s.router),
 	}
 
 	secureServer := &http.Server{
-		Addr:    ":47984",
+		Addr:    fmt.Sprintf(":%d", s.SecurePort),
 		Handler: loggingMiddleware(s.authenticatedMiddleware(s.secureRouter)),
 		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{s.cert},
+			Certificates: []tls.Certificate{s.Cert},
 			ClientAuth:   tls.RequestClientCert,
 			VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 				// Accept any certificate for now during connection negotiation
@@ -197,8 +195,8 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 			UniqueID:               "dd7c60f6-4b88-4ef1-be07-eeec72f96080", // Does this matter?
 			MaxLumaPixelsHEVC:      1869449984,
 			ServerCodecModeSupport: 65793, // Bitwise OR of various codecs. Just hardcoding HEVC and AV1 for now
-			HttpsPort:              47984,
-			ExternalPort:           47989,
+			HttpsPort:              s.SecurePort,
+			ExternalPort:           s.Port,
 			MAC:                    "00:00:00:00:00:00", // Does this matter?
 			LocalIP:                "127.0.0.1",         // Does this matter?
 			SupportedDisplayModes: DisplayModes{
@@ -367,7 +365,6 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	rikeyID := r.URL.Query().Get("rikeyid")
 	// sops := r.URL.Query().Get("sops") // legacy GFE auto-optimize game settings. i dont think wolf has equivalent
 	surroundAudioInfo := r.URL.Query().Get("surroundAudioInfo")
-	// uniqueID := r.URL.Query().Get("uniqueid") // not used for HTTPS
 
 	if appID == "" {
 		writeErrorResponse(w, 400, fmt.Errorf("appid required"))
@@ -476,11 +473,10 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 				UserReference: v1alpha1types.UserReference{
 					Name: user.ObjectMeta.Name,
 				},
-				//!TODO: Unused. Cilium has no support for v1alpha2 Gateway
-				// types
+				//!TODO: Unused. v1alpha2 Gateway types are not widely supported
 				GatewayReference: v1alpha1types.GatewayReference{
-					Name:      "direwolf",
-					Namespace: "default",
+					Name:      "unused",
+					Namespace: "unused",
 				},
 				Config: v1alpha1types.SessionInfo{
 					AESIV:              rikeyID,
@@ -600,10 +596,19 @@ func (s *RESTServer) appAssetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := png.Encode(w, img); err != nil {
+	pngData := new(bytes.Buffer)
+	if err := png.Encode(pngData, img); err != nil {
 		log.Printf("Failed to encode png: %s", err)
 		return
 	}
+
+	w.Header().Set("Content-Length", strconv.Itoa(pngData.Len()))
+	_, err = io.Copy(w, pngData)
+	if err != nil {
+		log.Printf("Failed to write png: %s", err)
+		return
+	}
+	log.Printf("Sent app asset for %s", appID)
 }
 
 func writeErrorResponse(w http.ResponseWriter, status int, err error) {

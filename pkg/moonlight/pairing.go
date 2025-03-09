@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,10 +25,12 @@ import (
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-func isDebuggerAttached() bool {
-	// _, debug := os.LookupEnv("GODEBUG")
-	// return debug
-	return true
+func hardcodedPin() (string, bool) {
+	val, ok := os.LookupEnv("HARDCODED_PIN")
+	if !ok {
+		return "", false
+	}
+	return val, true
 }
 
 type PairingResponse struct {
@@ -157,9 +160,9 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 
 	// Hardcoded pin for testing in debug builds if debugger is attached
 	var pin string
-	if isDebuggerAttached() {
+	if hardcoded, ok := hardcodedPin(); ok {
 		log.Printf("Debugger attached, using hardcoded pin")
-		pin = "1111"
+		pin = hardcoded
 	} else {
 		pin = <-pinChannel
 	}

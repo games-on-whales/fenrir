@@ -42,10 +42,10 @@ func TestSubscribe(t *testing.T) {
 			t.Logf("Event Retry: %d", ev.Retry)
 			t.Logf("Event Comment: %v", ev.Comment)
 
-			switch WolfEventType(ev.Event) {
-			case PauseStreamEventType:
+			switch wolfapi.WolfEventType(ev.Event) {
+			case wolfapi.PauseStreamEventType:
 				t.Log("Received PauseStreamEvent")
-				var pauseEvent PauseStreamEvent
+				var pauseEvent wolfapi.PauseStreamEvent
 				if err := json.Unmarshal([]byte(ev.Data), &pauseEvent); err != nil {
 					t.Fatalf("Failed to unmarshal PauseStreamEvent: %v", err)
 					continue
