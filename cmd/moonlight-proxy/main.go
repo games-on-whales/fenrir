@@ -12,8 +12,6 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/moonlight"
 	"games-on-whales.github.io/direwolf/pkg/util"
 
-	_ "embed"
-
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/klog/v2"
@@ -28,6 +26,7 @@ func main() {
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
+	klog.InitFlags(nil)
 	flag.Parse()
 
 	klog.Info("Starting moonlight-proxy")
@@ -39,14 +38,12 @@ func main() {
 
 	tlsCert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
 	if err != nil {
-		klog.Info("Error loading certificates:", err)
-		os.Exit(1)
+		klog.Fatal("Failed to load certificates:", err)
 	}
 
 	k8sClient, direwolfClient, _, _, err := util.GetKubernetesClients()
 	if err != nil {
-		klog.Info("Error getting Kubernetes clients:", err)
-		os.Exit(1)
+		klog.Fatal("Error getting Kubernetes clients", err)
 	}
 
 	direwolfFactory := externalversions.NewSharedInformerFactoryWithOptions(

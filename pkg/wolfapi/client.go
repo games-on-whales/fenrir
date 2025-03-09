@@ -177,7 +177,6 @@ func (c *client) SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, erro
 
 	err := sseClient.SubscribeChanRawWithContext(ctx, events)
 	if err != nil {
-		fmt.Printf("failed to subscribe to events: %v\n", err)
 		close(events)
 		return nil, err
 	}

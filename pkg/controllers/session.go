@@ -499,27 +499,6 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 		return fmt.Errorf("waiting for PortsAllocated")
 	}
 
-	ports := []*v1ac.ServicePortApplyConfiguration{
-		v1ac.ServicePort().
-			WithName("wa"). // wolf-agent
-			WithPort(8443),
-		v1ac.ServicePort().
-			WithName("rtsp"). // moonlight-rtsp
-			WithPort(session.Status.Ports.RTSP),
-		v1ac.ServicePort().
-			WithName("enet"). // moonlight-enet
-			WithProtocol(corev1.ProtocolUDP).
-			WithPort(session.Status.Ports.Control),
-		v1ac.ServicePort().
-			WithName("video"). // moonlight-video
-			WithProtocol(corev1.ProtocolUDP).
-			WithPort(session.Status.Ports.VideoRTP),
-		v1ac.ServicePort().
-			WithName("audio"). // moonlight-audio
-			WithProtocol(corev1.ProtocolUDP).
-			WithPort(session.Status.Ports.AudioRTP),
-	}
-
 	clampString := func(s string, max int) string {
 		if len(s) > max {
 			return s[:max]
@@ -573,7 +552,8 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 					WithName(session.Name).
 					WithAPIVersion(v1alpha1.GroupVersion.String()).
 					WithKind("Session").
-					WithUID(session.UID)).
+					WithUID(session.UID).
+					WithController(true)).
 				WithSpec(
 					v1ac.ServiceSpec().
 						WithType(corev1.ServiceTypeLoadBalancer).
@@ -582,11 +562,29 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 								"direwolf/app":  session.Spec.GameReference.Name,
 								"direwolf/user": session.Spec.UserReference.Name,
 							}).
-						WithPorts(ports...),
+						WithPorts(
+							v1ac.ServicePort().
+								WithName("wa"). // wolf-agent
+								WithPort(8443),
+							v1ac.ServicePort().
+								WithName("rtsp"). // moonlight-rtsp
+								WithPort(session.Status.Ports.RTSP),
+							v1ac.ServicePort().
+								WithName("enet"). // moonlight-enet
+								WithProtocol(corev1.ProtocolUDP).
+								WithPort(session.Status.Ports.Control),
+							v1ac.ServicePort().
+								WithName("video"). // moonlight-video
+								WithProtocol(corev1.ProtocolUDP).
+								WithPort(session.Status.Ports.VideoRTP),
+							v1ac.ServicePort().
+								WithName("audio"). // moonlight-audio
+								WithProtocol(corev1.ProtocolUDP).
+								WithPort(session.Status.Ports.AudioRTP),
+						),
 				),
 			metav1.ApplyOptions{
 				FieldManager: "direwolf-session-controller-svc",
-				Force:        true,
 			})
 	if err != nil {
 		return fmt.Errorf("failed to apply service: %s", err)
@@ -642,7 +640,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				WithOwnerReferences(ownerApply...),
 			metav1.ApplyOptions{
 				FieldManager: "direwolf-session-controller-deployment-owners",
-				Force:        true,
 			})
 
 		return nil
@@ -1073,6 +1070,11 @@ func (c *SessionController) reconcileConfigMap(
 		return fmt.Errorf("failed to get app: %s", err)
 	}
 
+	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %s", err)
+	}
+
 	wolfConfig, err := GenerateWolfConfig(app)
 	if err != nil {
 		return fmt.Errorf("failed to generate wolf config: %s", err)
@@ -1090,23 +1092,24 @@ func (c *SessionController) reconcileConfigMap(
 						"direwolf/app":  session.Spec.GameReference.Name,
 						"direwolf/user": session.Spec.UserReference.Name,
 					}).
-				WithOwnerReferences(metav1ac.OwnerReference().
-					//!TOOD: ALL sessions associated with this user x game, not
-					// just this one
-					WithName(session.Name).
-					WithAPIVersion(v1alpha1.GroupVersion.String()).
-					WithKind("Session").
-					WithUID(session.UID)).
+				WithOwnerReferences(
+					metav1ac.OwnerReference().
+						WithName(app.Name).
+						WithAPIVersion(v1alpha1.GroupVersion.String()).
+						WithKind("App").
+						WithUID(app.UID).
+						WithController(true),
+					metav1ac.OwnerReference().
+						WithName(user.Name).
+						WithAPIVersion(v1alpha1.GroupVersion.String()).
+						WithKind("User").
+						WithUID(user.UID),
+				).
 				WithData(map[string]string{
 					"config.toml": wolfConfig,
-					"AES_KEY":     session.Spec.Config.AESKey,
-					"AES_IV":      session.Spec.Config.AESIV,
-					"CLIENT_IP":   "10.128.1.0",
-					"CLIENT_ID":   "4193251087262667199", // LOAD BEARING! Hash of the paired client cert injected into config
 				}),
 			metav1.ApplyOptions{
-				FieldManager: "direwolf",
-				Force:        true,
+				FieldManager: "direwolf-session-controller",
 			})
 	if err != nil {
 		return fmt.Errorf("failed to apply configmap: %s", err)
@@ -1185,11 +1188,7 @@ func (c *SessionController) allocatePorts(
 
 // reconcileActiveStreams calls out to wolf-agent on the running pod to ensure
 // that wolf is configured in the correct state and listening for streams on the
-// correct ports.
-//
-// !TODO: This can be moved into the wolf-agent itself so it can self-configure
-// and keep the streams up to date on the correct ports (and not expose wolf sock)
-// Just starting with this for convenience during development.
+// correct ports for each session trying to connect to the Pod.
 func (c *SessionController) reconcileActiveStreams(
 	ctx context.Context,
 	session *v1alpha1types.Session,
@@ -1266,9 +1265,14 @@ func (c *SessionController) reconcileActiveStreams(
 				VScrollAcceleration: 1.0,
 				HScrollAcceleration: 1.0,
 			},
-			AESKey:   session.Spec.Config.AESKey,
-			AESIV:    session.Spec.Config.AESIV,
-			ClientID: "4193251087262667199", //!TODO: not that
+			AESKey: session.Spec.Config.AESKey,
+			AESIV:  session.Spec.Config.AESIV,
+			//!TODO: not this. This is the hash of the client cert we are
+			// hardcoding into wolf config. Should call pair endpoint to genuinely
+			// add it. Though not really needed since user doesnt connect via HTTPS
+			// to wolf, we just need a client ID wolf accepts for this specific
+			// pairing/client...
+			ClientID: "4193251087262667199",
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)

@@ -8,13 +8,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"image/png"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -24,9 +25,11 @@ import (
 	"golang.org/x/image/webp"
 
 	v1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/klog/v2"
 
 	_ "embed"
 )
@@ -101,7 +104,7 @@ func NewRESTServer(
 	return ps
 }
 
-func (s *RESTServer) Run(ctx context.Context) {
+func (s *RESTServer) Run(ctx context.Context) error {
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", s.Port),
 		Handler: loggingMiddleware(s.router),
@@ -122,24 +125,37 @@ func (s *RESTServer) Run(ctx context.Context) {
 		},
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	var error atomic.Pointer[error]
 	go func() {
-		log.Printf("HTTP server listening on %s", server.Addr)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTP Server failed: %s", err)
+		defer cancel()
+		klog.Infof("HTTP server listening on %s", server.Addr)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
+			klog.Errorf("HTTP Server failed: %s", err)
+			error.CompareAndSwap(nil, &err)
 		}
 	}()
 
 	go func() {
-		log.Printf("HTTPS server listening on %s", secureServer.Addr)
-		if err := secureServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("HTTPS Server failed: %s", err)
+		defer cancel()
+		klog.Infof("HTTPS server listening on %s", secureServer.Addr)
+		if err := secureServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
+			klog.Errorf("HTTPS Server failed: %s", err)
+			error.CompareAndSwap(nil, &err)
 		}
 	}()
 
 	<-ctx.Done()
-	log.Println("Shutting down server...")
+	klog.Info("Shutting down server...")
 	server.Shutdown(context.Background())
 	secureServer.Shutdown(context.Background())
+
+	if err := error.Load(); err != nil {
+		klog.Errorf("Server failed: %s", *err)
+		return *err
+	}
+
+	return nil
 }
 
 func (s *RESTServer) readyzHandler(w http.ResponseWriter, r *http.Request) {
@@ -219,7 +235,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 
 // Multiplex the multiple phases of pairing into a single handler
 func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling pair request from %s", r.RemoteAddr)
+	klog.Infof("Handling pair request from %s", r.RemoteAddr)
 
 	clientID := r.URL.Query().Get("uniqueid")
 	clientIP := strings.Split(r.RemoteAddr, ":")[0]
@@ -231,32 +247,32 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.URL.Query().Has("salt") {
-		log.Printf("Pairing phase 1 with %s\n", cacheKey)
+		klog.Infof("Pairing phase 1 with %s\n", cacheKey)
 		salt := r.URL.Query().Get("salt")
 		clientCertStr := r.URL.Query().Get("clientcert")
 
 		sendXML(w, s.manager.pairPhase1(cacheKey, salt, clientCertStr))
 		return
 	} else if r.URL.Query().Has("clientchallenge") {
-		log.Printf("Pairing phase 2 with %s\n", cacheKey)
+		klog.Infof("Pairing phase 2 with %s\n", cacheKey)
 		clientChallenge := r.URL.Query().Get("clientchallenge")
 
 		sendXML(w, s.manager.pairPhase2(cacheKey, clientChallenge))
 		return
 	} else if r.URL.Query().Has("serverchallengeresp") {
-		log.Printf("Pairing phase 3 with %s\n", cacheKey)
+		klog.Infof("Pairing phase 3 with %s\n", cacheKey)
 		serverChallengeResp := r.URL.Query().Get("serverchallengeresp")
 
 		sendXML(w, s.manager.pairPhase3(cacheKey, serverChallengeResp))
 		return
 	} else if r.URL.Query().Has("clientpairingsecret") {
-		log.Printf("Pairing phase 4 with %s\n", cacheKey)
+		klog.Infof("Pairing phase 4 with %s\n", cacheKey)
 		clientPairingSecret := r.URL.Query().Get("clientpairingsecret")
 
 		sendXML(w, s.manager.pairPhase4(cacheKey, clientPairingSecret))
 		return
 	} else if phrase := r.URL.Query().Get("phrase"); phrase == "pairchallenge" {
-		log.Printf("Pairing phase 5 with %s\n", cacheKey)
+		klog.Infof("Pairing phase 5 with %s\n", cacheKey)
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
 			sendXML(w, failPair("Client cert required"))
 			return
@@ -269,7 +285,7 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling unpair request from %s", r.RemoteAddr)
+	klog.Infof("Handling unpair request from %s", r.RemoteAddr)
 	if r.Method == "GET" {
 		clientIP := strings.Split(r.RemoteAddr, ":")[0]
 		clientID := r.URL.Query().Get("uniqueid")
@@ -285,7 +301,7 @@ func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Handling %v pin request from %s", r.Method, r.RemoteAddr)
+	klog.Infof("Handling %v pin request from %s", r.Method, r.RemoteAddr)
 	// Handle GET /pin/<secret>
 	if r.Method == "GET" {
 		// Just post the static pin page
@@ -316,7 +332,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Provide the pin to the pair manager
-		log.Printf("Received pin %s for secret %s", req.Pin, req.Secret)
+		klog.Infof("Received pin %s for secret %s", req.Pin, req.Secret)
 		err := s.manager.PostPin(req.Secret, req.Pin)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -426,28 +442,16 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
 	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
 
-	// Delete any sessions with the same user x game x pairing
-	existingSessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
-		"direwolf/user": user.Name,
-		"direwolf/app":  app.ObjectMeta.Name,
-	}))
-	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to list sessions: %s", err))
+	//!TOOD: May want to wait here, since we need the Service to stop pointing
+	// at the old pod. It is very likely to happen before operator syncs and
+	// can create session, but perhaps should still check after operator returns
+	// the session URL.
+	if err := s.stopSessionsForUser(user, false); err != nil && !k8serrors.IsNotFound(err) {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %s", err))
 		return
 	}
 
-	for _, session := range existingSessions {
-		// If it has same annotation for pairing, delete it. Pairings use annotation
-		if pairingName, exists := session.Annotations["direwolf/pairing"]; exists && pairingName == pairing.Name {
-			log.Printf("Deleting existing session %s", session.Name)
-			if err := s.SessionClient.Delete(r.Context(), session.Name, metav1.DeleteOptions{}); err != nil {
-				writeErrorResponse(w, 500, fmt.Errorf("failed to delete session: %s", err))
-				return
-			}
-		}
-	}
-
-	log.Printf("Launching app %s for user %s", app.ObjectMeta.Name, user.ObjectMeta.Name)
+	klog.Infof("Launching app %s for user %s", app.ObjectMeta.Name, user.ObjectMeta.Name)
 	session, err := s.SessionClient.Create(
 		r.Context(),
 		&v1alpha1types.Session{
@@ -515,7 +519,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %s", err))
 		return
 	}
-	time.Sleep(3 * time.Second)
+
 	sendXML(w, LaunchResponse{
 		Response: Response{
 			StatusCode: 200,
@@ -526,52 +530,60 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: How is resume different from launch?
-	// Does launch imply a new session?
+	// TODO: Wolf API current cannot support a "resume" to reuse the existing
+	// display/controllers. So we relaunch instead :(
 	s.launchHandler(w, r)
 }
 
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
-	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
 
-	// Delete any sessions with the same user x pairing
-	// Unforuntately cancel doesnt seem to be able to cancel a specific app
-	existingSessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
+	err := s.stopSessionsForUser(user, true)
+	if err != nil && !k8serrors.IsNotFound(err) {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to cancel session: %s", err))
+		return
+	}
+	sendXML(w, Response{StatusCode: 200})
+}
+
+func (s *RESTServer) stopSessionsForUser(user *v1alpha1types.User, shouldWait bool) error {
+	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
 		"direwolf/user": user.Name,
 	}))
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to list sessions: %s", err))
-		return
+		return fmt.Errorf("failed to list sessions: %w", err)
 	}
 
-	for _, session := range existingSessions {
-		// If it has same annotation for pairing, delete it. Pairings use annotation
-		if pairingName, exists := session.Annotations["direwolf/pairing"]; exists && pairingName == pairing.Name {
-			log.Printf("Deleting existing session %s", session.Name)
-			if err := s.SessionClient.Delete(r.Context(), session.Name, metav1.DeleteOptions{}); err != nil {
-				writeErrorResponse(w, 500, fmt.Errorf("failed to delete session: %s", err))
-				return
+	didDelete := false
+	for _, session := range sessions {
+		if err := s.SessionClient.Delete(context.Background(), session.Name, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete session: %w", err)
+		}
+		didDelete = true
+	}
+
+	if !didDelete {
+		klog.Warningf("Not stopping any sessions. No sessions found for user %s", user.Name)
+		return k8serrors.NewNotFound(v1alpha1types.Resource("session"), user.Name)
+	}
+
+	if shouldWait {
+		// Wait for pods to be cleaned up
+		err = wait.PollUntilContextTimeout(context.Background(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
+			pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
+				"direwolf/user": user.Name,
+			}))
+			if err != nil {
+				return false, err
 			}
-		}
-	}
-
-	// Wait for pods to be cleaned up
-	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
-		pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
-			"direwolf/user": user.Name,
-		}))
+			return len(pods) == 0, nil
+		})
 		if err != nil {
-			return false, err
+			return fmt.Errorf("failed to wait for pods to be cleaned up: %w", err)
 		}
-		return len(pods) == 0, nil
-	})
-	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to wait for pods to be cleaned up: %s", err))
-		return
 	}
 
-	sendXML(w, Response{StatusCode: 200})
+	return nil
 }
 
 func (s *RESTServer) appAssetHandler(w http.ResponseWriter, r *http.Request) {
@@ -592,33 +604,45 @@ func (s *RESTServer) appAssetHandler(w http.ResponseWriter, r *http.Request) {
 
 	img, err := webp.Decode(bytes.NewReader(app.Spec.AppAssetWebP))
 	if err != nil {
-		log.Printf("Failed to decode webp: %s", err)
+		klog.Infof("Failed to decode webp: %s", err)
 		return
 	}
 
 	pngData := new(bytes.Buffer)
 	if err := png.Encode(pngData, img); err != nil {
-		log.Printf("Failed to encode png: %s", err)
+		klog.Infof("Failed to encode png: %s", err)
 		return
 	}
 
 	w.Header().Set("Content-Length", strconv.Itoa(pngData.Len()))
 	_, err = io.Copy(w, pngData)
 	if err != nil {
-		log.Printf("Failed to write png: %s", err)
+		klog.Infof("Failed to write png: %s", err)
 		return
 	}
-	log.Printf("Sent app asset for %s", appID)
+	klog.Infof("Sent app asset for %s", appID)
 }
 
 func writeErrorResponse(w http.ResponseWriter, status int, err error) {
-	log.Printf("%s", err)
+	klog.Error(err)
+
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(status)
 	w.Write([]byte(xml.Header))
-	w.Write(fmt.Appendf(nil, `<root status_code="%d"></root>`, status))
 
-	log.Printf("Sent response: %d %v", status, err)
+	// First attempt to serialize as XML with the message. If that fails, just
+	// send unfallible statuscode
+	if bytes, err := xml.Marshal(Response{
+		StatusCode:    status,
+		StatusMessage: err.Error(),
+	}); err == nil {
+		w.Write(bytes)
+	} else {
+		klog.ErrorS(err, "Failed to marshal XML. Just sending status code")
+		w.Write(fmt.Appendf(nil, `<root status_code="%d"></root>`, status))
+	}
+
+	klog.ErrorS(err, "Sent error response", "status", status)
 }
 
 func sendXML(w http.ResponseWriter, resp Responsable) {
@@ -634,7 +658,9 @@ func sendXML(w http.ResponseWriter, resp Responsable) {
 	w.Write(bytes)
 
 	if resp.GetStatusCode() != 200 {
-		log.Printf("Sent response: %s\n", string(bytes))
+		klog.Info("Sent response", string(bytes))
+	} else {
+		klog.Info("Sent response", string(bytes))
 	}
 }
 
@@ -644,9 +670,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 		if r.URL.Path != "/serverinfo" {
 
-			log.Printf("%s %s %s %v %s", r.Proto, r.Method, r.URL.Path, r.URL.Query(), r.RemoteAddr)
+			klog.Infof("%s %s %s %v %s", r.Proto, r.Method, r.URL.Path, r.URL.Query(), r.RemoteAddr)
 			next.ServeHTTP(w, r)
-			log.Printf("Completed in %s", time.Since(start))
+			klog.Infof("Completed in %s", time.Since(start))
 		} else {
 			next.ServeHTTP(w, r)
 		}

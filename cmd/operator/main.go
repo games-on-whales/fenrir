@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"flag"
-	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -14,8 +12,6 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/util"
-
-	_ "embed"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/client-go/informers"
@@ -32,24 +28,26 @@ func main() {
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
+	klog.InitFlags(nil)
 	flag.Parse()
 
 	k8sClient, direwolfClient, gatewayClient, _, err := util.GetKubernetesClients()
 	if err != nil {
-		fmt.Println("Error getting Kubernetes clients:", err)
-		os.Exit(1)
+		klog.Fatal("Error getting Kubernetes clients", err)
 	}
 
 	// Just create all the informers and warm them up before starting anything
 	// to keep things simple.
-	direwolfFactory := externalversions.NewSharedInformerFactoryWithOptions(direwolfClient, 15*time.Minute, externalversions.WithNamespace(*namespace))
+	direwolfFactory := externalversions.NewSharedInformerFactoryWithOptions(
+		direwolfClient, 15*time.Minute, externalversions.WithNamespace(*namespace))
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
 	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
 	direwolfFactory.Start(appContext.Done())
 	defer direwolfFactory.Shutdown()
 
-	k8sFactory := informers.NewSharedInformerFactoryWithOptions(k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
+	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
+		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
 	deploymentInformer := k8sFactory.Apps().V1().Deployments().Informer()
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
@@ -57,6 +55,8 @@ func main() {
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
 
+	// Run a leader election so that only one instance of operator is running
+	// at a time in the cluster for a single namespace.
 	lock, err := resourcelock.New(
 		resourcelock.LeasesResourceLock,
 		*namespace,
@@ -68,7 +68,7 @@ func main() {
 		},
 	)
 	if err != nil {
-		panic(err)
+		klog.Fatal("Error creating resource lock", err)
 	}
 
 	sessionController := controllers.NewSessionController(
@@ -93,7 +93,7 @@ func main() {
 		RetryPeriod:   2 * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				log.Println("started leading")
+				klog.Info("started leading")
 				err := sessionController.Run(appContext)
 				if err != nil && !errors.Is(err, context.Canceled) {
 					klog.Errorf("error running session controller: %v", err)
@@ -104,9 +104,9 @@ func main() {
 				appCancel()
 			},
 			OnNewLeader: func(identity string) {
-				log.Printf("new leader: %s\n", identity)
+				klog.InfoS("new leader", "holderIdentity", identity)
 			},
 		},
 	})
-	log.Println("Shutting down")
+	klog.Info("Shutting down")
 }

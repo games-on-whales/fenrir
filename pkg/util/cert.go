@@ -10,11 +10,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"log"
 	"math/big"
 	"net"
 	"os"
 	"time"
+
+	"k8s.io/klog/v2"
 )
 
 func LoadCertificates(serverCertPath, serverKeyPath string) (tls.Certificate, error) {
@@ -22,7 +23,7 @@ func LoadCertificates(serverCertPath, serverKeyPath string) (tls.Certificate, er
 
 	// If server cert or key dont exist on filesystem, use ephemeral cert
 	if _, err := os.Stat(serverCertPath); os.IsNotExist(err) {
-		log.Println("Server cert not found, generating ephemeral cert")
+		klog.Warningf("Server cert not found, generating ephemeral cert (%v)", err)
 		certPEM, keyPEM, err = GenerateEphemeralCert("RSA")
 		if err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to generate ephemeral cert: %w", err)

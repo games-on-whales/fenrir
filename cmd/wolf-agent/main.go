@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -28,6 +27,7 @@ func main() {
 	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
 	serverPort := flag.Int("port", 443, "Port to listen on")
 	wolfSocketPath := flag.String("socket", "/var/run/wolf.sock", "Path to wolf.sock")
+	klog.InitFlags(nil)
 	flag.Parse()
 
 	klog.Info("Starting wolf-agent")
@@ -36,6 +36,12 @@ func main() {
 	klog.Info("Port:", *serverPort)
 	klog.Info("Wolf Socket:", *wolfSocketPath)
 	client := UnixHTTPClient(*wolfSocketPath)
+
+	// Generate self-signed certificate and key
+	cert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
+	if err != nil {
+		klog.Fatal("Failed to load certificates:", err)
+	}
 
 	// Start a thread to watch for the wolf.sock to appear
 	var ready atomic.Bool
@@ -46,10 +52,13 @@ func main() {
 				conn, err := net.Dial("unix", *wolfSocketPath)
 				if err == nil {
 					defer conn.Close()
-					log.Println("wolf.sock is ready")
+					klog.Info("wolf.sock is ready")
 
+					// Call out to the proxy which handles chunked encoding
+					// properly. There may be a way to use the SSE client without
+					// it, but found this easier.
 					wolfClient := wolfapi.NewClient(
-						"http://wolf.sock",
+						fmt.Sprintf("https://localhost:%d", *serverPort),
 						&http.Client{
 							Transport: &http.Transport{
 								TLSClientConfig: &tls.Config{
@@ -71,13 +80,12 @@ func main() {
 					ready.Store(true)
 					return
 				}
-				log.Printf("Waiting for wolf.sock to accept connections: %v\n", err)
+				klog.Warningf("Waiting for wolf.sock to accept connections: %v\n", err)
 			} else if err == nil && info.Mode()&os.ModeSocket == 0 {
-				log.Printf("wolf.sock is not a socket: %v\n", info.Mode())
-				os.Exit(1)
+				klog.Fatal("wolf.sock is not a socket", info.Mode())
 
 			} else {
-				log.Printf("Waiting for wolf.sock to appear: %v\n", err)
+				klog.Info("Waiting for wolf.sock to appear...", err)
 			}
 			<-time.After(200 * time.Millisecond)
 		}
@@ -96,7 +104,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
-		log.Println("Received request:", r.Method, r.URL.Path)
+		klog.Info("Received request:", r.Method, r.URL.Path)
 		if !ready.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
@@ -107,7 +115,7 @@ func main() {
 		// Proxy the request to the wolf.sock
 		url, err := url.JoinPath("http://", "wolf.sock", r.URL.Path)
 		if err != nil {
-			log.Println("Failed to join URL:", err)
+			klog.ErrorS(err, "Failed to join URL")
 			http.Error(w, fmt.Sprintf("Failed to join URL: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -118,17 +126,17 @@ func main() {
 		request.TransferEncoding = r.TransferEncoding
 		request.ContentLength = r.ContentLength
 		if err != nil {
-			log.Println("Failed to create proxy request:", err)
+			klog.ErrorS(err, "Failed to create proxy request")
 			http.Error(w, fmt.Sprintf("Failed to create proxy request: %v", err), http.StatusInternalServerError)
 			return
 		}
 		request.Header = r.Header.Clone()
 
 		// Send the request to the wolf.sock
-		log.Println("Sending request to wolf.sock:", request.Method, request.URL.Path)
+		klog.Info("Sending request to wolf.sock:", request.Method, request.URL.Path)
 		response, err := client.Do(request.WithContext(r.Context()))
 		if err != nil {
-			log.Println("Failed to send request to wolf.sock:", err)
+			klog.ErrorS(err, "Failed to send request to wolf.sock")
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -143,7 +151,7 @@ func main() {
 		w.WriteHeader(response.StatusCode)
 		flusher, ok := w.(http.Flusher)
 		if !ok {
-			log.Println("Flushing not supported!")
+			klog.Error("Flushing not supported! Aborting writing response")
 			return
 		}
 
@@ -155,7 +163,7 @@ func main() {
 			if n > 0 {
 				_, writeErr := w.Write(buf[:n])
 				if writeErr != nil {
-					log.Println("Client connection closed")
+					klog.Info("Client connection closed")
 					return
 				}
 				flusher.Flush() // Ensure immediate delivery
@@ -164,18 +172,12 @@ func main() {
 				if err == io.EOF {
 					break
 				}
-				log.Println("Error reading from backend:", err)
+				klog.ErrorS(err, "Error reading from backend")
 				return
 			}
 		}
-		log.Println("Request completed:", response.StatusCode)
+		klog.InfoS("Request completed", "statusCode", response.StatusCode)
 	})
-
-	// Generate self-signed certificate and key
-	cert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
-	if err != nil {
-		panic(err)
-	}
 
 	// Start HTTPS server
 	server := &http.Server{
@@ -186,10 +188,10 @@ func main() {
 		},
 	}
 
-	log.Printf("Listening on port %d\n", *serverPort)
+	klog.Infof("Listening on port %d\n", *serverPort)
 	err = server.ListenAndServeTLS("", "")
 	if err != nil {
-		panic(err)
+		klog.Fatal("Failed to start server:", err)
 	}
 }
 
