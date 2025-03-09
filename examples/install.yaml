@@ -52,7 +52,7 @@ spec:
       serviceAccountName: direwolf-moonlight-proxy
       containers:
         - name: moonlight-proxy
-          image: registry.zielenski.dev/direwolf/moonlight-proxy:latest
+          image: ghcr.io/games-on-whales/moonlight-proxy:main
           imagePullPolicy: Always
           args:
           - --tls-cert=/etc/certs/server.crt
@@ -128,7 +128,7 @@ spec:
       serviceAccountName: direwolf-operator
       containers:
         - name: operator
-          image: registry.zielenski.dev/direwolf/operator:latest
+          image: ghcr.io/games-on-whales/operator:main
           imagePullPolicy: Always
           env:
           - name: POD_NAME
