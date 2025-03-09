@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"time"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	"games-on-whales.github.io/direwolf/pkg/controllers"
-	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
 	"games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/moonlight"
@@ -22,13 +20,9 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
-	gateway "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
 func main() {
@@ -45,7 +39,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	k8sClient, direwolfClient, gatewayClient, dynamicClient := GetKubernetesClients()
+	k8sClient, direwolfClient, gatewayClient, dynamicClient, err := util.GetKubernetesClients()
+	if err != nil {
+		fmt.Println("Error getting Kubernetes clients:", err)
+		os.Exit(1)
+	}
+
 	namespace := "default"
 	// Get pod namespace from envar set by k8s if it exists
 	if ns, ok := os.LookupEnv("POD_NAMESPACE"); ok {
@@ -156,52 +155,4 @@ func main() {
 
 	<-appContext.Done()
 	log.Println("Shutting down")
-}
-
-func GetKubernetesClients() (
-	kubernetes.Interface,
-	direwolf.Interface,
-	gateway.Interface,
-	dynamic.Interface,
-) {
-	kubeConfig := os.Getenv("KUBECONFIG")
-	if kubeConfig == "" {
-		// Check exists before setting default
-		defaultPath := filepath.Join(os.Getenv("HOME"), ".kube", "config")
-		if _, err := os.Stat(defaultPath); err == nil {
-			kubeConfig = defaultPath
-		}
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
-	if err != nil {
-		fmt.Println("Error building kubeconfig:", err)
-		os.Exit(1)
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		fmt.Println("Error creating clientset:", err)
-		os.Exit(1)
-	}
-
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		fmt.Println("Error creating dynamic client:", err)
-		os.Exit(1)
-	}
-
-	versionedClient, err := direwolf.NewForConfig(config)
-	if err != nil {
-		fmt.Println("Error creating versioned client:", err)
-		os.Exit(1)
-	}
-
-	gatewayClient, err := gateway.NewForConfig(config)
-	if err != nil {
-		fmt.Println("Error creating gateway client:", err)
-		os.Exit(1)
-	}
-
-	return clientset, versionedClient, gatewayClient, dynamicClient
 }

@@ -766,7 +766,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
 			Name:            "wolf-agent",
-			Image:           "registry.zielenski.dev/direwolf/wolf-agent:latest",
+			Image:           "ghcr.io/bo0tzz/wolf-agent:main", // "registry.zielenski.dev/direwolf/wolf-agent:latest",
 			ImagePullPolicy: corev1.PullAlways,
 			Ports: []corev1.ContainerPort{
 				{
