@@ -12,10 +12,11 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"log"
+	"os"
 	"sync"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	v1alpha1_apply "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/api/v1alpha1"
@@ -24,10 +25,12 @@ import (
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-func isDebuggerAttached() bool {
-	// _, debug := os.LookupEnv("GODEBUG")
-	// return debug
-	return true
+func hardcodedPin() (string, bool) {
+	val, ok := os.LookupEnv("HARDCODED_PIN")
+	if !ok {
+		return "", false
+	}
+	return val, true
 }
 
 type PairingResponse struct {
@@ -79,7 +82,7 @@ func NewPairingManager(
 }
 
 func failPair(statusMsg string) PairingResponse {
-	log.Printf("Failed pairing: %s", statusMsg)
+	klog.Errorf("Failed pairing: %s", statusMsg)
 	return PairingResponse{Paired: 0, Response: Response{StatusCode: 400, StatusMessage: statusMsg}}
 }
 
@@ -92,7 +95,7 @@ func (m *PairingManager) PostPin(secret string, pin string) error {
 
 	select {
 	case channel.(chan string) <- pin:
-		log.Printf("Sent pin %s to channel for secret %s", pin, secret)
+		klog.Infof("Sent pin %s to channel for secret %s", pin, secret)
 		return nil
 	default:
 		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)
@@ -153,13 +156,13 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	m.PendingPins.Store(pinSecretHex, pinChannel)
 
 	//!TODO: Get proper hostname
-	log.Printf("Insert pin at http://%s/pin/#%s", "127.0.0.1:47989", pinSecretHex)
+	klog.Infof("Insert pin at http://%s/pin/#%s", "127.0.0.1:47989", pinSecretHex)
 
 	// Hardcoded pin for testing in debug builds if debugger is attached
 	var pin string
-	if isDebuggerAttached() {
-		log.Printf("Debugger attached, using hardcoded pin")
-		pin = "1111"
+	if hardcoded, ok := hardcodedPin(); ok {
+		klog.Infof("Debugger attached, using hardcoded pin")
+		pin = hardcoded
 	} else {
 		pin = <-pinChannel
 	}

@@ -1,0 +1,5 @@
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: User
+metadata:
+  name: alex
+  namespace: direwolf
