@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+
+	"github.com/r3labs/sse/v2"
 )
 
 type Session struct {
@@ -25,15 +27,18 @@ type Session struct {
 
 type ClientSettings struct {
 	ControllersOverride []string `json:"controllers_override"`
-	HScrollAcceleration float64  `json:"h_scroll_acceleration"`
-	MouseAcceleration   float64  `json:"mouse_acceleration"`
-	RunGID              int      `json:"run_gid"`
-	RunUID              int      `json:"run_uid"`
-	VScrollAcceleration float64  `json:"v_scroll_acceleration"`
+	//!TODO Float is lossy type. Possible to use decimal?
+	HScrollAcceleration float64 `json:"h_scroll_acceleration"`
+	MouseAcceleration   float64 `json:"mouse_acceleration"`
+	RunGID              int     `json:"run_gid"`
+	RunUID              int     `json:"run_uid"`
+	VScrollAcceleration float64 `json:"v_scroll_acceleration"`
 }
 type Client interface {
 	AddSession(ctx context.Context, session Session) (string, error)
+	StopSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context) ([]Session, error)
+	SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error)
 }
 
 type client struct {
@@ -126,6 +131,60 @@ func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
 	return sessionsResp.Sessions, nil
 }
 
+func (c *client) StopSession(ctx context.Context, sessionID string) error {
+	type StopSessionRequest struct {
+		SessionID string `json:"session_id"`
+	}
+	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions/stop")
+	if err != nil {
+		return err
+	}
+
+	stopSessionReq := StopSessionRequest{
+		SessionID: sessionID,
+	}
+	encodedStopSessionReq, err := json.Marshal(stopSessionReq)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", u, bytes.NewBuffer(encodedStopSessionReq))
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer resp.Body.Close()
+	var stopSessionResp Response
+	if err := json.NewDecoder(resp.Body).Decode(&stopSessionResp); err != nil {
+		return err
+	} else if !stopSessionResp.Success {
+		return fmt.Errorf("failed to stop session: %s", stopSessionResp.Error)
+	}
+
+	return nil
+}
+
+func (c *client) SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error) {
+	events := make(chan *sse.Event)
+	sseClient := sse.NewClient(c.apiURL+"/api/v1/events", func(cl *sse.Client) {
+		cl.Connection = c.httpClient
+	})
+
+	err := sseClient.SubscribeChanRawWithContext(ctx, events)
+	if err != nil {
+		fmt.Printf("failed to subscribe to events: %v\n", err)
+		close(events)
+		return nil, err
+	}
+
+	return events, nil
+}
+
 type Response struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
@@ -138,5 +197,15 @@ type SessionsResponse struct {
 
 type AddSessionResponse struct {
 	Response  `json:",inline"`
+	SessionID string `json:"session_id"`
+}
+
+type WolfEventType string
+
+const (
+	PauseStreamEventType WolfEventType = "wolf::core::events::PauseStreamEvent"
+)
+
+type PauseStreamEvent struct {
 	SessionID string `json:"session_id"`
 }

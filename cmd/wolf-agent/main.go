@@ -14,23 +14,27 @@ import (
 	"sync/atomic"
 	"time"
 
+	"games-on-whales.github.io/direwolf/pkg/controllers"
 	"games-on-whales.github.io/direwolf/pkg/util"
-	"github.com/r3labs/sse/v2"
+	"games-on-whales.github.io/direwolf/pkg/wolfapi"
+	"k8s.io/klog/v2"
 )
 
 func main() {
+	appContext, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
+
 	serverCertPath := flag.String("tls-cert", "server.crt", "Path to server cert")
 	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
 	serverPort := flag.Int("port", 443, "Port to listen on")
 	wolfSocketPath := flag.String("socket", "/var/run/wolf.sock", "Path to wolf.sock")
 	flag.Parse()
 
-	log.Println("Starting wolf-agent")
-	log.Println("TLS Cert:", *serverCertPath)
-	log.Println("TLS Key:", *serverKeyPath)
-	log.Println("Port:", *serverPort)
-	log.Println("Wolf Socket:", *wolfSocketPath)
-
+	klog.Info("Starting wolf-agent")
+	klog.Info("TLS Cert:", *serverCertPath)
+	klog.Info("TLS Key:", *serverKeyPath)
+	klog.Info("Port:", *serverPort)
+	klog.Info("Wolf Socket:", *wolfSocketPath)
 	client := UnixHTTPClient(*wolfSocketPath)
 
 	// Start a thread to watch for the wolf.sock to appear
@@ -42,16 +46,29 @@ func main() {
 				conn, err := net.Dial("unix", *wolfSocketPath)
 				if err == nil {
 					defer conn.Close()
-					ready.Store(true)
 					log.Println("wolf.sock is ready")
 
-					go func() {
-						err = ListenToEvents(context.Background(), &client)
-						if err != nil {
-							panic(err)
-						}
-					}()
+					wolfClient := wolfapi.NewClient(
+						"http://wolf.sock",
+						&http.Client{
+							Transport: &http.Transport{
+								TLSClientConfig: &tls.Config{
+									InsecureSkipVerify: true,
+								},
+							},
+						},
+					)
 
+					agentController := controllers.NewAgent(
+						wolfClient,
+					)
+
+					go agentController.Run(appContext)
+
+					// Set ready to true
+					// This will allow the /readyz endpoint to return 200 OK
+					// and the server to start accepting connections
+					ready.Store(true)
 					return
 				}
 				log.Printf("Waiting for wolf.sock to accept connections: %v\n", err)
@@ -79,10 +96,11 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
+		log.Println("Received request:", r.Method, r.URL.Path)
 		if !ready.Load() {
 			w.WriteHeader(http.StatusServiceUnavailable)
+			return
 		}
-		log.Println("Received request:", r.Method, r.URL.Path)
 
 		//!TODO: Use kubernetes metric.Filter or something to implement RBAC
 		// authorization against the bearer token
@@ -108,7 +126,7 @@ func main() {
 
 		// Send the request to the wolf.sock
 		log.Println("Sending request to wolf.sock:", request.Method, request.URL.Path)
-		response, err := client.Do(request)
+		response, err := client.Do(request.WithContext(r.Context()))
 		if err != nil {
 			log.Println("Failed to send request to wolf.sock:", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -123,7 +141,33 @@ func main() {
 			}
 		}
 		w.WriteHeader(response.StatusCode)
-		io.Copy(w, response.Body)
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			log.Println("Flushing not supported!")
+			return
+		}
+
+		// Stream response body manually. io.Copy doesn't eagerly flush
+		// which breaks SSE stream.
+		buf := make([]byte, 4096)
+		for {
+			n, err := response.Body.Read(buf)
+			if n > 0 {
+				_, writeErr := w.Write(buf[:n])
+				if writeErr != nil {
+					log.Println("Client connection closed")
+					return
+				}
+				flusher.Flush() // Ensure immediate delivery
+			}
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				log.Println("Error reading from backend:", err)
+				return
+			}
+		}
 		log.Println("Request completed:", response.StatusCode)
 	})
 
@@ -156,39 +200,5 @@ func UnixHTTPClient(sockAddr string) http.Client {
 				return net.Dial("unix", sockAddr)
 			},
 		},
-	}
-}
-
-func ListenToEvents(
-	ctx context.Context,
-	client *http.Client,
-) error {
-	sseClient := sse.NewClient("http://wolf.sock/api/v1/events", func(c *sse.Client) {
-		c.Connection = client
-	})
-
-	var events chan *sse.Event
-
-	log.Println("Subscribing to events")
-	err := sseClient.SubscribeChanRaw(events)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to events: %w", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case event := <-events:
-			if event == nil {
-				continue
-			}
-			log.Printf("Received event")
-			log.Printf("Event ID: %s", event.ID)
-			log.Printf("Event Type: %s", event.Event)
-			log.Printf("Event Data: %s", event.Data)
-			log.Printf("Event Retry: %d", event.Retry)
-			log.Printf("Event Comment: %v", event.Comment)
-		}
 	}
 }

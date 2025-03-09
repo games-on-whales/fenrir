@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -17,23 +18,29 @@ import (
 	"github.com/pelletier/go-toml/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	v1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
-	gatewayv1ac "sigs.k8s.io/gateway-api/apis/applyconfiguration/apis/v1"
-	gatewayv1alpha2ac "sigs.k8s.io/gateway-api/apis/applyconfiguration/apis/v1alpha2"
-	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
 )
+
+type userGame struct {
+	User string
+	Game string
+}
 
 // Session Controller manages the lifecycle of a streaming session for
 // a given game, of a given user.
@@ -58,6 +65,9 @@ type SessionController struct {
 
 	K8sClient kubernetes.Interface
 
+	trackedSessions map[userGame]sets.Set[string]
+	trackedGames    map[string]userGame
+
 	controller           generic.Controller[*v1alpha1types.Session]
 	deploymentController generic.Controller[*appsv1.Deployment]
 }
@@ -81,6 +91,8 @@ func NewSessionController(
 		SessionInformer: sessionInformer,
 		AppInformer:     appInformer,
 		UserInformer:    userInformer,
+		trackedSessions: make(map[userGame]sets.Set[string]),
+		trackedGames:    make(map[string]userGame),
 	}
 
 	res.controller = generic.NewController(
@@ -117,6 +129,30 @@ func (c *SessionController) Run(ctx context.Context) error {
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	if !cache.WaitForCacheSync(sessionCtx.Done(), c.SessionInformer.HasSynced) {
+		return fmt.Errorf("failed to sync session informer")
+	}
+
+	// Build initial listing of sessions
+	sessions, err := c.SessionInformer.List(labels.Everything())
+	if err != nil {
+		return fmt.Errorf("failed to list sessions: %v", err)
+	}
+
+	for _, session := range sessions {
+		ug := userGame{
+			Game: session.Spec.GameReference.Name,
+			User: session.Spec.UserReference.Name,
+		}
+		if existing, ok := c.trackedSessions[ug]; ok {
+			existing.Insert(session.Name)
+		} else {
+			c.trackedSessions[ug] = sets.New(session.Name)
+		}
+
+		c.trackedGames[session.Name] = ug
+	}
+
 	go func() {
 		defer cancel()
 		err := c.deploymentController.Run(sessionCtx)
@@ -124,6 +160,7 @@ func (c *SessionController) Run(ctx context.Context) error {
 			klog.Errorf("Failed to run deployment controller: %v", err)
 		}
 	}()
+
 	return c.controller.Run(sessionCtx)
 }
 
@@ -170,11 +207,40 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	if newObj == nil {
 		// Session was deleted. Stuff will be garbage collected by Kubernetes
 		// due to owner references. Nothing to do.
+		if gam, ok := c.trackedGames[name]; ok {
+			if existing, ok := c.trackedSessions[gam]; ok {
+				existing.Delete(name)
+				if existing.Len() == 0 {
+					delete(c.trackedSessions, gam)
+				}
+			}
+
+			delete(c.trackedGames, name)
+		}
+		return nil
+	} else if newObj.Status.WolfSessionID == "" && newObj.CreationTimestamp.Add(1*time.Minute).Before(time.Now()) {
+		klog.Infof("Session %s/%s is older than 1 minute and has no wolf session ID, deleting", newObj.Namespace, newObj.Name)
+		err := c.SessionClient.Delete(context.TODO(), newObj.Name, metav1.DeleteOptions{})
+		if err != nil && !errors.IsNotFound(err) {
+			klog.Errorf("Failed to delete session %s/%s: %v", newObj.Namespace, newObj.Name, err)
+			return err
+		}
 		return nil
 	}
-	oldStatus := newObj.Status.DeepCopy()
+	ug := userGame{
+		Game: newObj.Spec.GameReference.Name,
+		User: newObj.Spec.UserReference.Name,
+	}
 
+	if existing, ok := c.trackedSessions[ug]; ok {
+		existing.Insert(newObj.Name)
+	} else {
+		c.trackedSessions[ug] = sets.New(newObj.Name)
+	}
+
+	oldStatus := newObj.Status.DeepCopy()
 	portsError := c.allocatePorts(context.TODO(), newObj)
+
 	if portsError != nil {
 		klog.Errorf("Failed to allocate ports: %s", portsError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
@@ -256,21 +322,22 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		})
 	}
 
-	if gatewayError := c.reconcileGateway(context.TODO(), newObj); gatewayError != nil {
-		klog.Errorf("Failed to reconcile gateway: %s", gatewayError)
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:    "RoutesCreated",
-			Status:  metav1.ConditionFalse,
-			Reason:  "GatewayConfigurationFailed",
-			Message: gatewayError.Error(),
-		})
-	} else {
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:   "RoutesCreated",
-			Status: metav1.ConditionTrue,
-			Reason: "Success",
-		})
-	}
+	// Gateway not yet supported
+	// if gatewayError := c.reconcileGateway(context.TODO(), newObj); gatewayError != nil {
+	// 	klog.Errorf("Failed to reconcile gateway: %s", gatewayError)
+	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+	// 		Type:    "RoutesCreated",
+	// 		Status:  metav1.ConditionFalse,
+	// 		Reason:  "GatewayConfigurationFailed",
+	// 		Message: gatewayError.Error(),
+	// 	})
+	// } else {
+	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+	// 		Type:   "RoutesCreated",
+	// 		Status: metav1.ConditionTrue,
+	// 		Reason: "Success",
+	// 	})
+	// }
 
 	if streamError := c.reconcileActiveStreams(context.TODO(), newObj); streamError != nil {
 		klog.Errorf("Failed to reconcile active streams: %s", streamError)
@@ -301,7 +368,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		// Failed to update status....nothing to do but try again with
 		// exponential backoff. Could be API server issue. Depends on response
 		// code?
-		if err != nil {
+		if err != nil && !errors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -310,114 +377,114 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	return nil
 }
 
-// !TODO: Unused. Part of testing gateway implementation. The final idea is for
-// Direwolf to dynamically set up port forwards / UDPRoutes via Kubernetes
-// Gateway API for RTSP, ENet, Video RTP, Audio RTP.
-func (c *SessionController) reconcileGateway(ctx context.Context, session *v1alpha1types.Session) error {
-	// 1. Decide the ports this session will use for RTSP, Enet, Video RTP, Audio RTP
-	// 2. Create TCPRoute for RTSP, UDP routes for Enet, RTP via Gateway API
-	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
-		return fmt.Errorf("waiting for PortsAllocated")
-	}
+// // !TODO: Unused. Part of testing gateway implementation. The final idea is for
+// // Direwolf to dynamically set up port forwards / UDPRoutes via Kubernetes
+// // Gateway API for RTSP, ENet, Video RTP, Audio RTP.
+// func (c *SessionController) reconcileGateway(ctx context.Context, session *v1alpha1types.Session) error {
+// 	// 1. Decide the ports this session will use for RTSP, Enet, Video RTP, Audio RTP
+// 	// 2. Create TCPRoute for RTSP, UDP routes for Enet, RTP via Gateway API
+// 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
+// 		return fmt.Errorf("waiting for PortsAllocated")
+// 	}
 
-	_, err := c.UDPRouteClient.Apply(
-		ctx,
-		gatewayv1alpha2ac.UDPRoute(session.Name, session.Namespace).
-			WithOwnerReferences(metav1ac.OwnerReference().
-				WithName(session.Name).
-				WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1").
-				WithKind("Session").
-				WithUID(session.UID).
-				WithController(true)).
-			WithLabels(
-				map[string]string{
-					"app":           "direwolf-worker",
-					"direwolf/app":  session.Spec.GameReference.Name,
-					"direwolf/user": session.Spec.UserReference.Name,
-				}).
-			WithSpec(
-				gatewayv1alpha2ac.UDPRouteSpec().
-					WithParentRefs(gatewayv1ac.ParentReference().
-						WithKind("Gateway").
-						WithGroup("gateway.networking.k8s.io").
-						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
-						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
-					WithRules(
-						gatewayv1alpha2ac.UDPRouteRule().
-							WithName(gatewayv1.SectionName(session.Name)).
-							WithBackendRefs(
-								gatewayv1ac.BackendRef().
-									WithPort(gatewayv1.PortNumber(session.Status.Ports.Control)).
-									WithKind(gatewayv1.Kind("Service")).
-									WithName(gatewayv1.ObjectName(session.Namespace)).
-									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-								gatewayv1ac.BackendRef().
-									WithPort(gatewayv1.PortNumber(session.Status.Ports.VideoRTP)).
-									WithKind(gatewayv1.Kind("Service")).
-									WithName(gatewayv1.ObjectName(session.Namespace)).
-									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-								gatewayv1ac.BackendRef().
-									WithPort(gatewayv1.PortNumber(session.Status.Ports.AudioRTP)).
-									WithKind(gatewayv1.Kind("Service")).
-									WithName(gatewayv1.ObjectName(session.Namespace)).
-									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-							),
-					),
-			),
-		metav1.ApplyOptions{
-			FieldManager: "direwolf-session-controller-udp-route",
-			Force:        true,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to apply udp route: %s", err)
-	}
+// 	_, err := c.UDPRouteClient.Apply(
+// 		ctx,
+// 		gatewayv1alpha2ac.UDPRoute(session.Name, session.Namespace).
+// 			WithOwnerReferences(metav1ac.OwnerReference().
+// 				WithName(session.Name).
+// 				WithAPIVersion(v1alpha1.GroupVersion.String()).
+// 				WithKind("Session").
+// 				WithUID(session.UID).
+// 				WithController(true)).
+// 			WithLabels(
+// 				map[string]string{
+// 					"app":           "direwolf-worker",
+// 					"direwolf/app":  session.Spec.GameReference.Name,
+// 					"direwolf/user": session.Spec.UserReference.Name,
+// 				}).
+// 			WithSpec(
+// 				gatewayv1alpha2ac.UDPRouteSpec().
+// 					WithParentRefs(gatewayv1ac.ParentReference().
+// 						WithKind("Gateway").
+// 						WithGroup("gateway.networking.k8s.io").
+// 						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
+// 						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
+// 					WithRules(
+// 						gatewayv1alpha2ac.UDPRouteRule().
+// 							WithName(gatewayv1.SectionName(session.Name)).
+// 							WithBackendRefs(
+// 								gatewayv1ac.BackendRef().
+// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.Control)).
+// 									WithKind(gatewayv1.Kind("Service")).
+// 									WithName(gatewayv1.ObjectName(session.Namespace)).
+// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
+// 								gatewayv1ac.BackendRef().
+// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.VideoRTP)).
+// 									WithKind(gatewayv1.Kind("Service")).
+// 									WithName(gatewayv1.ObjectName(session.Namespace)).
+// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
+// 								gatewayv1ac.BackendRef().
+// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.AudioRTP)).
+// 									WithKind(gatewayv1.Kind("Service")).
+// 									WithName(gatewayv1.ObjectName(session.Namespace)).
+// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
+// 							),
+// 					),
+// 			),
+// 		metav1.ApplyOptions{
+// 			FieldManager: "direwolf-session-controller-udp-route",
+// 			Force:        true,
+// 		},
+// 	)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to apply udp route: %s", err)
+// 	}
 
-	_, err = c.TCPRouteClient.Apply(
-		ctx,
-		gatewayv1alpha2ac.TCPRoute(session.Name, session.Namespace).
-			WithOwnerReferences(metav1ac.OwnerReference().
-				WithName(session.Name).
-				WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1").
-				WithKind("Session").
-				WithUID(session.UID).
-				WithController(true)).
-			WithLabels(
-				map[string]string{
-					"app":           "direwolf-worker",
-					"direwolf/app":  session.Spec.GameReference.Name,
-					"direwolf/user": session.Spec.UserReference.Name,
-				}).
-			WithSpec(
-				gatewayv1alpha2ac.TCPRouteSpec().
-					WithParentRefs(gatewayv1ac.ParentReference().
-						WithKind("Gateway").
-						WithGroup("gateway.networking.k8s.io").
-						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
-						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
-					WithRules(
-						gatewayv1alpha2ac.TCPRouteRule().
-							WithName(gatewayv1.SectionName(session.Name)).
-							WithBackendRefs(
-								gatewayv1ac.BackendRef().
-									WithPort(gatewayv1.PortNumber(session.Status.Ports.RTSP)).
-									WithKind(gatewayv1.Kind("Service")).
-									WithName(gatewayv1.ObjectName(session.Namespace)).
-									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-							),
-					),
-			),
-		metav1.ApplyOptions{
-			FieldManager: "direwolf-session-controller-TCP-route",
-			Force:        true,
-		},
-	)
-	if err != nil {
-		return fmt.Errorf("failed to apply TCP route: %s", err)
-	}
+// 	_, err = c.TCPRouteClient.Apply(
+// 		ctx,
+// 		gatewayv1alpha2ac.TCPRoute(session.Name, session.Namespace).
+// 			WithOwnerReferences(metav1ac.OwnerReference().
+// 				WithName(session.Name).
+// 				WithAPIVersion(v1alpha1.GroupVersion.String()).
+// 				WithKind("Session").
+// 				WithUID(session.UID).
+// 				WithController(true)).
+// 			WithLabels(
+// 				map[string]string{
+// 					"app":           "direwolf-worker",
+// 					"direwolf/app":  session.Spec.GameReference.Name,
+// 					"direwolf/user": session.Spec.UserReference.Name,
+// 				}).
+// 			WithSpec(
+// 				gatewayv1alpha2ac.TCPRouteSpec().
+// 					WithParentRefs(gatewayv1ac.ParentReference().
+// 						WithKind("Gateway").
+// 						WithGroup("gateway.networking.k8s.io").
+// 						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
+// 						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
+// 					WithRules(
+// 						gatewayv1alpha2ac.TCPRouteRule().
+// 							WithName(gatewayv1.SectionName(session.Name)).
+// 							WithBackendRefs(
+// 								gatewayv1ac.BackendRef().
+// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.RTSP)).
+// 									WithKind(gatewayv1.Kind("Service")).
+// 									WithName(gatewayv1.ObjectName(session.Namespace)).
+// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
+// 							),
+// 					),
+// 			),
+// 		metav1.ApplyOptions{
+// 			FieldManager: "direwolf-session-controller-TCP-route",
+// 			Force:        true,
+// 		},
+// 	)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to apply TCP route: %s", err)
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (c *SessionController) reconcileService(ctx context.Context, session *v1alpha1types.Session) error {
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
@@ -493,7 +560,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 				).
 				WithOwnerReferences(metav1ac.OwnerReference().
 					WithName(session.Name).
-					WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1").
+					WithAPIVersion(v1alpha1.GroupVersion.String()).
 					WithKind("Session").
 					WithUID(session.UID)).
 				WithSpec(
@@ -517,17 +584,56 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 }
 
 func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) error {
-
 	//!TODO: Just allocate a ton of ports on the container, we wont be able to
 	// change them while its running if another user connects
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
 		return fmt.Errorf("waiting for PortsAllocated")
 	}
 
+	ug := userGame{
+		Game: session.Spec.GameReference.Name,
+		User: session.Spec.UserReference.Name,
+	}
+
+	var owners []metav1.OwnerReference
+	var ownerApply []*metav1ac.OwnerReferenceApplyConfiguration
+	if sessions, ok := c.trackedSessions[ug]; ok {
+		for name := range sessions {
+			sess, err := c.SessionInformer.Namespaced(session.Namespace).Get(name)
+			if err != nil {
+				klog.Errorf("Failed to get session %s/%s: %s", session.Namespace, name, err)
+				continue
+			}
+			owner := metav1.OwnerReference{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "Session",
+				Name:       name,
+				UID:        sess.UID,
+				Controller: ptr.To(true),
+			}
+			owners = append(owners, owner)
+			ownerApply = append(ownerApply, metav1ac.OwnerReference().
+				WithName(name).
+				WithAPIVersion(v1alpha1.GroupVersion.String()).
+				WithKind("Session").
+				WithUID(session.UID).
+				WithController(true))
+		}
+	}
+
 	// If deployment already exists, just skip
 	deploymentName := c.deploymentName(session)
 	if _, err := c.deploymentController.Informer().Namespaced(session.Namespace).Get(deploymentName); err == nil {
-		session.Status.DeploymentName = deploymentName
+		klog.Infof("Deployment %s/%s already exists, just updating metadata", session.Namespace, deploymentName)
+		c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
+			context.Background(),
+			appsv1ac.Deployment(deploymentName, session.Namespace).
+				WithOwnerReferences(ownerApply...),
+			metav1.ApplyOptions{
+				FieldManager: "direwolf-session-controller-deployment-owners",
+				Force:        true,
+			})
+
 		return nil
 	}
 
@@ -668,10 +774,48 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: 8443,
 				},
 			},
-			Env: mapToEnvApplyList(map[string]string{
-				"XDG_RUNTIME_DIR":  "/tmp/.X11-unix",
-				"WOLF_SOCKET_PATH": "/etc/wolf/wolf.sock",
-			}),
+			Env: []corev1.EnvVar{
+				{
+					Name:  "XDG_RUNTIME_DIR",
+					Value: "/tmp/.X11-unix",
+				},
+				{
+					Name:  "PUID",
+					Value: "1000",
+				},
+				{
+					Name:  "PGID",
+					Value: "1000",
+				},
+				{
+					Name:  "WOLF_SOCKET_PATH",
+					Value: "/etc/wolf/wolf.sock",
+				},
+				{
+					Name:  "DIREWOLF_USER",
+					Value: session.Spec.UserReference.Name,
+				},
+				{
+					Name:  "DIREWOLF_APP",
+					Value: session.Spec.GameReference.Name,
+				},
+				{
+					Name: "POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
+						},
+					},
+				},
+				{
+					Name: "POD_NAMESPACE",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.namespace",
+						},
+					},
+				},
+			},
 			ReadinessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
@@ -756,6 +900,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"LIBVA_DRIVER_NAME":          "nvidia",
 				"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 			}),
+			// Note: Container Ports list is strictly informational. As long
+			// as process is listening on 0.0.0.0 it can be bound by a service.
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "http",
@@ -765,9 +911,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:          "https",
 					ContainerPort: 48984,
 				},
-
-				// TODO: Dynamically create this list to support multiple sessions
-				// when that is added.
 				{
 					Name:          "rtsp",
 					ContainerPort: session.Status.Ports.RTSP,
@@ -860,18 +1003,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"direwolf/app":  session.Spec.GameReference.Name,
 				"direwolf/user": session.Spec.UserReference.Name,
 			},
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					// Delete the pod when the user is deleted, NOT the session. There
-					// may be multiple sessions owning the pod.
-					//!TODO: Attach all owning sessions as owners of the pod, not just
-					// the single session being reconciled.
-					APIVersion: "direwolf.games-on-whales.github.io/v1alpha1",
-					Kind:       "Session",
-					Name:       session.Name,
-					UID:        session.UID,
-				},
-			},
+			OwnerReferences: owners,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: ptr.To[int32](1),
@@ -903,10 +1035,13 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		return fmt.Errorf("failed to convert unstructured to deployment: %s", err)
 	}
 
-	_, err = c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(ctx, &deploymentApplyConfig, metav1.ApplyOptions{
-		FieldManager: "direwolf-session-controller-deployment",
-		Force:        true,
-	})
+	_, err = c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
+		ctx,
+		&deploymentApplyConfig,
+		metav1.ApplyOptions{
+			FieldManager: "direwolf-session-controller-deployment",
+		})
+
 	if err != nil {
 		return fmt.Errorf("failed to apply deployment: %s", err)
 	}
@@ -944,7 +1079,7 @@ func (c *SessionController) reconcileConfigMap(
 					//!TOOD: ALL sessions associated with this user x game, not
 					// just this one
 					WithName(session.Name).
-					WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1").
+					WithAPIVersion(v1alpha1.GroupVersion.String()).
 					WithKind("Session").
 					WithUID(session.UID)).
 				WithData(map[string]string{
@@ -981,7 +1116,7 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 				}).
 			WithOwnerReferences(metav1ac.OwnerReference().
 				WithName(session.Spec.UserReference.Name).
-				WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1").
+				WithAPIVersion(v1alpha1.GroupVersion.String()).
 				WithKind("User").
 				WithUID(user.UID)).
 			WithSpec(
@@ -1087,6 +1222,15 @@ func (c *SessionController) reconcileActiveStreams(
 		}
 	}
 
+	if found != (session.Status.WolfSessionID != "") {
+		klog.Infof("Session %s/%s found: %v, status: %v", session.Namespace, session.Name, found, session.Status.WolfSessionID)
+		// Either the session was already added but not in the list, or
+		// the session was already in the list without being added.
+		//
+		// Either scenario is invalid. Delete the session
+		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
+	}
+
 	if !found {
 		//!TODO: Add the ports into the request for this to support multiple
 		// sessions per Gateway.
@@ -1119,7 +1263,7 @@ func (c *SessionController) reconcileActiveStreams(
 	} else {
 		//!TODO: Update wolf API to include session ID in list so we can update
 		// these details/validate discrepencies
-		// assert wolf session ID non-empty
+		// assert wolf session ID non-empty and matches what we expect
 	}
 
 	session.Status.StreamURL = fmt.Sprintf("rtsp://%s:%d", service.Spec.ClusterIP, session.Status.Ports.RTSP)
