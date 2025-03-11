@@ -888,7 +888,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 		corev1.Container{
 			Name:  "wolf",
-			Image: "registry.zielenski.dev/wolf/wolf:latest@sha256:1cd5f8a34e00cb4e763b08ba5d90c6fce4d0e809ce0a3789654dfbc88ab5dba1",
+			Image: "ghcr.io/games-on-whales/wolf:stable@sha256:ab1dab8ed3a8ed638c86f1f0e3eac3d10f82c0f8a9f14a4cfe3256f217da64a5",
 			Env: mapToEnvApplyList(map[string]string{
 				"PUID":                       "1000",
 				"PGID":                       "1000",
