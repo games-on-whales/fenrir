@@ -25,6 +25,9 @@ func main() {
 	defer appCancel()
 
 	wolfAgentImage := flag.String("wolf-agent-image", "ghcr.io/games-on-whales/wolf-agent:main", "Wolf Agent image")
+	wolfImage := flag.String("wolf-image", "ghcr.io/games-on-whales/wolf:stable", "Wolf image")
+	wolfBaseImage := flag.String("wolf-base-image", "ghcr.io/games-on-whales/base:edge", "Wolf base image")
+	pulseaudioImage := flag.String("pulseaudio-image", "ghcr.io/games-on-whales/pulseaudio:edge", "Pulseaudio image")
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
@@ -81,8 +84,11 @@ func main() {
 		generic.NewInformer[*direwolfv1alpha1.User](userInformer),
 		generic.NewInformer[*appsv1.Deployment](deploymentInformer),
 		controllers.SessionControllerOptions{
-			WolfAgentImage: *wolfAgentImage,
-			LBSharingKey:   *lbSharingKey,
+			WolfAgentImage:  *wolfAgentImage,
+			WolfImage:       *wolfImage,
+			WolfBaseImage:   *wolfBaseImage,
+			PulseaudioImage: *pulseaudioImage,
+			LBSharingKey:    *lbSharingKey,
 		},
 	)
 

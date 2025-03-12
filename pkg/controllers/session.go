@@ -43,8 +43,11 @@ type userGame struct {
 }
 
 type SessionControllerOptions struct {
-	WolfAgentImage string
-	LBSharingKey   string
+	WolfAgentImage  string
+	WolfImage       string
+	WolfBaseImage   string
+	PulseaudioImage string
+	LBSharingKey    string
 }
 
 // Session Controller manages the lifecycle of a streaming session for
@@ -737,7 +740,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
 		corev1.Container{
 			Name:  "init",
-			Image: "ghcr.io/games-on-whales/base:edge",
+			Image: c.WolfBaseImage,
 			Command: []string{
 				"sh", "-c", `
 				chown 1000:1000 /mnt/data/wolf
@@ -865,7 +868,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 		corev1.Container{
 			Name:  "pulseaudio",
-			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
+			Image: c.PulseaudioImage,
 			Env: mapToEnvApplyList(map[string]string{
 				"TZ":              "America/Los_Angeles",
 				"UNAME":           "retro",
@@ -888,7 +891,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 		corev1.Container{
 			Name:  "wolf",
-			Image: "registry.zielenski.dev/wolf/wolf:latest@sha256:1cd5f8a34e00cb4e763b08ba5d90c6fce4d0e809ce0a3789654dfbc88ab5dba1",
+			Image: c.WolfAgentImage,
 			Env: mapToEnvApplyList(map[string]string{
 				"PUID":                       "1000",
 				"PGID":                       "1000",
@@ -901,7 +904,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0",
 				"WOLF_SOCKET_PATH":           "/etc/wolf/wolf.sock",
 				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
-				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
+				"WOLF_PULSE_IMAGE":           c.PulseaudioImage,
 				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
 				"WOLF_RENDER_NODE":           "/dev/dri/renderD128",
 				"GST_VAAPI_ALL_DRIVERS":      "1",
