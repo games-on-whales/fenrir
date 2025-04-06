@@ -990,6 +990,18 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-data",
 					MountPath: "/mnt/data/wolf",
 				},
+				{
+					Name:      "dev-input",
+					MountPath: "/dev/input",
+				},
+				// {
+				// 	Name:      "dev-uinput",
+				// 	MountPath: "/dev/uinput",
+				// },
+				{
+					Name:      "host-udev",
+					MountPath: "/run/udev",
+				},
 			},
 		},
 	)
@@ -1022,6 +1034,33 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 					ClaimName: c.deploymentName(session),
+				},
+			},
+		},
+		corev1.Volume{
+			Name: "dev-input",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/dev/input",
+					Type: ptr.To(corev1.HostPathDirectory),
+				},
+			},
+		},
+		// corev1.Volume{
+		// 	Name: "dev-uinput",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		HostPath: &corev1.HostPathVolumeSource{
+		// 			Path: "/dev/uinput",
+		// 			Type: ptr.To(corev1.HostPathFile),
+		// 		},
+		// 	},
+		// },
+		corev1.Volume{
+			Name: "host-udev",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/run/udev",
+					Type: ptr.To(corev1.HostPathDirectory),
 				},
 			},
 		},
