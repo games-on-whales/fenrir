@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
 	"time"
 
@@ -35,6 +36,16 @@ import (
 	"k8s.io/utils/ptr"
 
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
+)
+
+var (
+	WOLF_IMAGE = func() string {
+		if im := os.Getenv("WOLF_IMAGE"); im != "" {
+			return im
+		}
+
+		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
+	}()
 )
 
 type userGame struct {
@@ -668,6 +679,22 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Labels["direwolf/app"] = session.Spec.GameReference.Name
 	podToCreate.Labels["direwolf/user"] = session.Spec.UserReference.Name
 
+	if podToCreate.Spec.SecurityContext == nil {
+		podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	}
+
+	if podToCreate.Spec.SecurityContext.SeccompProfile == nil {
+		podToCreate.Spec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeUnconfined,
+		}
+	}
+
+	if podToCreate.Spec.SecurityContext.AppArmorProfile == nil {
+		podToCreate.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+			Type: corev1.AppArmorProfileTypeUnconfined,
+		}
+	}
+
 	mapToEnvApplyList := func(m map[string]string) []corev1.EnvVar {
 		var res []corev1.EnvVar
 		for k, v := range m {
@@ -966,6 +993,18 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-data",
 					MountPath: "/mnt/data/wolf",
 				},
+				{
+					Name:      "dev-input",
+					MountPath: "/dev/input",
+				},
+				// {
+				// 	Name:      "dev-uinput",
+				// 	MountPath: "/dev/uinput",
+				// },
+				{
+					Name:      "host-udev",
+					MountPath: "/run/udev",
+				},
 			},
 		},
 	)
@@ -998,6 +1037,33 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 					ClaimName: c.deploymentName(session),
+				},
+			},
+		},
+		corev1.Volume{
+			Name: "dev-input",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/dev/input",
+					Type: ptr.To(corev1.HostPathDirectory),
+				},
+			},
+		},
+		// corev1.Volume{
+		// 	Name: "dev-uinput",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		HostPath: &corev1.HostPathVolumeSource{
+		// 			Path: "/dev/uinput",
+		// 			Type: ptr.To(corev1.HostPathFile),
+		// 		},
+		// 	},
+		// },
+		corev1.Volume{
+			Name: "host-udev",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/run/udev",
+					Type: ptr.To(corev1.HostPathDirectory),
 				},
 			},
 		},
