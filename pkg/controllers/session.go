@@ -38,16 +38,6 @@ import (
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
 )
 
-var (
-	WOLF_IMAGE = func() string {
-		if im := os.Getenv("WOLF_IMAGE"); im != "" {
-			return im
-		}
-
-		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
-	}()
-)
-
 type userGame struct {
 	User string
 	Game string
