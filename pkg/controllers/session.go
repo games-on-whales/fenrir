@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
 	"reflect"
 	"time"
 
@@ -35,6 +36,16 @@ import (
 	"k8s.io/utils/ptr"
 
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
+)
+
+var (
+	WOLF_IMAGE = func() string {
+		if im := os.Getenv("WOLF_IMAGE"); im != "" {
+			return im
+		}
+
+		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
+	}()
 )
 
 type userGame struct {
@@ -888,7 +899,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 		corev1.Container{
 			Name:  "wolf",
-			Image: "registry.zielenski.dev/wolf/wolf:latest@sha256:1cd5f8a34e00cb4e763b08ba5d90c6fce4d0e809ce0a3789654dfbc88ab5dba1",
+			Image: WOLF_IMAGE,
 			Env: mapToEnvApplyList(map[string]string{
 				"PUID":                       "1000",
 				"PGID":                       "1000",
