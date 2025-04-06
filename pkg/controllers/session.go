@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
-	"os"
 	"reflect"
 	"time"
 
@@ -38,24 +37,17 @@ import (
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
 )
 
-var (
-	WOLF_IMAGE = func() string {
-		if im := os.Getenv("WOLF_IMAGE"); im != "" {
-			return im
-		}
-
-		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
-	}()
-)
-
 type userGame struct {
 	User string
 	Game string
 }
 
 type SessionControllerOptions struct {
-	WolfAgentImage string
-	LBSharingKey   string
+	WolfAgentImage  string
+	WolfImage       string
+	WolfBaseImage   string
+	PulseaudioImage string
+	LBSharingKey    string
 }
 
 // Session Controller manages the lifecycle of a streaming session for
@@ -764,7 +756,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
 		corev1.Container{
 			Name:  "init",
-			Image: "ghcr.io/games-on-whales/base:edge",
+			Image: c.WolfBaseImage,
 			Command: []string{
 				"sh", "-c", `
 				chown 1000:1000 /mnt/data/wolf
@@ -892,7 +884,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 		corev1.Container{
 			Name:  "pulseaudio",
-			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
+			Image: c.PulseaudioImage,
 			Env: mapToEnvApplyList(map[string]string{
 				"TZ":              "America/Los_Angeles",
 				"UNAME":           "retro",
@@ -915,7 +907,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 		corev1.Container{
 			Name:  "wolf",
-			Image: WOLF_IMAGE,
+			Image: c.WolfImage,
 			Env: mapToEnvApplyList(map[string]string{
 				"PUID":                       "1000",
 				"PGID":                       "1000",
@@ -928,7 +920,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0",
 				"WOLF_SOCKET_PATH":           "/etc/wolf/wolf.sock",
 				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
-				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
+				"WOLF_PULSE_IMAGE":           c.PulseaudioImage,
 				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
 				"WOLF_RENDER_NODE":           "/dev/dri/renderD128",
 				"GST_VAAPI_ALL_DRIVERS":      "1",
