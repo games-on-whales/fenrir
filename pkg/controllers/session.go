@@ -809,17 +809,17 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// But would be nice if unnecessary
 
 			// Assorted NVIDIA. Unsure if required. Probabky not.
-			"LIBVA_DRIVER_NAME":          "nvidia",
-			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			"NVIDIA_DRIVER_CAPABILITIES": "all",
-			"NVIDIA_VISIBLE_DEVICES":     "all",
-			"GST_VAAPI_ALL_DRIVERS":      "1",
-			"GST_DEBUG":                  "2",
+			// "LIBVA_DRIVER_NAME":          "nvidia",
+			// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+			// "NVIDIA_DRIVER_CAPABILITIES": "all",
+			// "NVIDIA_VISIBLE_DEVICES":     "all",
+			// "GST_VAAPI_ALL_DRIVERS":      "1",
+			// "GST_DEBUG":                  "2",
 
 			// Gamescape envar injection. Ham-handed. Why not.
-			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
-			"GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
-			"GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
+			// "GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
+			// "GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
+			// "GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
 		})...)
 
 		// Validate the main app container's resources against the user's policy.
@@ -1026,14 +1026,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
 				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
 				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
-				"WOLF_RENDER_NODE":           "/dev/dri/renderD128",
+				// "WOLF_RENDER_NODE":           "/dev/dri/renderD128",
 				"GST_VAAPI_ALL_DRIVERS":      "1",
 				"GST_DEBUG":                  "2",
 				"__GL_SYNC_TO_VBLANK":        "0",
-				"NVIDIA_VISIBLE_DEVICES":     "all",
-				"NVIDIA_DRIVER_CAPABILITIES": "all",
-				"LIBVA_DRIVER_NAME":          "nvidia",
-				"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+				// "NVIDIA_VISIBLE_DEVICES":     "all",
+				// "NVIDIA_DRIVER_CAPABILITIES": "all",
+				// "LIBVA_DRIVER_NAME":          "nvidia",
+				// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 			}),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
@@ -1085,10 +1085,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				// 	Name:      "dev-uinput",
 				// 	MountPath: "/dev/uinput",
 				// },
-				{
-					Name:      "host-udev",
-					MountPath: "/run/udev", //Need to find a more secure way to mount this
-				},
+				// {
+				// 	Name:      "host-udev",
+				// 	MountPath: "/run/udev", //Need to find a more secure way to mount this
+				// },
 			},
 		},
 	)
@@ -1149,15 +1149,15 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		// 		},
 		// 	},
 		// },
-		corev1.Volume{ //Needs to be changed into something more secure, without host path
-			Name: "host-udev",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/run/udev",
-					Type: ptr.To(corev1.HostPathDirectory),
-				},
-			},
-		},
+		// corev1.Volume{ //Needs to be changed into something more secure, without host path
+		// 	Name: "host-udev",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		HostPath: &corev1.HostPathVolumeSource{
+		// 			Path: "/run/udev",
+		// 			Type: ptr.To(corev1.HostPathDirectory),
+		// 		},
+		// 	},
+		// },
 	)
 
 	// Create deployment scaled to 1 for this pod
@@ -1453,6 +1453,7 @@ func (c *SessionController) reconcileActiveStreams(
 			// to wolf, we just need a client ID wolf accepts for this specific
 			// pairing/client...
 			ClientID: "4193251087262667199",
+			RTSPFakeIP: service.Spec.ClusterIP,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)
@@ -1495,55 +1496,162 @@ func GenerateWolfConfig(
 
 	var gstreamerConfig = map[string]interface{}{
 		"audio": map[string]interface{}{
-			"default_audio_params": "queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert",
-			"default_opus_encoder": "opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400",
-			"default_sink": `rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt=true aes_key="{aes_key}" aes_iv="{aes_iv}" !
-	udpsink bind-port={host_port} host={client_ip} port={client_port} sync=true`,
-			"default_source": "interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false",
+			"default_source": `interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false`,
+			"default_audio_params": `queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert`,
+			"default_opus_encoder": `opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400`,
+			"default_sink": `rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
+	appsink name=wolf_udp_sink`,
 		},
 		"video": map[string]interface{}{
+			"default_source": `interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream`,
 			"default_sink": `rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
-	udpsink bind-port={host_port} host={client_ip} port={client_port} sync=true`,
-			"default_source": "interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-buffers=1 block=false",
+	appsink sync=false name=wolf_udp_sink`,
 			"defaults": map[string]interface{}{
 				"nvcodec": map[string]interface{}{
-					"video_params": "queue leaky=downstream max-size-buffers=1 ! cudaupload ! cudaconvertscale ! video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1",
+					"video_params": `cudaupload !
+	cudaconvertscale !
+	video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
+					"video_params_zero_copy": `glupload !
+	glcolorconvert !
+	video/x-raw(memory:GLMemory),format=NV12, width={width}, height={height}, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
 				},
 				"qsv": map[string]interface{}{
-					"video_params": "queue leaky=downstream max-size-buffers=1 ! videoconvertscale ! video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}",
+					"video_params": `videoconvertscale !
+	video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
+					"video_params_zero_copy": `vapostproc !
+	video/x-raw(memory:VAMemory),format=NV12, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
 				},
-				"vaapi": map[string]interface{}{
-					"video_params": "queue leaky=downstream max-size-buffers=1 ! videoconvertscale ! video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}",
-				},
-			},
-			"av1_encoders": []map[string]interface{}{
-				{
-					"check_elements":   []string{"nvav1enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": "nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter ! av1parse ! video/x-av1, stream-format=obu-stream, alignment=frame, profile=main",
-					"plugin_name":      "nvcodec",
-				},
-				{
-					"check_elements":   []string{"qsvav1enc", "videoconvertscale"},
-					"encoder_pipeline": "qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 ! av1parse ! video/x-av1, stream-format=obu-stream, alignment=frame, profile=main",
-					"plugin_name":      "qsv",
-				},
-			},
-			"h264_encoders": []map[string]interface{}{
-				{
-					"check_elements":   []string{"nvh264enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": "nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false ! h264parse ! video/x-h264, profile=main, stream-format=byte-stream",
-					"plugin_name":      "nvcodec",
+				"va": map[string]interface{}{
+					"video_params": `vapostproc !
+	video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
+					"video_params_zero_copy": `vapostproc !
+	video/x-raw(memory:VAMemory), format=NV12, chroma-site={color_range}, width={width}, height={height}, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
 				},
 			},
 			"hevc_encoders": []map[string]interface{}{
 				{
-					"check_elements":   []string{"nvh265enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": "nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter ! h265parse ! video/x-h265, profile=main, stream-format=byte-stream",
-					"plugin_name":      "nvcodec",
+					"plugin_name": "nvcodec",
+					"check_elements": []string{"nvh265enc", "cudaconvertscale", "cudaupload"},
+					"encoder_pipeline": `nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+	h265parse !
+	video/x-h265, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "qsv",
+					"check_elements": []string{"qsvh265enc", "vapostproc"},
+					"encoder_pipeline": `qsvh265enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+	h265parse !
+	video/x-h265, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "va",
+					"check_elements": []string{"vah265enc", "vapostproc"},
+					"encoder_pipeline": `vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+	h265parse !
+	video/x-h265, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "va",
+					"check_elements": []string{"vah265lpenc", "vapostproc"},
+					"encoder_pipeline": `vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+	h265parse !
+	video/x-h265, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "x265",
+					"check_elements": []string{"x265enc"},
+					"video_params": `videoconvertscale !
+	videorate !
+	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
+					"video_params_zero_copy": `videoconvertscale !
+	videorate !
+	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
+					"encoder_pipeline": `x265enc tune=zerolatency speed-preset=superfast bitrate={bitrate} option-string="info=0:keyint=-1:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
+	video/x-h265, profile=main, stream-format=byte-stream`,
+				},
+			},
+			"h264_encoders": []map[string]interface{}{
+				{
+					"plugin_name": "nvcodec",
+					"check_elements": []string{"nvh264enc", "cudaconvertscale", "cudaupload"},
+					"encoder_pipeline": `nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
+	h264parse !
+	video/x-h264, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "qsv",
+					"check_elements": []string{"qsvh264enc", "vapostproc"},
+					"encoder_pipeline": `qsvh264enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6 !
+	h264parse !
+	video/x-h264, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "va",
+					"check_elements": []string{"vah264enc", "vapostproc"},
+					"encoder_pipeline": `vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+	h264parse !
+	video/x-h264, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "va",
+					"check_elements": []string{"vah264lpenc", "vapostproc"},
+					"encoder_pipeline": `vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+	h264parse !
+	video/x-h264, profile=main, stream-format=byte-stream`,
+				},
+				{
+					"plugin_name": "x264",
+					"check_elements": []string{"x264enc"},
+					"encoder_pipeline": `x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0" b-adapt=false bitrate={bitrate} aud=false !
+	video/x-h264, profile=high, stream-format=byte-stream`,
+				},
+			},
+			"av1_encoders": []map[string]interface{}{
+				{
+					"plugin_name": "nvcodec",
+					"check_elements": []string{"nvav1enc", "cudaconvertscale", "cudaupload"},
+					"encoder_pipeline": `nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
+	av1parse !
+	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
+				},
+				{
+					"plugin_name": "qsv",
+					"check_elements": []string{"qsvav1enc", "vapostproc"},
+					"encoder_pipeline": `qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
+	av1parse !
+	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
+				},
+				{
+					"plugin_name": "va",
+					"check_elements": []string{"vaav1enc", "vapostproc"},
+					"encoder_pipeline": `vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+	av1parse !
+	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
+				},
+				{
+					"plugin_name": "va",
+					"check_elements": []string{"vaav1lpenc", "vapostproc"},
+					"encoder_pipeline": `vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
+	av1parse !
+	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
+				},
+				{
+					"plugin_name": "aom",
+					"check_elements": []string{"av1enc"},
+					"video_params": `videoconvertscale !
+	videorate !
+	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
+					"video_params_zero_copy": `videoconvertscale !
+	videorate !
+	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
+					"encoder_pipeline": `av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} !
+	av1parse !
+	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
 				},
 			},
 		},
 	}
+	
 
 	configMap := map[string]interface{}{
 		"config_version": 4,

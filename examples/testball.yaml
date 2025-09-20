@@ -10,7 +10,7 @@ spec:
   isHDRSupported: false
   title: Test Ball
   volumeConfig:
-    ephemeral: true
+    ephemeral: true #if set to false, it'll default to creating a pvc requesting 10Gi
   wolfConfig:
     startAudioServer: false
     startVirtualCompositor: false

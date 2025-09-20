@@ -49,11 +49,21 @@ spec:
         app: direwolf
         component: moonlight-proxy
     spec:
+      # affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #             - key: gaming
+      #               operator: In
+      #               values: 
+      #               - "true"
       serviceAccountName: direwolf-moonlight-proxy
       containers:
         - name: moonlight-proxy
           image: ghcr.io/games-on-whales/moonlight-proxy:main
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
+          # imagePullPolicy: Never
           args:
           - --tls-cert=/etc/certs/server.crt
           - --tls-key=/etc/certs/server.key
@@ -63,8 +73,8 @@ spec:
           env:
           # Useful for debugging pairing to skip constant PIN screens.
           # Requires modified moonlight client.
-          - name: HARDCODED_PIN
-            value: "1111"
+          # - name: HARDCODED_PIN
+          #   value: "1111"
           - name: POD_NAME
             valueFrom:
               fieldRef:
@@ -98,7 +108,7 @@ metadata:
     app: direwolf
     component: operator
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: direwolf
@@ -110,6 +120,14 @@ spec:
         component: operator
     spec:
       affinity:
+      #   nodeAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #       nodeSelectorTerms:
+      #         - matchExpressions:
+      #             - key: gaming
+      #               operator: In
+      #               values: 
+      #               - "true"
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
@@ -128,8 +146,10 @@ spec:
       serviceAccountName: direwolf-operator
       containers:
         - name: operator
-          image: ghcr.io/games-on-whales/operator:main
-          imagePullPolicy: Always
+          image: localhost/fenrir/operator:latest
+          # image: ghcr.io/games-on-whales/operator:main
+          # imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           env:
           - name: POD_NAME
             valueFrom:

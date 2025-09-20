@@ -18,12 +18,10 @@ spec:
 
     # We are overriding the default resources for some sidecars for this user.
     sidecarPolicies:
-      # Give the streaming container more memory to handle higher bitrates.
+      # You can specify which sidecars take which requests.
+      # Give the streaming container gpu so it can use nvidia encoders.
       wolf:
         requests:
-          cpu: "5m"
-          memory: "50Mi"
+          nvidia.com/gpu: "1"
         limits:
-          memory: "80Mi"
-      # We are NOT specifying pulseaudio or wolfAgent, so they will get
-      # the operator's default resources.
+          nvidia.com/gpu: "1"

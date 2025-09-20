@@ -23,6 +23,8 @@ type Session struct {
 
 	AESKey string `json:"aes_key"`
 	AESIV  string `json:"aes_iv"`
+
+	RTSPFakeIP string `json:"rtsp_fake_ip,omitempty"` 
 }
 
 type ClientSettings struct {

@@ -1,0 +1,17 @@
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: User
+metadata:
+  name: not_alex
+  namespace: direwolf
+spec:
+  sessionResources:
+    # We are overriding the default resources for some sidecars for this user.
+    sidecarPolicies:
+      # I'm using generic devices to pass along the gpu.
+      wolf:
+        requests:
+          squat.ai/dri: "1"
+          squat.ai/uinput: "1"
+        limits:
+          squat.ai/dri: "1"
+          squat.ai/uinput: "1"
