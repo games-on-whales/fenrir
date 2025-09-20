@@ -8077,6 +8077,34 @@ spec:
                 maxLength: 63
                 minLength: 1
                 type: string
+              volumeConfig:
+                description: |-
+                  Configuration of the wolf-data volume mounted at the home dir of the app
+                  Only used if ephemeral is set to false
+                properties:
+                  ephemeral:
+                    description: |-
+                      Ephemeral, if true, it'll use EmptyDir volume
+                      instead of creating a PVC
+                      Defaults to false
+                    type: boolean
+                  pvc:
+                    description: |-
+                      PVC configuration for the app
+                      This works when ephemeral is set to false
+                    properties:
+                      size:
+                        description: |-
+                          Size of the requested storage of the PVC
+                          Defaults to 10Gi if not specified
+                        type: string
+                      storageClassName:
+                        description: |-
+                          Name of the Storage class to provision the PVC from
+                          Defaults to the default storage class
+                        type: string
+                    type: object
+                type: object
               wolfConfig:
                 description: |-
                   Unstructured wolf configuration for app to be merged with the default

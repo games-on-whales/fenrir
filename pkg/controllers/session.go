@@ -703,7 +703,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		return res
 	}
 
-	// Inject volumem ounts into existing containers
+	// Inject volume mounts into existing containers
 	for i := range podToCreate.Spec.Containers {
 		podToCreate.Spec.Containers[i].VolumeMounts = append(podToCreate.Spec.Containers[i].VolumeMounts,
 			corev1.VolumeMount{
@@ -925,7 +925,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"PULSE_SERVER":               "unix:/tmp/.X11-unix/pulse-socket",
 				"HOST_APPS_STATE_FOLDER":     "/mnt/data/wolf",
 				"WOLF_LOG_LEVEL":             "DEBUG",
-				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0",
+				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0", //Need to find the correct streaming id / ingress, later.
 				"WOLF_SOCKET_PATH":           "/etc/wolf/wolf.sock",
 				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
 				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
@@ -971,10 +971,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				Requests: corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("100m"),
 					corev1.ResourceMemory: resource.MustParse("100Mi"),
-					"nvidia.com/gpu":      resource.MustParse("1"),
+					"nvidia.com/gpu":      resource.MustParse("1"), //Need to generalize this, probably using generic devices
 				},
 				Limits: corev1.ResourceList{
-					"nvidia.com/gpu": resource.MustParse("1"),
+					"nvidia.com/gpu": resource.MustParse("1"), //Need to generalize this, probably using generic devices
 				},
 			},
 			VolumeMounts: []corev1.VolumeMount{
@@ -992,7 +992,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				},
 				{
 					Name:      "dev-input",
-					MountPath: "/dev/input",
+					MountPath: "/dev/input", //Need to find a more secure way to mount this
 				},
 				// {
 				// 	Name:      "dev-uinput",
@@ -1000,11 +1000,22 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				// },
 				{
 					Name:      "host-udev",
-					MountPath: "/run/udev",
+					MountPath: "/run/udev", //Need to find a more secure way to mount this
 				},
 			},
 		},
 	)
+
+	wolfDataVolumeSource := corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+			ClaimName: c.deploymentName(session),
+		},
+	}
+	if app.Spec.VolumeConfig != nil && app.Spec.VolumeConfig.Ephemeral != nil && *app.Spec.VolumeConfig.Ephemeral {
+		wolfDataVolumeSource = corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		}
+	}
 
 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
 		corev1.Volume{
@@ -1030,14 +1041,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			},
 		},
 		corev1.Volume{
-			Name: "wolf-data",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: c.deploymentName(session),
-				},
-			},
+			Name:         "wolf-data",
+			VolumeSource: wolfDataVolumeSource,
 		},
-		corev1.Volume{
+		corev1.Volume{ //Needs to be changed into something more secure, without host path
 			Name: "dev-input",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
@@ -1055,7 +1062,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		// 		},
 		// 	},
 		// },
-		corev1.Volume{
+		corev1.Volume{ //Needs to be changed into something more secure, without host path
 			Name: "host-udev",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
@@ -1188,7 +1195,36 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 	if err != nil {
 		return fmt.Errorf("failed to get user: %s", err)
 	}
+	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %s", err)
+	}
+	if app.Spec.VolumeConfig != nil && app.Spec.VolumeConfig.Ephemeral != nil && *app.Spec.VolumeConfig.Ephemeral {
+		klog.Info("Ephemeral volume configured for app %s. Skipping PVC creation.", app.Name)
+		return nil
+	}
 	deploymentName := c.deploymentName(session)
+	pvcSpec := v1ac.PersistentVolumeClaimSpec().WithAccessModes("ReadWriteOnce") //Will be changed in the future if the user has an NFS with shared games
+	requestSize := resource.MustParse("10Gi")
+
+	if app.Spec.VolumeConfig != nil && app.Spec.VolumeConfig.PVC != nil {
+		if app.Spec.VolumeConfig.PVC.Size != "" {
+			parsedSize, err := resource.ParseQuantity(app.Spec.VolumeConfig.PVC.Size)
+			if err != nil {
+				klog.Errorf("failed to parse PVC size '%s' for app '%s': '%v'. Using default", app.Spec.VolumeConfig.PVC.Size, app.Name, err)
+			} else {
+				requestSize = parsedSize
+			}
+		}
+		if app.Spec.VolumeConfig.PVC.StorageClassName != "" {
+			pvcSpec.WithStorageClassName(app.Spec.VolumeConfig.PVC.StorageClassName)
+		}
+	}
+	pvcSpec.WithResources(v1ac.VolumeResourceRequirements().
+		WithRequests(corev1.ResourceList{
+			corev1.ResourceStorage: requestSize,
+		}),
+	)
 	_, err = c.K8sClient.CoreV1().PersistentVolumeClaims(session.Namespace).Apply(
 		ctx,
 		v1ac.PersistentVolumeClaim(deploymentName, session.Namespace).
@@ -1203,16 +1239,7 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 				WithAPIVersion(v1alpha1.GroupVersion.String()).
 				WithKind("User").
 				WithUID(user.UID)).
-			WithSpec(
-				v1ac.PersistentVolumeClaimSpec().
-					WithAccessModes("ReadWriteOnce").
-					WithStorageClassName("openebs-hostpath").
-					WithResources(v1ac.VolumeResourceRequirements().
-						WithRequests(corev1.ResourceList{
-							corev1.ResourceStorage: resource.MustParse("100Gi"),
-						}),
-					),
-			),
+			WithSpec(pvcSpec),
 		metav1.ApplyOptions{
 			FieldManager: "direwolf-session-controller-pvc",
 		},

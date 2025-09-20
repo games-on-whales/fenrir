@@ -9,6 +9,8 @@ spec:
   id: 3
   isHDRSupported: false
   title: Test Ball
+  volumeConfig:
+    ephemeral: true
   wolfConfig:
     startAudioServer: false
     startVirtualCompositor: false

@@ -38,6 +38,7 @@ type AppSpec struct {
 	AppAssetWebP []byte `json:"appAssetWebP" xml:"-"`
 
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:X-kubernetes-preserve-unknown-fields:true
 	Template *v1.PodTemplateSpec `json:"template" xml:"-"`
 
 	// Unstructured wolf configuration for app to be merged with the default
@@ -45,8 +46,35 @@ type AppSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	WolfConfig WolfConfig `json:"wolfConfig" xml:"-"`
+
+	// +kubebuilder:validation:Optional
+	// Configuration of the wolf-data volume mounted at the home dir of the app
+	// Only used if ephemeral is set to false
+	VolumeConfig *VolumeConfig `json:"volumeConfig,omitempty"`
 }
 
+type VolumeConfig struct {
+	// +optional
+	// Ephemeral, if true, it'll use EmptyDir volume
+	// instead of creating a PVC
+	// Defaults to false
+	Ephemeral *bool `json:"ephemeral,omitempty"`
+	// +optional
+	// PVC configuration for the app
+	// This works when ephemeral is set to false
+	PVC *PVCConfig `json:"pvc,omitempty"`
+}
+
+type PVCConfig struct {
+	// +optional
+	// Name of the Storage class to provision the PVC from
+	// Defaults to the default storage class
+	StorageClassName string `json:"storageClassName,omitempty"`
+	// +optional
+	// Size of the requested storage of the PVC
+	// Defaults to 10Gi if not specified
+	Size string `json:"size,omitempty"`
+}
 type WolfConfig struct {
 	StartAudioServer       *bool `json:"startAudioServer,omitempty" toml:"start_audio_server,omitempty"`
 	StartVirtualCompositor *bool `json:"startVirtualCompositor,omitempty" toml:"start_video_compositor,omitempty"`

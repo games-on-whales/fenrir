@@ -46,6 +46,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.PairingReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PairingSpec"):
 		return &apiv1alpha1.PairingSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PVCConfig"):
+		return &apiv1alpha1.PVCConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Session"):
 		return &apiv1alpha1.SessionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionInfo"):
@@ -60,6 +62,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.UserApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UserReference"):
 		return &apiv1alpha1.UserReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("VolumeConfig"):
+		return &apiv1alpha1.VolumeConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
 		return &apiv1alpha1.WolfConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):
