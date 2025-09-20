@@ -54,14 +54,20 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SessionInfoApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionPorts"):
 		return &apiv1alpha1.SessionPortsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SessionResourcePolicy"):
+		return &apiv1alpha1.SessionResourcePolicyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionSpec"):
 		return &apiv1alpha1.SessionSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionStatus"):
 		return &apiv1alpha1.SessionStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicies"):
+		return &apiv1alpha1.SidecarPoliciesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("User"):
 		return &apiv1alpha1.UserApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UserReference"):
 		return &apiv1alpha1.UserReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("UserSpec"):
+		return &apiv1alpha1.UserSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("VolumeConfig"):
 		return &apiv1alpha1.VolumeConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):

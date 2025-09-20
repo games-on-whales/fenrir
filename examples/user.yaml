@@ -3,3 +3,27 @@ kind: User
 metadata:
   name: alex
   namespace: direwolf
+spec:
+  sessionResources:
+    # This user can run apps up to the following limits.
+    # appPolicy:
+    #   requests:
+    #     cpu: "4"
+    #     memory: "8Gi"
+    #     nvidia.com/gpu: "1"
+    #   limits:
+    #     cpu: "6"
+    #     memory: "12Gi"
+    #     nvidia.com/gpu: "1"
+
+    # We are overriding the default resources for some sidecars for this user.
+    sidecarPolicies:
+      # Give the streaming container more memory to handle higher bitrates.
+      wolf:
+        requests:
+          cpu: "5m"
+          memory: "50Mi"
+        limits:
+          memory: "80Mi"
+      # We are NOT specifying pulseaudio or wolfAgent, so they will get
+      # the operator's default resources.

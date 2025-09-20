@@ -603,11 +603,87 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 	return nil
 }
 
+// mergeResourceRequirements merges a default and an override ResourceRequirements object for sidecars.
+// It gives precedence to the values specified in the overrides.
+func mergeResourceRequirements(defaults corev1.ResourceRequirements, overrides *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if overrides == nil {
+		return defaults
+	}
+
+	// Start with a copy of the defaults
+	merged := defaults.DeepCopy()
+
+	// Ensure maps are initialized
+	if merged.Limits == nil {
+		merged.Limits = make(corev1.ResourceList)
+	}
+	if merged.Requests == nil {
+		merged.Requests = make(corev1.ResourceList)
+	}
+
+	// Override limits
+	for resourceName, quantity := range overrides.Limits {
+		merged.Limits[resourceName] = quantity
+	}
+
+	// Override requests
+	for resourceName, quantity := range overrides.Requests {
+		merged.Requests[resourceName] = quantity
+	}
+
+	return *merged
+}
+
+// validateAppResources checks if the app's resource requirements are within the user's policy.
+// It returns an error if any app request/limit exceeds the user policy.
+// If the policy is nil, it allows any resources.
+func validateAppResources(appResources corev1.ResourceRequirements, userPolicy *corev1.ResourceRequirements) (corev1.ResourceRequirements, error) {
+	// If there's no policy, the app's resources are inherently valid.
+	if userPolicy == nil {
+		return appResources, nil
+	}
+
+	// Validate Limits
+	for resourceName, appLimit := range appResources.Limits {
+		if userLimit, ok := userPolicy.Limits[resourceName]; ok {
+			// Cmp returns 1 if appLimit > userLimit
+			if appLimit.Cmp(userLimit) > 0 {
+				return corev1.ResourceRequirements{}, fmt.Errorf(
+					"app limit for resource %q (%s) exceeds user policy limit (%s)",
+					resourceName, appLimit.String(), userLimit.String(),
+				)
+			}
+		}
+	}
+
+	// Validate Requests, I'm not sure if this is needed because we could just limit using... limits.
+	for resourceName, appRequest := range appResources.Requests {
+		if userRequest, ok := userPolicy.Requests[resourceName]; ok {
+			// Cmp returns 1 if appRequest > userRequest
+			if appRequest.Cmp(userRequest) > 0 {
+				return corev1.ResourceRequirements{}, fmt.Errorf(
+					"app request for resource %q (%s) exceeds user policy request (%s)",
+					resourceName, appRequest.String(), userRequest.String(),
+				)
+			}
+		}
+	}
+
+	// All checks passed. The app's requested resources are valid.
+	return appResources, nil
+}
+
 func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) error {
 	//!TODO: Just allocate a ton of ports on the container, we wont be able to
 	// change them while its running if another user connects
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
 		return fmt.Errorf("waiting for PortsAllocated")
+	}
+
+	// Get the user object to access resource policies
+	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get user %s: %w", session.Spec.UserReference.Name, err)
 	}
 
 	ug := userGame{
@@ -746,19 +822,18 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			"GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
 		})...)
 
-		if podToCreate.Spec.Containers[i].Resources.Requests == nil {
-			podToCreate.Spec.Containers[i].Resources.Requests = corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("100Mi"),
-			}
+		// Validate the main app container's resources against the user's policy.
+		var appPolicy *corev1.ResourceRequirements
+		if user.Spec.SessionResources != nil {
+			appPolicy = user.Spec.SessionResources.AppPolicy
 		}
 
-		if podToCreate.Spec.Containers[i].Resources.Limits == nil {
-			podToCreate.Spec.Containers[i].Resources.Limits = corev1.ResourceList{}
+		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, appPolicy)
+		if err != nil {
+			// The error will be handled by the main Reconcile loop to update the session status.
+			return fmt.Errorf("resource validation for main app container failed: %w", err)
 		}
-
-		podToCreate.Spec.Containers[i].Resources.Requests["nvidia.com/gpu"] = resource.MustParse("1")
-		podToCreate.Spec.Containers[i].Resources.Limits["nvidia.com/gpu"] = resource.MustParse("1")
+		podToCreate.Spec.Containers[i].Resources = validatedResources
 	}
 
 	podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
@@ -797,6 +872,37 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			},
 		},
 	)
+
+	// Define default resources for sidecars
+	wolfAgentDefaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("100Mi"),
+		},
+	}
+	pulseAudioDefaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("100Mi"),
+		},
+	}
+	wolfDefaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("100Mi"),
+		},
+	}
+
+	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
+	if user.Spec.SessionResources != nil && user.Spec.SessionResources.SidecarPolicies != nil {
+		wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, user.Spec.SessionResources.SidecarPolicies.WolfAgent)
+		pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, user.Spec.SessionResources.SidecarPolicies.PulseAudio)
+		wolfResources = mergeResourceRequirements(wolfDefaultResources, user.Spec.SessionResources.SidecarPolicies.Wolf)
+	} else {
+		wolfAgentResources = wolfAgentDefaultResources
+		pulseAudioResources = pulseAudioDefaultResources
+		wolfResources = wolfDefaultResources
+	}
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
@@ -873,12 +979,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					},
 				},
 			},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("10m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-				},
-			},
+			Resources: wolfAgentResources,
 			VolumeMounts: []corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
@@ -900,12 +1001,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"UID":             "1000",
 				"GID":             "1000",
 			}),
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-				},
-			},
+			Resources: pulseAudioResources,
 			VolumeMounts: []corev1.VolumeMount{
 				{
 					Name:      "wolf-runtime",
@@ -967,16 +1063,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: session.Status.Ports.AudioRTP,
 				},
 			},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-					"nvidia.com/gpu":      resource.MustParse("1"), //Need to generalize this, probably using generic devices
-				},
-				Limits: corev1.ResourceList{
-					"nvidia.com/gpu": resource.MustParse("1"), //Need to generalize this, probably using generic devices
-				},
-			},
+			Resources: wolfResources,
 			VolumeMounts: []corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
