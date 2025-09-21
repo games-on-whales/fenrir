@@ -49,21 +49,11 @@ spec:
         app: direwolf
         component: moonlight-proxy
     spec:
-      # affinity:
-      #   nodeAffinity:
-      #     requiredDuringSchedulingIgnoredDuringExecution:
-      #       nodeSelectorTerms:
-      #         - matchExpressions:
-      #             - key: gaming
-      #               operator: In
-      #               values: 
-      #               - "true"
       serviceAccountName: direwolf-moonlight-proxy
       containers:
         - name: moonlight-proxy
           image: ghcr.io/games-on-whales/moonlight-proxy:main
-          imagePullPolicy: IfNotPresent
-          # imagePullPolicy: Never
+          imagePullPolicy: Always
           args:
           - --tls-cert=/etc/certs/server.crt
           - --tls-key=/etc/certs/server.key
@@ -108,7 +98,7 @@ metadata:
     app: direwolf
     component: operator
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: direwolf
@@ -120,14 +110,6 @@ spec:
         component: operator
     spec:
       affinity:
-      #   nodeAffinity:
-      #     requiredDuringSchedulingIgnoredDuringExecution:
-      #       nodeSelectorTerms:
-      #         - matchExpressions:
-      #             - key: gaming
-      #               operator: In
-      #               values: 
-      #               - "true"
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
@@ -146,10 +128,8 @@ spec:
       serviceAccountName: direwolf-operator
       containers:
         - name: operator
-          image: localhost/fenrir/operator:latest
-          # image: ghcr.io/games-on-whales/operator:main
-          # imagePullPolicy: IfNotPresent
-          imagePullPolicy: Never
+          image: ghcr.io/games-on-whales/operator:main
+          imagePullPolicy: Always
           env:
           - name: POD_NAME
             valueFrom:

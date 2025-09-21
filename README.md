@@ -129,3 +129,54 @@ The basic idea would be that we dont need to forward any ports if we implement
 the RTSP handshake, RTP PING in `moonlight-proxy`. Once direwolf gets the
 IP/PORT of the moonlight client it can have `wolf` just start uploading a stream,
 as long as it can fake the source IP of the packets from `wolf`.
+
+## Getting started:
+Before you start you should install metallb and configure a loadbalancing ip pool.
+
+
+Then, install the operator to the your k8s cluster:  
+`kubectl apply -f examples/install.yaml`
+
+### Using Generic Devices to pass the gpu to the pods  
+In order for wolf to render / stream the images you need to pass it a device that can do it, I've an AMD gpu, so I opted to use generic devices to pass the `dri` device
+
+first check the content of `/dev/dri`:  
+```
+$ ls /dev/dri/
+>by-path  card1  renderD128
+```
+then go to the `examples/generic-devices.yaml` to edit the dri device path to be the same as the desired card.  
+```
+- path: /dev/dri/renderD128 |->|- path: /dev/dri/renderD128
+- path: /dev/dri/cardX      |->|- path: /dev/dri/card1
+```
+
+finally apply it:  
+`kubectl apply -f examples/generic-devices.yaml`
+This should add the gpu as a sharable resource that can be used in the next step.
+
+### Creating a user  
+as of now, alex is the hardcoded user, don't change the name in the `examples/user.yaml` or `examples/user_generic_device_gpu.yaml`
+
+However you can change the resources and volume mounts for the sidecars:
+- wolf: This one requires a gpu for encoding
+- wolf-agent
+- pulseaudio
+
+
+To create a user:  
+`kubectl apply -f examples/user_generic_device_gpu.yaml`
+
+### Adding an application and pairing with moonlight  
+add the app the to cluster using:  
+`kubectl apply -f examples/testball.yaml`
+
+Next get the ip of the loadbalancer service to connect with moonlight:  
+`kubectl get svc direwolf -n direwolf -o jsonpath='{.status.loadBalancer.ingress[0].ip}'`
+
+open moonlight to pair with the acquired ip  
+then get the moonlight-proxy pairing url through the logs:  
+`kubectl logs -n direwolf deployments/direwolf-moonlight-proxy`
+
+use it to pair and then connect with the app, it'll take a moment to pull the image, so the first pairing might fail.  
+

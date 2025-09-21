@@ -8,11 +8,19 @@ spec:
   id: 1
   isHDRSupported: false
   title: Firefox
+  # This is defeault behaviour, meaning that it'll automatically provision a pvc for 10Gi
+  volumeConfig: 
+    ephemeral: false
   template:
     spec:
       containers:
       - name: app
         image: ghcr.io/games-on-whales/firefox:edge
+        # resources:
+        #   limits:
+        #     squat.ai/dri: "1"
+        #   requests:
+        #     squat.ai/dri: "1"
         command:
         - /bin/bash
         - -c

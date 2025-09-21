@@ -4,24 +4,31 @@ metadata:
   name: alex
   namespace: direwolf
 spec:
-  sessionResources:
-    # This user can run apps up to the following limits.
-    # appPolicy:
-    #   requests:
-    #     cpu: "4"
-    #     memory: "8Gi"
-    #     nvidia.com/gpu: "1"
-    #   limits:
-    #     cpu: "6"
-    #     memory: "12Gi"
-    #     nvidia.com/gpu: "1"
+  # hostPath volume for the input, this is for testing
+  # volumes:
+  #   - name: dev-input
+  #     hostPath:
+  #       path: /dev/input
+  #       type: File
+    # - name: host-udev
+    #   hostPath:
+    #     path: /run/udev
+    #     type: Directory
 
-    # We are overriding the default resources for some sidecars for this user.
+  sessionResources:
     sidecarPolicies:
-      # You can specify which sidecars take which requests.
-      # Give the streaming container gpu so it can use nvidia encoders.
+      # Define policies for the 'wolf' sidecar container.
       wolf:
-        requests:
-          nvidia.com/gpu: "1"
-        limits:
-          nvidia.com/gpu: "1"
+        # Define resource requests and limits.
+        # give it the GPU device via nvidia operator plugin.
+        resources:
+          requests:
+            nvidia.com/gpu: "1"
+          limits:
+            nvidia.com/gpu: "1"
+        # # Mount the hostPath volumes defined above into the 'wolf' sidecar
+        # volumeMounts:
+        #   - name: dev-input
+        #     mountPath: /dev/input
+        #   - name: host-udev //this isn't accessible inside the kind cluster for some reason
+        #     mountPath: /run/udev
