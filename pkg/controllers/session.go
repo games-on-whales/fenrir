@@ -763,21 +763,21 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Labels["direwolf/app"] = session.Spec.GameReference.Name
 	podToCreate.Labels["direwolf/user"] = session.Spec.UserReference.Name
 
-	if podToCreate.Spec.SecurityContext == nil {
-		podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
-	}
+	// if podToCreate.Spec.SecurityContext == nil {
+	// 	podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	// }
 
-	if podToCreate.Spec.SecurityContext.SeccompProfile == nil {
-		podToCreate.Spec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
-			Type: corev1.SeccompProfileTypeUnconfined,
-		}
-	}
+	// if podToCreate.Spec.SecurityContext.SeccompProfile == nil {
+	// 	podToCreate.Spec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+	// 		Type: corev1.SeccompProfileTypeUnconfined,
+	// 	}
+	// }
 
-	if podToCreate.Spec.SecurityContext.AppArmorProfile == nil {
-		podToCreate.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
-			Type: corev1.AppArmorProfileTypeUnconfined,
-		}
-	}
+	// if podToCreate.Spec.SecurityContext.AppArmorProfile == nil {
+	// 	podToCreate.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+	// 		Type: corev1.AppArmorProfileTypeUnconfined,
+	// 	}
+	// }
 
 	mapToEnvApplyList := func(m map[string]string) []corev1.EnvVar {
 		var res []corev1.EnvVar
