@@ -137,6 +137,9 @@ Before you start you should install metallb and configure a loadbalancing ip poo
 Then, install the operator to the your k8s cluster:  
 `kubectl apply -f examples/install.yaml`
 
+after which you'll need to install the CRDs:  
+`kubectl create -f crds/`
+
 ### Using Generic Devices to pass the gpu to the pods  
 In order for wolf to render / stream the images you need to pass it a device that can do it, I've an AMD gpu, so I opted to use generic devices to pass the `dri` device
 
