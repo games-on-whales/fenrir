@@ -18,16 +18,12 @@ limitations under the License.
 
 package v1alpha1
 
-import (
-	v1 "k8s.io/api/core/v1"
-)
-
 // SidecarPoliciesApplyConfiguration represents a declarative configuration of the SidecarPolicies type for use
 // with apply.
 type SidecarPoliciesApplyConfiguration struct {
-	Wolf       *v1.ResourceRequirements `json:"wolf,omitempty"`
-	PulseAudio *v1.ResourceRequirements `json:"pulseaudio,omitempty"`
-	WolfAgent  *v1.ResourceRequirements `json:"wolfAgent,omitempty"`
+	Wolf       *SidecarPolicyApplyConfiguration `json:"wolf,omitempty"`
+	PulseAudio *SidecarPolicyApplyConfiguration `json:"pulseaudio,omitempty"`
+	WolfAgent  *SidecarPolicyApplyConfiguration `json:"wolfAgent,omitempty"`
 }
 
 // SidecarPoliciesApplyConfiguration constructs a declarative configuration of the SidecarPolicies type for use with
@@ -39,23 +35,23 @@ func SidecarPolicies() *SidecarPoliciesApplyConfiguration {
 // WithWolf sets the Wolf field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Wolf field is set to the value of the last call.
-func (b *SidecarPoliciesApplyConfiguration) WithWolf(value v1.ResourceRequirements) *SidecarPoliciesApplyConfiguration {
-	b.Wolf = &value
+func (b *SidecarPoliciesApplyConfiguration) WithWolf(value *SidecarPolicyApplyConfiguration) *SidecarPoliciesApplyConfiguration {
+	b.Wolf = value
 	return b
 }
 
 // WithPulseAudio sets the PulseAudio field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the PulseAudio field is set to the value of the last call.
-func (b *SidecarPoliciesApplyConfiguration) WithPulseAudio(value v1.ResourceRequirements) *SidecarPoliciesApplyConfiguration {
-	b.PulseAudio = &value
+func (b *SidecarPoliciesApplyConfiguration) WithPulseAudio(value *SidecarPolicyApplyConfiguration) *SidecarPoliciesApplyConfiguration {
+	b.PulseAudio = value
 	return b
 }
 
 // WithWolfAgent sets the WolfAgent field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the WolfAgent field is set to the value of the last call.
-func (b *SidecarPoliciesApplyConfiguration) WithWolfAgent(value v1.ResourceRequirements) *SidecarPoliciesApplyConfiguration {
-	b.WolfAgent = &value
+func (b *SidecarPoliciesApplyConfiguration) WithWolfAgent(value *SidecarPolicyApplyConfiguration) *SidecarPoliciesApplyConfiguration {
+	b.WolfAgent = value
 	return b
 }

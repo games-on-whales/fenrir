@@ -18,10 +18,15 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	v1 "k8s.io/api/core/v1"
+)
+
 // UserSpecApplyConfiguration represents a declarative configuration of the UserSpec type for use
 // with apply.
 type UserSpecApplyConfiguration struct {
 	SessionResources *SessionResourcePolicyApplyConfiguration `json:"sessionResources,omitempty"`
+	Volumes          []v1.Volume                              `json:"volumes,omitempty"`
 }
 
 // UserSpecApplyConfiguration constructs a declarative configuration of the UserSpec type for use with
@@ -35,5 +40,15 @@ func UserSpec() *UserSpecApplyConfiguration {
 // If called multiple times, the SessionResources field is set to the value of the last call.
 func (b *UserSpecApplyConfiguration) WithSessionResources(value *SessionResourcePolicyApplyConfiguration) *UserSpecApplyConfiguration {
 	b.SessionResources = value
+	return b
+}
+
+// WithVolumes adds the given value to the Volumes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Volumes field.
+func (b *UserSpecApplyConfiguration) WithVolumes(values ...v1.Volume) *UserSpecApplyConfiguration {
+	for i := range values {
+		b.Volumes = append(b.Volumes, values[i])
+	}
 	return b
 }

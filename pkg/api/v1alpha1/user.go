@@ -25,12 +25,15 @@ type UserSpec struct {
 	// started by the user
 	// +optional
 	SessionResources *SessionResourcePolicy `json:"sessionResources,omitempty"`
+	// Volumes defines the volumes that can be mounted by the session's pods.
+	// +optional
+	Volumes []corev1.Volume `json:"volumes,omitempty"`
 }
 
 type SessionResourcePolicy struct {
 	// AppPolicy defines the maximum resource requests and limits that an App's
 	// main container can have. If an App is requested that exceeds these values,
-	// the session will fail to start. 
+	// the session will fail to start.
 	// +optional
 	AppPolicy *corev1.ResourceRequirements `json:"appPolicy,omitempty"`
 	// SidecarPolicies defines the resource requests and limits for the injected
@@ -39,17 +42,29 @@ type SessionResourcePolicy struct {
 	// +optional
 	SidecarPolicies *SidecarPolicies `json:"sidecarPolicies,omitempty"`
 }
-type SidecarPolicies struct {
-	// Resources for the 'wolf' streaming sidecar
+
+// SidecarPolicy defines the policy for a single sidecar container.
+type SidecarPolicy struct {
+	// Resources for the sidecar
 	// +optional
-	Wolf *corev1.ResourceRequirements `json:"wolf,omitempty"`
-	// Resources for the 'pulseaudio' audio control container
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+	// VolumeMounts specifies the volumes to mount into the sidecar.
 	// +optional
-	PulseAudio *corev1.ResourceRequirements `json:"pulseaudio,omitempty"`
-	// Resources for the 'wolf' session starter container
-	// +optional
-	WolfAgent *corev1.ResourceRequirements `json:"wolfAgent,omitempty"`
+	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
 }
+
+type SidecarPolicies struct {
+	// Policy for the 'wolf' streaming sidecar
+	// +optional
+	Wolf *SidecarPolicy `json:"wolf,omitempty"`
+	// Policy for the 'pulseaudio' audio control container
+	// +optional
+	PulseAudio *SidecarPolicy `json:"pulseaudio,omitempty"`
+	// Policy for the 'wolf' session starter container
+	// +optional
+	WolfAgent *SidecarPolicy `json:"wolfAgent,omitempty"`
+}
+
 type UserStatus struct {
 }
 

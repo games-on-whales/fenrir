@@ -673,6 +673,17 @@ func validateAppResources(appResources corev1.ResourceRequirements, userPolicy *
 	return appResources, nil
 }
 
+// validateVolumeMounts checks if all volume mounts in the provided slice
+// correspond to a volume defined in the validVolumes map.
+func validateVolumeMounts(mounts []corev1.VolumeMount, validVolumes map[string]struct{}, sidecarName string) error {
+	for _, vm := range mounts {
+		if _, ok := validVolumes[vm.Name]; !ok {
+			return fmt.Errorf("validation failed: volumeMount %q in %s sidecar policy refers to a volume that is not defined in the UserSpec.volumes", vm.Name, sidecarName)
+		}
+	}
+	return nil
+}
+
 func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) error {
 	//!TODO: Just allocate a ton of ports on the container, we wont be able to
 	// change them while its running if another user connects
@@ -893,15 +904,44 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 	}
 
+	// Prepare sidecar policies
 	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
+	var wolfAgentVolumeMounts, pulseAudioVolumeMounts, wolfVolumeMounts []corev1.VolumeMount
+
+	// Set defaults first
+	wolfAgentResources = wolfAgentDefaultResources
+	pulseAudioResources = pulseAudioDefaultResources
+	wolfResources = wolfDefaultResources
+
+	// Create a set of valid volume names for quick lookup
+	validVolumes := make(map[string]struct{})
+	for _, volume := range user.Spec.Volumes {
+		validVolumes[volume.Name] = struct{}{}
+	}
+
 	if user.Spec.SessionResources != nil && user.Spec.SessionResources.SidecarPolicies != nil {
-		wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, user.Spec.SessionResources.SidecarPolicies.WolfAgent)
-		pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, user.Spec.SessionResources.SidecarPolicies.PulseAudio)
-		wolfResources = mergeResourceRequirements(wolfDefaultResources, user.Spec.SessionResources.SidecarPolicies.Wolf)
-	} else {
-		wolfAgentResources = wolfAgentDefaultResources
-		pulseAudioResources = pulseAudioDefaultResources
-		wolfResources = wolfDefaultResources
+		policies := user.Spec.SessionResources.SidecarPolicies
+		if policies.WolfAgent != nil {
+			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
+				return err
+			}
+			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
+			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
+		}
+		if policies.PulseAudio != nil {
+			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
+				return err
+			}
+			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
+			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
+		}
+		if policies.Wolf != nil {
+			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
+				return err
+			}
+			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
+			wolfVolumeMounts = policies.Wolf.VolumeMounts
+		}
 	}
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
@@ -980,7 +1020,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				},
 			},
 			Resources: wolfAgentResources,
-			VolumeMounts: []corev1.VolumeMount{
+			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
 					MountPath: "/etc/wolf",
@@ -989,7 +1029,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/.X11-unix",
 				},
-			},
+			}, wolfAgentVolumeMounts...),
 		},
 		corev1.Container{
 			Name:  "pulseaudio",
@@ -1002,12 +1042,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"GID":             "1000",
 			}),
 			Resources: pulseAudioResources,
-			VolumeMounts: []corev1.VolumeMount{
+			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/pulse",
 				},
-			},
+			}, pulseAudioVolumeMounts...),
 		},
 		corev1.Container{
 			Name:  "wolf",
@@ -1064,7 +1104,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				},
 			},
 			Resources: wolfResources,
-			VolumeMounts: []corev1.VolumeMount{
+			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
 					MountPath: "/etc/wolf",
@@ -1077,10 +1117,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-data",
 					MountPath: "/mnt/data/wolf",
 				},
-				{
-					Name:      "dev-input",
-					MountPath: "/dev/input", //Need to find a more secure way to mount this
-				},
+				// {
+				// 	Name:      "dev-input",
+				// 	MountPath: "/dev/input",
+				// },
 				// {
 				// 	Name:      "dev-uinput",
 				// 	MountPath: "/dev/uinput",
@@ -1089,7 +1129,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				// 	Name:      "host-udev",
 				// 	MountPath: "/run/udev", //Need to find a more secure way to mount this
 				// },
-			},
+			}, wolfVolumeMounts...),
 		},
 	)
 
@@ -1131,15 +1171,16 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:         "wolf-data",
 			VolumeSource: wolfDataVolumeSource,
 		},
-		corev1.Volume{ //Needs to be changed into something more secure, without host path
-			Name: "dev-input",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/dev/input",
-					Type: ptr.To(corev1.HostPathDirectory),
-				},
-			},
-		},
+		// corev1.Volume{ //Needs to be changed into something more secure, without host path
+		// 	Name: "dev-input",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		HostPath: &corev1.HostPathVolumeSource{
+		// 			Path: "/dev/input",
+		// 			Type: ptr.To(corev1.HostPathDirectory),
+		// 		},
+		// 	},
+		// },
+		// I'm moving this to volumeConfig
 		// corev1.Volume{
 		// 	Name: "dev-uinput",
 		// 	VolumeSource: corev1.VolumeSource{
@@ -1159,6 +1200,11 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		// 	},
 		// },
 	)
+
+	// Add volumes from the user spec
+	if len(user.Spec.Volumes) > 0 {
+		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, user.Spec.Volumes...)
+	}
 
 	// Create deployment scaled to 1 for this pod
 	// Should use deployment so that changes in spec aren't rejected.
