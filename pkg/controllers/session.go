@@ -820,6 +820,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// But would be nice if unnecessary
 
 			// Assorted NVIDIA. Unsure if required. Probabky not.
+			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
+			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
 			// "LIBVA_DRIVER_NAME":          "nvidia",
 			// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 			// "NVIDIA_DRIVER_CAPABILITIES": "all",
@@ -828,18 +830,13 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// "GST_DEBUG":                  "2",
 
 			// Gamescape envar injection. Ham-handed. Why not.
-			// "GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
-			// "GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
-			// "GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
+			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
+			"GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
+			"GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
 		})...)
 
 		// Validate the main app container's resources against the user's policy.
-		var appPolicy *corev1.ResourceRequirements
-		if user.Spec.SessionResources != nil {
-			appPolicy = user.Spec.SessionResources.AppPolicy
-		}
-
-		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, appPolicy)
+		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, user.Spec.Resources)
 		if err != nil {
 			// The error will be handled by the main Reconcile loop to update the session status.
 			return fmt.Errorf("resource validation for main app container failed: %w", err)
@@ -919,8 +916,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		validVolumes[volume.Name] = struct{}{}
 	}
 
-	if user.Spec.SessionResources != nil && user.Spec.SessionResources.SidecarPolicies != nil {
-		policies := user.Spec.SessionResources.SidecarPolicies
+	if user.Spec.SidecarPolicies != nil {
+		policies := user.Spec.SidecarPolicies
 		if policies.WolfAgent != nil {
 			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
 				return err
@@ -1066,14 +1063,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
 				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
 				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
-				// "WOLF_RENDER_NODE":           "/dev/dri/renderD128",
+				"WOLF_RENDER_NODE":           "/dev/dri/renderD128",
 				"GST_VAAPI_ALL_DRIVERS":      "1",
 				"GST_DEBUG":                  "2",
 				"__GL_SYNC_TO_VBLANK":        "0",
-				// "NVIDIA_VISIBLE_DEVICES":     "all",
-				// "NVIDIA_DRIVER_CAPABILITIES": "all",
-				// "LIBVA_DRIVER_NAME":          "nvidia",
-				// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+				"NVIDIA_VISIBLE_DEVICES":     "all",
+				"NVIDIA_DRIVER_CAPABILITIES": "all",
+				"LIBVA_DRIVER_NAME":          "nvidia",
+				"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 			}),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
@@ -1133,12 +1130,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		},
 	)
 
-	wolfDataVolumeSource := corev1.VolumeSource{
-		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-			ClaimName: c.deploymentName(session),
-		},
-	}
-	if app.Spec.VolumeConfig != nil && app.Spec.VolumeConfig.Ephemeral != nil && *app.Spec.VolumeConfig.Ephemeral {
+	var wolfDataVolumeSource corev1.VolumeSource
+	if app.Spec.VolumeClaimTemplate != nil {
+		wolfDataVolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: c.deploymentName(session),
+			},
+		}
+	} else {
 		wolfDataVolumeSource = corev1.VolumeSource{
 			EmptyDir: &corev1.EmptyDirVolumeSource{},
 		}
@@ -1332,58 +1331,108 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 	if err != nil {
 		return fmt.Errorf("failed to get user: %s", err)
 	}
-	if app.Spec.VolumeConfig != nil && app.Spec.VolumeConfig.Ephemeral != nil && *app.Spec.VolumeConfig.Ephemeral {
-		klog.Info("Ephemeral volume configured for app %s. Skipping PVC creation.", app.Name)
-		return nil
-	}
-	deploymentName := c.deploymentName(session)
-	pvcSpec := v1ac.PersistentVolumeClaimSpec().WithAccessModes("ReadWriteOnce") //Will be changed in the future if the user has an NFS with shared games
-	requestSize := resource.MustParse("10Gi")
 
-	if app.Spec.VolumeConfig != nil && app.Spec.VolumeConfig.PVC != nil {
-		if app.Spec.VolumeConfig.PVC.Size != "" {
-			parsedSize, err := resource.ParseQuantity(app.Spec.VolumeConfig.PVC.Size)
-			if err != nil {
-				klog.Errorf("failed to parse PVC size '%s' for app '%s': '%v'. Using default", app.Spec.VolumeConfig.PVC.Size, app.Name, err)
-			} else {
-				requestSize = parsedSize
-			}
-		}
-		if app.Spec.VolumeConfig.PVC.StorageClassName != "" {
-			pvcSpec.WithStorageClassName(app.Spec.VolumeConfig.PVC.StorageClassName)
-		}
+	// Check if the user defined a volume claim template. If not, return nil.
+	if app.Spec.VolumeClaimTemplate == nil {
+		klog.Infof("App %s does not define a VolumeClaimTemplate, skipping PVC creation.", app.Name)
+		return nil
+	}	
+
+	pvcName := c.deploymentName(session)
+	templateSpec := app.Spec.VolumeClaimTemplate.Spec.DeepCopy()
+
+	// Default Access Mode: RWO
+	if len(templateSpec.AccessModes) == 0 {
+		templateSpec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
 	}
-	pvcSpec.WithResources(v1ac.VolumeResourceRequirements().
-		WithRequests(corev1.ResourceList{
-			corev1.ResourceStorage: requestSize,
-		}),
-	)
+
+	// Default Storage: 5Gi
+	if templateSpec.Resources.Requests == nil {
+		templateSpec.Resources.Requests = make(corev1.ResourceList)
+	}
+	if _, ok := templateSpec.Resources.Requests[corev1.ResourceStorage]; !ok {
+		templateSpec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("5Gi")
+	}
+	// Note: Default storage class is handled by Kubernetes if StorageClassName is nil.
+
+	// Build the PVC spec apply configuration from the defaulted spec
+	pvcSpec := v1ac.PersistentVolumeClaimSpec().
+		WithAccessModes(templateSpec.AccessModes...).
+		WithResources(v1ac.VolumeResourceRequirements().
+			WithLimits(templateSpec.Resources.Limits).
+			WithRequests(templateSpec.Resources.Requests))
+
+	if templateSpec.Selector != nil {
+		selectorConfig := metav1ac.LabelSelector()
+		if len(templateSpec.Selector.MatchLabels) > 0 {
+			selectorConfig.WithMatchLabels(templateSpec.Selector.MatchLabels)
+		}
+		if len(templateSpec.Selector.MatchExpressions) > 0 {
+			var expressions []*metav1ac.LabelSelectorRequirementApplyConfiguration
+			for _, req := range templateSpec.Selector.MatchExpressions {
+				expressions = append(expressions, metav1ac.LabelSelectorRequirement().
+					WithKey(req.Key).
+					WithOperator(req.Operator).
+					WithValues(req.Values...))
+			}
+			selectorConfig.WithMatchExpressions(expressions...)
+		}
+		pvcSpec.WithSelector(selectorConfig)
+	}
+	if templateSpec.StorageClassName != nil {
+		pvcSpec.WithStorageClassName(*templateSpec.StorageClassName)
+	}
+	if templateSpec.VolumeMode != nil {
+		pvcSpec.WithVolumeMode(*templateSpec.VolumeMode)
+	}
+	if templateSpec.DataSource != nil {
+		dsConfig := v1ac.TypedLocalObjectReference().
+			WithKind(templateSpec.DataSource.Kind).
+			WithName(templateSpec.DataSource.Name)
+		if templateSpec.DataSource.APIGroup != nil {
+			dsConfig.WithAPIGroup(*templateSpec.DataSource.APIGroup)
+		}
+		pvcSpec.WithDataSource(dsConfig)
+	}
+	if templateSpec.DataSourceRef != nil {
+		dsrConfig := v1ac.TypedObjectReference().
+			WithKind(templateSpec.DataSourceRef.Kind).
+			WithName(templateSpec.DataSourceRef.Name)
+		if templateSpec.DataSourceRef.APIGroup != nil {
+			dsrConfig.WithAPIGroup(*templateSpec.DataSourceRef.APIGroup)
+		}
+		if templateSpec.DataSourceRef.Namespace != nil {
+			dsrConfig.WithNamespace(*templateSpec.DataSourceRef.Namespace)
+		}
+		pvcSpec.WithDataSourceRef(dsrConfig)
+	}
+
 	_, err = c.K8sClient.CoreV1().PersistentVolumeClaims(session.Namespace).Apply(
 		ctx,
-		v1ac.PersistentVolumeClaim(deploymentName, session.Namespace).
-			WithLabels(
-				map[string]string{
-					"app":           "direwolf-worker",
-					"direwolf/app":  session.Spec.GameReference.Name,
-					"direwolf/user": session.Spec.UserReference.Name,
-				}).
+		v1ac.PersistentVolumeClaim(pvcName, session.Namespace).
+			WithLabels(map[string]string{
+				"app":           "direwolf-worker",
+				"direwolf/app":  session.Spec.GameReference.Name,
+				"direwolf/user": session.Spec.UserReference.Name,
+			}).
 			WithOwnerReferences(metav1ac.OwnerReference().
-				WithName(session.Spec.UserReference.Name).
+				WithName(user.Name).
 				WithAPIVersion(v1alpha1.GroupVersion.String()).
 				WithKind("User").
-				WithUID(user.UID)).
+				WithUID(user.UID).
+				WithController(true)).
 			WithSpec(pvcSpec),
 		metav1.ApplyOptions{
 			FieldManager: "direwolf-session-controller-pvc",
 		},
 	)
+
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to apply PVC %s: %w", pvcName, err)
 	}
 
 	return nil
 }
-
 func (c *SessionController) deploymentName(session *v1alpha1types.Session) string {
 	return fmt.Sprintf("%s-%s", session.Spec.UserReference.Name, session.Spec.GameReference.Name)
 }

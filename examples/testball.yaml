@@ -9,8 +9,7 @@ spec:
   id: 3
   isHDRSupported: false
   title: Test Ball
-  volumeConfig:
-    ephemeral: true #if set to false, it'll default to creating a pvc requesting 10Gi
+  # Since volumeClaimTemplate is not defined, an ephemeral EmptyDir volume will be used.
   wolfConfig:
     startAudioServer: false
     startVirtualCompositor: false
@@ -20,4 +19,3 @@ spec:
       source: |
         videotestsrc pattern=ball flip=true is-live=true !
         video/x-raw, framerate={fps}/1
-

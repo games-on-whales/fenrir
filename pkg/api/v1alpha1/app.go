@@ -47,34 +47,15 @@ type AppSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	WolfConfig WolfConfig `json:"wolfConfig" xml:"-"`
 
+    // A template for a PersistentVolumeClaim to be created for the app's
+    // home directory. If provided, the operator will create a PVC from
+    // this template and mount it at /home/retro.
+    // If not provided, an emptyDir volume will be used.
+    // all other volumes must be defined in the pod template's spec.volumes field.
 	// +kubebuilder:validation:Optional
-	// Configuration of the wolf-data volume mounted at the home dir of the app
-	// Only used if ephemeral is set to false
-	VolumeConfig *VolumeConfig `json:"volumeConfig,omitempty"`
+    VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
 }
 
-type VolumeConfig struct {
-	// +optional
-	// Ephemeral, if true, it'll use EmptyDir volume
-	// instead of creating a PVC
-	// Defaults to false
-	Ephemeral *bool `json:"ephemeral,omitempty"`
-	// +optional
-	// PVC configuration for the app
-	// This works when ephemeral is set to false
-	PVC *PVCConfig `json:"pvc,omitempty"`
-}
-
-type PVCConfig struct {
-	// +optional
-	// Name of the Storage class to provision the PVC from
-	// Defaults to the default storage class
-	StorageClassName string `json:"storageClassName,omitempty"`
-	// +optional
-	// Size of the requested storage of the PVC
-	// Defaults to 10Gi if not specified
-	Size string `json:"size,omitempty"`
-}
 type WolfConfig struct {
 	StartAudioServer       *bool `json:"startAudioServer,omitempty" toml:"start_audio_server,omitempty"`
 	StartVirtualCompositor *bool `json:"startVirtualCompositor,omitempty" toml:"start_video_compositor,omitempty"`

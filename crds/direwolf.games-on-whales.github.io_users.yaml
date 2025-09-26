@@ -38,466 +38,457 @@ spec:
             type: object
           spec:
             properties:
-              sessionResources:
+              resources:
                 description: |-
-                  SessionResources defines the resource allocation policies for any session
-                  started by the user
+                  Resources defines the maximum resource requests and limits that the app
+                  container can have. If an app requests exceeds these values,
+                  the app will fail to start.
                 properties:
-                  appPolicy:
+                  claims:
                     description: |-
-                      AppPolicy defines the maximum resource requests and limits that an App's
-                      main container can have. If an App is requested that exceeds these values,
-                      the session will fail to start.
+                      Claims lists the names of resources, defined in spec.resourceClaims,
+                      that are used by this container.
+
+                      This is an alpha field and requires enabling the
+                      DynamicResourceAllocation feature gate.
+
+                      This field is immutable. It can only be set for containers.
+                    items:
+                      description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                      properties:
+                        name:
+                          description: |-
+                            Name must match the name of one entry in pod.spec.resourceClaims of
+                            the Pod where this field is used. It makes that resource available
+                            inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
+                          type: string
+                      required:
+                      - name
+                      type: object
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - name
+                    x-kubernetes-list-type: map
+                  limits:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Limits describes the maximum amount of compute resources allowed.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                  requests:
+                    additionalProperties:
+                      anyOf:
+                      - type: integer
+                      - type: string
+                      pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                      x-kubernetes-int-or-string: true
+                    description: |-
+                      Requests describes the minimum amount of compute resources required.
+                      If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                      otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                      More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                    type: object
+                type: object
+              sidecarPolicies:
+                description: |-
+                  SidecarPolicies defines the resource requests and limits for the injected
+                  sidecar containers. If a policy for a sidecar is not defined here, the
+                  operator will use its own built-in default values.
+                properties:
+                  pulseaudio:
+                    description: Policy for the 'pulseaudio' audio control container
                     properties:
-                      claims:
-                        description: |-
-                          Claims lists the names of resources, defined in spec.resourceClaims,
-                          that are used by this container.
+                      resources:
+                        description: Resources for the sidecar
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
 
-                          This is an alpha field and requires enabling the
-                          DynamicResourceAllocation feature gate.
+                              This is an alpha field and requires enabling the
+                              DynamicResourceAllocation feature gate.
 
-                          This field is immutable. It can only be set for containers.
+                              This field is immutable. It can only be set for containers.
+                            items:
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                              properties:
+                                name:
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
+                                  type: string
+                                request:
+                                  description: |-
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            type: array
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
+                      volumeMounts:
+                        description: VolumeMounts specifies the volumes to mount into
+                          the sidecar.
                         items:
-                          description: ResourceClaim references one entry in PodSpec.ResourceClaims.
+                          description: VolumeMount describes a mounting of a Volume
+                            within a container.
                           properties:
-                            name:
+                            mountPath:
                               description: |-
-                                Name must match the name of one entry in pod.spec.resourceClaims of
-                                the Pod where this field is used. It makes that resource available
-                                inside a container.
+                                Path within the container at which the volume should be mounted.  Must
+                                not contain ':'.
                               type: string
-                            request:
+                            mountPropagation:
                               description: |-
-                                Request is the name chosen for a request in the referenced claim.
-                                If empty, everything from the claim is made available, otherwise
-                                only the result of this request.
+                                mountPropagation determines how mounts are propagated from the host
+                                to container and the other way around.
+                                When not set, MountPropagationNone is used.
+                                This field is beta in 1.10.
+                                When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
+                                (which defaults to None).
+                              type: string
+                            name:
+                              description: This must match the Name of a Volume.
+                              type: string
+                            readOnly:
+                              description: |-
+                                Mounted read-only if true, read-write otherwise (false or unspecified).
+                                Defaults to false.
+                              type: boolean
+                            recursiveReadOnly:
+                              description: |-
+                                RecursiveReadOnly specifies whether read-only mounts should be handled
+                                recursively.
+
+                                If ReadOnly is false, this field has no meaning and must be unspecified.
+
+                                If ReadOnly is true, and this field is set to Disabled, the mount is not made
+                                recursively read-only.  If this field is set to IfPossible, the mount is made
+                                recursively read-only, if it is supported by the container runtime.  If this
+                                field is set to Enabled, the mount is made recursively read-only if it is
+                                supported by the container runtime, otherwise the pod will not be started and
+                                an error will be generated to indicate the reason.
+
+                                If this field is set to IfPossible or Enabled, MountPropagation must be set to
+                                None (or be unspecified, which defaults to None).
+
+                                If this field is not specified, it is treated as an equivalent of Disabled.
+                              type: string
+                            subPath:
+                              description: |-
+                                Path within the volume from which the container's volume should be mounted.
+                                Defaults to "" (volume's root).
+                              type: string
+                            subPathExpr:
+                              description: |-
+                                Expanded path within the volume from which the container's volume should be mounted.
+                                Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
+                                Defaults to "" (volume's root).
+                                SubPathExpr and SubPath are mutually exclusive.
                               type: string
                           required:
+                          - mountPath
                           - name
                           type: object
                         type: array
-                        x-kubernetes-list-map-keys:
-                        - name
-                        x-kubernetes-list-type: map
-                      limits:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          Limits describes the maximum amount of compute resources allowed.
-                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                        type: object
-                      requests:
-                        additionalProperties:
-                          anyOf:
-                          - type: integer
-                          - type: string
-                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                          x-kubernetes-int-or-string: true
-                        description: |-
-                          Requests describes the minimum amount of compute resources required.
-                          If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                          otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                          More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                        type: object
                     type: object
-                  sidecarPolicies:
-                    description: |-
-                      SidecarPolicies defines the resource requests and limits for the injected
-                      sidecar containers. If a policy for a sidecar is not defined here, the
-                      operator will use its own built-in default values.
+                  wolf:
+                    description: Policy for the 'wolf' streaming sidecar
                     properties:
-                      pulseaudio:
-                        description: Policy for the 'pulseaudio' audio control container
+                      resources:
+                        description: Resources for the sidecar
                         properties:
-                          resources:
-                            description: Resources for the sidecar
-                            properties:
-                              claims:
-                                description: |-
-                                  Claims lists the names of resources, defined in spec.resourceClaims,
-                                  that are used by this container.
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
 
-                                  This is an alpha field and requires enabling the
-                                  DynamicResourceAllocation feature gate.
+                              This is an alpha field and requires enabling the
+                              DynamicResourceAllocation feature gate.
 
-                                  This field is immutable. It can only be set for containers.
-                                items:
-                                  description: ResourceClaim references one entry
-                                    in PodSpec.ResourceClaims.
-                                  properties:
-                                    name:
-                                      description: |-
-                                        Name must match the name of one entry in pod.spec.resourceClaims of
-                                        the Pod where this field is used. It makes that resource available
-                                        inside a container.
-                                      type: string
-                                    request:
-                                      description: |-
-                                        Request is the name chosen for a request in the referenced claim.
-                                        If empty, everything from the claim is made available, otherwise
-                                        only the result of this request.
-                                      type: string
-                                  required:
-                                  - name
-                                  type: object
-                                type: array
-                                x-kubernetes-list-map-keys:
-                                - name
-                                x-kubernetes-list-type: map
-                              limits:
-                                additionalProperties:
-                                  anyOf:
-                                  - type: integer
-                                  - type: string
-                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                  x-kubernetes-int-or-string: true
-                                description: |-
-                                  Limits describes the maximum amount of compute resources allowed.
-                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                                type: object
-                              requests:
-                                additionalProperties:
-                                  anyOf:
-                                  - type: integer
-                                  - type: string
-                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                  x-kubernetes-int-or-string: true
-                                description: |-
-                                  Requests describes the minimum amount of compute resources required.
-                                  If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                                  otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                                type: object
-                            type: object
-                          volumeMounts:
-                            description: VolumeMounts specifies the volumes to mount
-                              into the sidecar.
+                              This field is immutable. It can only be set for containers.
                             items:
-                              description: VolumeMount describes a mounting of a Volume
-                                within a container.
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
                               properties:
-                                mountPath:
-                                  description: |-
-                                    Path within the container at which the volume should be mounted.  Must
-                                    not contain ':'.
-                                  type: string
-                                mountPropagation:
-                                  description: |-
-                                    mountPropagation determines how mounts are propagated from the host
-                                    to container and the other way around.
-                                    When not set, MountPropagationNone is used.
-                                    This field is beta in 1.10.
-                                    When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
-                                    (which defaults to None).
-                                  type: string
                                 name:
-                                  description: This must match the Name of a Volume.
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
                                   type: string
-                                readOnly:
+                                request:
                                   description: |-
-                                    Mounted read-only if true, read-write otherwise (false or unspecified).
-                                    Defaults to false.
-                                  type: boolean
-                                recursiveReadOnly:
-                                  description: |-
-                                    RecursiveReadOnly specifies whether read-only mounts should be handled
-                                    recursively.
-
-                                    If ReadOnly is false, this field has no meaning and must be unspecified.
-
-                                    If ReadOnly is true, and this field is set to Disabled, the mount is not made
-                                    recursively read-only.  If this field is set to IfPossible, the mount is made
-                                    recursively read-only, if it is supported by the container runtime.  If this
-                                    field is set to Enabled, the mount is made recursively read-only if it is
-                                    supported by the container runtime, otherwise the pod will not be started and
-                                    an error will be generated to indicate the reason.
-
-                                    If this field is set to IfPossible or Enabled, MountPropagation must be set to
-                                    None (or be unspecified, which defaults to None).
-
-                                    If this field is not specified, it is treated as an equivalent of Disabled.
-                                  type: string
-                                subPath:
-                                  description: |-
-                                    Path within the volume from which the container's volume should be mounted.
-                                    Defaults to "" (volume's root).
-                                  type: string
-                                subPathExpr:
-                                  description: |-
-                                    Expanded path within the volume from which the container's volume should be mounted.
-                                    Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
-                                    Defaults to "" (volume's root).
-                                    SubPathExpr and SubPath are mutually exclusive.
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
                                   type: string
                               required:
-                              - mountPath
                               - name
                               type: object
                             type: array
-                        type: object
-                      wolf:
-                        description: Policy for the 'wolf' streaming sidecar
-                        properties:
-                          resources:
-                            description: Resources for the sidecar
-                            properties:
-                              claims:
-                                description: |-
-                                  Claims lists the names of resources, defined in spec.resourceClaims,
-                                  that are used by this container.
-
-                                  This is an alpha field and requires enabling the
-                                  DynamicResourceAllocation feature gate.
-
-                                  This field is immutable. It can only be set for containers.
-                                items:
-                                  description: ResourceClaim references one entry
-                                    in PodSpec.ResourceClaims.
-                                  properties:
-                                    name:
-                                      description: |-
-                                        Name must match the name of one entry in pod.spec.resourceClaims of
-                                        the Pod where this field is used. It makes that resource available
-                                        inside a container.
-                                      type: string
-                                    request:
-                                      description: |-
-                                        Request is the name chosen for a request in the referenced claim.
-                                        If empty, everything from the claim is made available, otherwise
-                                        only the result of this request.
-                                      type: string
-                                  required:
-                                  - name
-                                  type: object
-                                type: array
-                                x-kubernetes-list-map-keys:
-                                - name
-                                x-kubernetes-list-type: map
-                              limits:
-                                additionalProperties:
-                                  anyOf:
-                                  - type: integer
-                                  - type: string
-                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                  x-kubernetes-int-or-string: true
-                                description: |-
-                                  Limits describes the maximum amount of compute resources allowed.
-                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                                type: object
-                              requests:
-                                additionalProperties:
-                                  anyOf:
-                                  - type: integer
-                                  - type: string
-                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                  x-kubernetes-int-or-string: true
-                                description: |-
-                                  Requests describes the minimum amount of compute resources required.
-                                  If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                                  otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                                type: object
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                             type: object
-                          volumeMounts:
-                            description: VolumeMounts specifies the volumes to mount
-                              into the sidecar.
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
+                        type: object
+                      volumeMounts:
+                        description: VolumeMounts specifies the volumes to mount into
+                          the sidecar.
+                        items:
+                          description: VolumeMount describes a mounting of a Volume
+                            within a container.
+                          properties:
+                            mountPath:
+                              description: |-
+                                Path within the container at which the volume should be mounted.  Must
+                                not contain ':'.
+                              type: string
+                            mountPropagation:
+                              description: |-
+                                mountPropagation determines how mounts are propagated from the host
+                                to container and the other way around.
+                                When not set, MountPropagationNone is used.
+                                This field is beta in 1.10.
+                                When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
+                                (which defaults to None).
+                              type: string
+                            name:
+                              description: This must match the Name of a Volume.
+                              type: string
+                            readOnly:
+                              description: |-
+                                Mounted read-only if true, read-write otherwise (false or unspecified).
+                                Defaults to false.
+                              type: boolean
+                            recursiveReadOnly:
+                              description: |-
+                                RecursiveReadOnly specifies whether read-only mounts should be handled
+                                recursively.
+
+                                If ReadOnly is false, this field has no meaning and must be unspecified.
+
+                                If ReadOnly is true, and this field is set to Disabled, the mount is not made
+                                recursively read-only.  If this field is set to IfPossible, the mount is made
+                                recursively read-only, if it is supported by the container runtime.  If this
+                                field is set to Enabled, the mount is made recursively read-only if it is
+                                supported by the container runtime, otherwise the pod will not be started and
+                                an error will be generated to indicate the reason.
+
+                                If this field is set to IfPossible or Enabled, MountPropagation must be set to
+                                None (or be unspecified, which defaults to None).
+
+                                If this field is not specified, it is treated as an equivalent of Disabled.
+                              type: string
+                            subPath:
+                              description: |-
+                                Path within the volume from which the container's volume should be mounted.
+                                Defaults to "" (volume's root).
+                              type: string
+                            subPathExpr:
+                              description: |-
+                                Expanded path within the volume from which the container's volume should be mounted.
+                                Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
+                                Defaults to "" (volume's root).
+                                SubPathExpr and SubPath are mutually exclusive.
+                              type: string
+                          required:
+                          - mountPath
+                          - name
+                          type: object
+                        type: array
+                    type: object
+                  wolfAgent:
+                    description: Policy for the 'wolf' session starter container
+                    properties:
+                      resources:
+                        description: Resources for the sidecar
+                        properties:
+                          claims:
+                            description: |-
+                              Claims lists the names of resources, defined in spec.resourceClaims,
+                              that are used by this container.
+
+                              This is an alpha field and requires enabling the
+                              DynamicResourceAllocation feature gate.
+
+                              This field is immutable. It can only be set for containers.
                             items:
-                              description: VolumeMount describes a mounting of a Volume
-                                within a container.
+                              description: ResourceClaim references one entry in PodSpec.ResourceClaims.
                               properties:
-                                mountPath:
-                                  description: |-
-                                    Path within the container at which the volume should be mounted.  Must
-                                    not contain ':'.
-                                  type: string
-                                mountPropagation:
-                                  description: |-
-                                    mountPropagation determines how mounts are propagated from the host
-                                    to container and the other way around.
-                                    When not set, MountPropagationNone is used.
-                                    This field is beta in 1.10.
-                                    When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
-                                    (which defaults to None).
-                                  type: string
                                 name:
-                                  description: This must match the Name of a Volume.
+                                  description: |-
+                                    Name must match the name of one entry in pod.spec.resourceClaims of
+                                    the Pod where this field is used. It makes that resource available
+                                    inside a container.
                                   type: string
-                                readOnly:
+                                request:
                                   description: |-
-                                    Mounted read-only if true, read-write otherwise (false or unspecified).
-                                    Defaults to false.
-                                  type: boolean
-                                recursiveReadOnly:
-                                  description: |-
-                                    RecursiveReadOnly specifies whether read-only mounts should be handled
-                                    recursively.
-
-                                    If ReadOnly is false, this field has no meaning and must be unspecified.
-
-                                    If ReadOnly is true, and this field is set to Disabled, the mount is not made
-                                    recursively read-only.  If this field is set to IfPossible, the mount is made
-                                    recursively read-only, if it is supported by the container runtime.  If this
-                                    field is set to Enabled, the mount is made recursively read-only if it is
-                                    supported by the container runtime, otherwise the pod will not be started and
-                                    an error will be generated to indicate the reason.
-
-                                    If this field is set to IfPossible or Enabled, MountPropagation must be set to
-                                    None (or be unspecified, which defaults to None).
-
-                                    If this field is not specified, it is treated as an equivalent of Disabled.
-                                  type: string
-                                subPath:
-                                  description: |-
-                                    Path within the volume from which the container's volume should be mounted.
-                                    Defaults to "" (volume's root).
-                                  type: string
-                                subPathExpr:
-                                  description: |-
-                                    Expanded path within the volume from which the container's volume should be mounted.
-                                    Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
-                                    Defaults to "" (volume's root).
-                                    SubPathExpr and SubPath are mutually exclusive.
+                                    Request is the name chosen for a request in the referenced claim.
+                                    If empty, everything from the claim is made available, otherwise
+                                    only the result of this request.
                                   type: string
                               required:
-                              - mountPath
                               - name
                               type: object
                             type: array
-                        type: object
-                      wolfAgent:
-                        description: Policy for the 'wolf' session starter container
-                        properties:
-                          resources:
-                            description: Resources for the sidecar
-                            properties:
-                              claims:
-                                description: |-
-                                  Claims lists the names of resources, defined in spec.resourceClaims,
-                                  that are used by this container.
-
-                                  This is an alpha field and requires enabling the
-                                  DynamicResourceAllocation feature gate.
-
-                                  This field is immutable. It can only be set for containers.
-                                items:
-                                  description: ResourceClaim references one entry
-                                    in PodSpec.ResourceClaims.
-                                  properties:
-                                    name:
-                                      description: |-
-                                        Name must match the name of one entry in pod.spec.resourceClaims of
-                                        the Pod where this field is used. It makes that resource available
-                                        inside a container.
-                                      type: string
-                                    request:
-                                      description: |-
-                                        Request is the name chosen for a request in the referenced claim.
-                                        If empty, everything from the claim is made available, otherwise
-                                        only the result of this request.
-                                      type: string
-                                  required:
-                                  - name
-                                  type: object
-                                type: array
-                                x-kubernetes-list-map-keys:
-                                - name
-                                x-kubernetes-list-type: map
-                              limits:
-                                additionalProperties:
-                                  anyOf:
-                                  - type: integer
-                                  - type: string
-                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                  x-kubernetes-int-or-string: true
-                                description: |-
-                                  Limits describes the maximum amount of compute resources allowed.
-                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                                type: object
-                              requests:
-                                additionalProperties:
-                                  anyOf:
-                                  - type: integer
-                                  - type: string
-                                  pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
-                                  x-kubernetes-int-or-string: true
-                                description: |-
-                                  Requests describes the minimum amount of compute resources required.
-                                  If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
-                                  otherwise to an implementation-defined value. Requests cannot exceed Limits.
-                                  More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
-                                type: object
+                            x-kubernetes-list-map-keys:
+                            - name
+                            x-kubernetes-list-type: map
+                          limits:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Limits describes the maximum amount of compute resources allowed.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
                             type: object
-                          volumeMounts:
-                            description: VolumeMounts specifies the volumes to mount
-                              into the sidecar.
-                            items:
-                              description: VolumeMount describes a mounting of a Volume
-                                within a container.
-                              properties:
-                                mountPath:
-                                  description: |-
-                                    Path within the container at which the volume should be mounted.  Must
-                                    not contain ':'.
-                                  type: string
-                                mountPropagation:
-                                  description: |-
-                                    mountPropagation determines how mounts are propagated from the host
-                                    to container and the other way around.
-                                    When not set, MountPropagationNone is used.
-                                    This field is beta in 1.10.
-                                    When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
-                                    (which defaults to None).
-                                  type: string
-                                name:
-                                  description: This must match the Name of a Volume.
-                                  type: string
-                                readOnly:
-                                  description: |-
-                                    Mounted read-only if true, read-write otherwise (false or unspecified).
-                                    Defaults to false.
-                                  type: boolean
-                                recursiveReadOnly:
-                                  description: |-
-                                    RecursiveReadOnly specifies whether read-only mounts should be handled
-                                    recursively.
-
-                                    If ReadOnly is false, this field has no meaning and must be unspecified.
-
-                                    If ReadOnly is true, and this field is set to Disabled, the mount is not made
-                                    recursively read-only.  If this field is set to IfPossible, the mount is made
-                                    recursively read-only, if it is supported by the container runtime.  If this
-                                    field is set to Enabled, the mount is made recursively read-only if it is
-                                    supported by the container runtime, otherwise the pod will not be started and
-                                    an error will be generated to indicate the reason.
-
-                                    If this field is set to IfPossible or Enabled, MountPropagation must be set to
-                                    None (or be unspecified, which defaults to None).
-
-                                    If this field is not specified, it is treated as an equivalent of Disabled.
-                                  type: string
-                                subPath:
-                                  description: |-
-                                    Path within the volume from which the container's volume should be mounted.
-                                    Defaults to "" (volume's root).
-                                  type: string
-                                subPathExpr:
-                                  description: |-
-                                    Expanded path within the volume from which the container's volume should be mounted.
-                                    Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
-                                    Defaults to "" (volume's root).
-                                    SubPathExpr and SubPath are mutually exclusive.
-                                  type: string
-                              required:
-                              - mountPath
-                              - name
-                              type: object
-                            type: array
+                          requests:
+                            additionalProperties:
+                              anyOf:
+                              - type: integer
+                              - type: string
+                              pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                              x-kubernetes-int-or-string: true
+                            description: |-
+                              Requests describes the minimum amount of compute resources required.
+                              If Requests is omitted for a container, it defaults to Limits if that is explicitly specified,
+                              otherwise to an implementation-defined value. Requests cannot exceed Limits.
+                              More info: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/
+                            type: object
                         type: object
+                      volumeMounts:
+                        description: VolumeMounts specifies the volumes to mount into
+                          the sidecar.
+                        items:
+                          description: VolumeMount describes a mounting of a Volume
+                            within a container.
+                          properties:
+                            mountPath:
+                              description: |-
+                                Path within the container at which the volume should be mounted.  Must
+                                not contain ':'.
+                              type: string
+                            mountPropagation:
+                              description: |-
+                                mountPropagation determines how mounts are propagated from the host
+                                to container and the other way around.
+                                When not set, MountPropagationNone is used.
+                                This field is beta in 1.10.
+                                When RecursiveReadOnly is set to IfPossible or to Enabled, MountPropagation must be None or unspecified
+                                (which defaults to None).
+                              type: string
+                            name:
+                              description: This must match the Name of a Volume.
+                              type: string
+                            readOnly:
+                              description: |-
+                                Mounted read-only if true, read-write otherwise (false or unspecified).
+                                Defaults to false.
+                              type: boolean
+                            recursiveReadOnly:
+                              description: |-
+                                RecursiveReadOnly specifies whether read-only mounts should be handled
+                                recursively.
+
+                                If ReadOnly is false, this field has no meaning and must be unspecified.
+
+                                If ReadOnly is true, and this field is set to Disabled, the mount is not made
+                                recursively read-only.  If this field is set to IfPossible, the mount is made
+                                recursively read-only, if it is supported by the container runtime.  If this
+                                field is set to Enabled, the mount is made recursively read-only if it is
+                                supported by the container runtime, otherwise the pod will not be started and
+                                an error will be generated to indicate the reason.
+
+                                If this field is set to IfPossible or Enabled, MountPropagation must be set to
+                                None (or be unspecified, which defaults to None).
+
+                                If this field is not specified, it is treated as an equivalent of Disabled.
+                              type: string
+                            subPath:
+                              description: |-
+                                Path within the volume from which the container's volume should be mounted.
+                                Defaults to "" (volume's root).
+                              type: string
+                            subPathExpr:
+                              description: |-
+                                Expanded path within the volume from which the container's volume should be mounted.
+                                Behaves similarly to SubPath but environment variable references $(VAR_NAME) are expanded using the container's environment.
+                                Defaults to "" (volume's root).
+                                SubPathExpr and SubPath are mutually exclusive.
+                              type: string
+                          required:
+                          - mountPath
+                          - name
+                          type: object
+                        type: array
                     type: object
                 type: object
               volumes:

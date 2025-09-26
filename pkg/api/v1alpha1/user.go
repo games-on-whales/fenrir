@@ -21,21 +21,14 @@ type User struct {
 }
 
 type UserSpec struct {
-	// SessionResources defines the resource allocation policies for any session
-	// started by the user
+	// Resources defines the maximum resource requests and limits that the app
+	// container can have. If an app requests exceeds these values,
+	// the app will fail to start.
 	// +optional
-	SessionResources *SessionResourcePolicy `json:"sessionResources,omitempty"`
+	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
 	// Volumes defines the volumes that can be mounted by the session's pods.
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
-}
-
-type SessionResourcePolicy struct {
-	// AppPolicy defines the maximum resource requests and limits that an App's
-	// main container can have. If an App is requested that exceeds these values,
-	// the session will fail to start.
-	// +optional
-	AppPolicy *corev1.ResourceRequirements `json:"appPolicy,omitempty"`
 	// SidecarPolicies defines the resource requests and limits for the injected
 	// sidecar containers. If a policy for a sidecar is not defined here, the
 	// operator will use its own built-in default values.

@@ -32,14 +32,7 @@ spec:
               groups:
                 - count: 10
                   paths:
-                    - path: /dev/dri/renderD128
-                    - path: /dev/dri/card1
-            - --device
-            - |
-              name: kfd
-              groups:
-                - count: 1
-                  paths:
+                    - path: /dev/dri
                     - path: /dev/kfd
           name: generic-device-plugin-gaming
           resources:

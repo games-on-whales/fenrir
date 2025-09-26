@@ -25,8 +25,9 @@ import (
 // UserSpecApplyConfiguration represents a declarative configuration of the UserSpec type for use
 // with apply.
 type UserSpecApplyConfiguration struct {
-	SessionResources *SessionResourcePolicyApplyConfiguration `json:"sessionResources,omitempty"`
-	Volumes          []v1.Volume                              `json:"volumes,omitempty"`
+	Resources       *v1.ResourceRequirements           `json:"resources,omitempty"`
+	Volumes         []v1.Volume                        `json:"volumes,omitempty"`
+	SidecarPolicies *SidecarPoliciesApplyConfiguration `json:"sidecarPolicies,omitempty"`
 }
 
 // UserSpecApplyConfiguration constructs a declarative configuration of the UserSpec type for use with
@@ -35,11 +36,11 @@ func UserSpec() *UserSpecApplyConfiguration {
 	return &UserSpecApplyConfiguration{}
 }
 
-// WithSessionResources sets the SessionResources field in the declarative configuration to the given value
+// WithResources sets the Resources field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SessionResources field is set to the value of the last call.
-func (b *UserSpecApplyConfiguration) WithSessionResources(value *SessionResourcePolicyApplyConfiguration) *UserSpecApplyConfiguration {
-	b.SessionResources = value
+// If called multiple times, the Resources field is set to the value of the last call.
+func (b *UserSpecApplyConfiguration) WithResources(value v1.ResourceRequirements) *UserSpecApplyConfiguration {
+	b.Resources = &value
 	return b
 }
 
@@ -50,5 +51,13 @@ func (b *UserSpecApplyConfiguration) WithVolumes(values ...v1.Volume) *UserSpecA
 	for i := range values {
 		b.Volumes = append(b.Volumes, values[i])
 	}
+	return b
+}
+
+// WithSidecarPolicies sets the SidecarPolicies field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SidecarPolicies field is set to the value of the last call.
+func (b *UserSpecApplyConfiguration) WithSidecarPolicies(value *SidecarPoliciesApplyConfiguration) *UserSpecApplyConfiguration {
+	b.SidecarPolicies = value
 	return b
 }
