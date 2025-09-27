@@ -53,7 +53,7 @@ type AppSpec struct {
     // If not provided, an emptyDir volume will be used.
     // all other volumes must be defined in the pod template's spec.volumes field.
 	// +kubebuilder:validation:Optional
-    VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
+    VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
 }
 
 type WolfConfig struct {

@@ -8,15 +8,9 @@ spec:
   id: 1
   isHDRSupported: false
   title: Firefox
-  # This will automatically provision a pvc with default settings
-  volumeClaimTemplate:
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      resources:
-        requests:
-          storage: 1Gi
-
+  #This will automatically provision storage with the default parameters
+  volumeClaimTemplate: 
+    spec: {}
   template:
     spec:
       containers:
@@ -24,11 +18,11 @@ spec:
         image: ghcr.io/games-on-whales/firefox:edge
         resources:
           limits:
-            squat.ai/dri: "1"
+            # squat.ai/dri: "1"
             cpu: 2000m
             memory: 4G
           requests:
-            squat.ai/dri: "1"
+            # squat.ai/dri: "1"
             cpu: 2000m
             memory: 4G
         command:
