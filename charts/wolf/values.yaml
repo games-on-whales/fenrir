@@ -66,8 +66,8 @@ controllers:
     containers:
       proxy:
         args:
-          - --tls-cert=/etc/certs/server.crt
-          - --tls-key=/etc/certs/server.key
+          - --tls-cert=/etc/certs/tls.crt
+          - --tls-key=/etc/certs/tls.key
         image:
           repository: ghcr.io/games-on-whales/moonlight-proxy
           tag: main
@@ -187,7 +187,7 @@ rawResources:
     spec:
       spec:
         ca:
-          secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-cert'
+          secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca'
 # Finally, generate a serving certificate for the direwolf to use
   cert:
     apiVersion: cert-manager.io/v1
