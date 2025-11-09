@@ -165,37 +165,41 @@ rawResources:
     apiVersion: cert-manager.io/v1
     kind: Issuer
     spec:
-      selfSigned: {}
+      spec:
+        selfSigned: {}
   # Generate a CA Certificate used to sign certificates
   ca-cert:
     apiVersion: cert-manager.io/v1
     kind: Certificate
     spec:
-      secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca'
-      duration: 43800h # 5y
-      issuerRef:
-        name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-self-signed-issuer'
-        kind: Issuer
-      commonName: 'ca.{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.cert-manager'
-      isCA: true
+      spec:
+        secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca'
+        duration: 43800h # 5y
+        issuerRef:
+          name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-self-signed-issuer'
+          kind: Issuer
+        commonName: 'ca.{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.cert-manager'
+        isCA: true
   # Create an Issuer that uses the above generated CA certificate to issue certs
   ca-issuer:
     apiVersion: cert-manager.io/v1
     kind: Issuer
     spec:
-      ca:
-        secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-cert'
+      spec:
+        ca:
+          secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-cert'
 # Finally, generate a serving certificate for the direwolf to use
   cert:
     apiVersion: cert-manager.io/v1
     kind: Certificate
     spec:
-      secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-tls'
-      duration: 8760h # 1y
-      issuerRef:
-        name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-issuer'
-        kind: Issuer
-      dnsNames:
-      - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}'
-      - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.{{ .Release.Namespace }}'
-      - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.{{ .Release.Namespace }}.svc'
+      spec:
+        secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-tls'
+        duration: 8760h # 1y
+        issuerRef:
+          name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-issuer'
+          kind: Issuer
+        dnsNames:
+        - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}'
+        - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.{{ .Release.Namespace }}'
+        - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.{{ .Release.Namespace }}.svc'
