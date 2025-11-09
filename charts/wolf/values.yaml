@@ -73,7 +73,6 @@ controllers:
           tag: main
           pullPolicy: Always
         env:
-          HARDCODED_PIN: 1111
           POD_NAME:
             valueFrom:
               fieldRef:
