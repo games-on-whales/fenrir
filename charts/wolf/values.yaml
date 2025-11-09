@@ -22,7 +22,7 @@ controllers:
   direwolf-operator:
     forceRename: *operatorName
     serviceAccount:
-      reference: *operatorName
+      identifier: *operatorName
     pod:
       affinity:
         podAntiAffinity:
@@ -62,7 +62,7 @@ controllers:
   moonlight-proxy:
     forceRename: *proxyName
     serviceAccount:
-      reference: *proxyName
+      identifier: *proxyName
     containers:
       proxy:
         args:
