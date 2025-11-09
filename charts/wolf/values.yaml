@@ -1,0 +1,201 @@
+---
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s-labs/helm-charts/common-4.4.0/charts/library/common/values.schema.json
+
+global:
+  fullnameOverride: direwolf
+
+serviceAccount:
+  direwolf-operator:
+    forceRename: &operatorName direwolf-operator
+  moonlight-proxy:
+    forceRename: &proxyName moonlight-proxy
+
+defaultPodOptions:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 100
+    fsGroup: 100
+    fsGroupChangePolicy: OnRootMismatch
+
+controllers:
+  direwolf-operator:
+    forceRename: *operatorName
+    serviceAccount:
+      reference: *operatorName
+    pod:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - "{{ .Release.Name }}"
+                topologyKey: kubernetes.io/hostname
+    containers:
+      operator:
+        image:
+          repository: ghcr.io/games-on-whales/operator
+          tag: main
+          pullPolicy: Always
+        env:
+          POD_NAME:
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          POD_NAMESPACE: "{{ .Release.Namespace }}"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: { drop: ["ALL"] }
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+  moonlight-proxy:
+    forceRename: *proxyName
+    serviceAccount:
+      reference: *proxyName
+    containers:
+      proxy:
+        args:
+          - --tls-cert=/etc/certs/server.crt
+          - --tls-key=/etc/certs/server.key
+        image:
+          repository: ghcr.io/games-on-whales/moonlight-proxy
+          tag: main
+          pullPolicy: Always
+        env:
+          HARDCODED_PIN: 1111
+          POD_NAME:
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          POD_NAMESPACE: "{{ .Release.Namespace }}"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: { drop: ["ALL"] }
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+service:
+  app:
+    controller: moonlight-proxy
+    type: LoadBalancer
+    annotations:
+      lbipam.cilium.io/sharing-key: direwolf
+    ports:
+      http:
+        protocol: TCP
+        port: 47984
+      https:
+        protocol: TCP
+        port: 47989
+persistence:
+  tls-cert:
+    type: secret
+    name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-tls'
+    defaultMode: 0400
+    advancedMounts:
+      moonlight-proxy:
+        proxy:
+          - path: /etc/certs
+            readOnly: true
+rbac:
+  roles:
+    direwolf-operator:
+      forceRename: *operatorName
+      type: Role
+      rules:
+        - apiGroups: ["coordination.k8s.io"]
+          resources: ["leases"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        - apiGroups: ["direwolf.games-on-whales.github.io"]
+          resources: ["*"]
+          verbs: ["*"]
+        - apiGroups: ["apps"]
+          resources: ["deployments"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        - apiGroups: [""]
+          resources: ["services", "persistentvolumeclaims", "configmaps"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    moonlight-proxy:
+      forceRename: *proxyName
+      type: Role
+      rules:
+      - apiGroups: ["direwolf.games-on-whales.github.io"]
+        resources: ["*"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["direwolf.games-on-whales.github.io"]
+        resources: ["pairings", "sessions"]
+        verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
+  bindings:
+    direwolf-operator:
+      forceRename: *operatorName
+      type: RoleBinding
+      roleRef:
+        identifier: *operatorName
+      subjects:
+        - identifier: *operatorName
+    moonlight-proxy:
+      forceRename: *proxyName
+      type: RoleBinding
+      roleRef:
+        identifier: *proxyName
+      subjects:
+        - identifier: *proxyName
+rawResources:
+  # Create a selfsigned Issuer, in order to create a root CA certificate for signing certificates
+  self-signed-issuer:
+    apiVersion: cert-manager.io/v1
+    kind: Issuer
+    spec:
+      selfSigned: {}
+  # Generate a CA Certificate used to sign certificates
+  ca-cert:
+    apiVersion: cert-manager.io/v1
+    kind: Certificate
+    spec:
+      secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca'
+      duration: 43800h # 5y
+      issuerRef:
+        name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-self-signed-issuer'
+        kind: Issuer
+      commonName: 'ca.{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.cert-manager'
+      isCA: true
+  # Create an Issuer that uses the above generated CA certificate to issue certs
+  ca-issuer:
+    apiVersion: cert-manager.io/v1
+    kind: Issuer
+    spec:
+      ca:
+        secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-cert'
+# Finally, generate a serving certificate for the direwolf to use
+  cert:
+    apiVersion: cert-manager.io/v1
+    kind: Certificate
+    spec:
+      secretName: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-tls'
+      duration: 8760h # 1y
+      issuerRef:
+        name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-ca-issuer'
+        kind: Issuer
+      dnsNames:
+      - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}'
+      - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.{{ .Release.Namespace }}'
+      - '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}.{{ .Release.Namespace }}.svc'
