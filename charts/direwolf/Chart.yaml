@@ -1,8 +1,8 @@
 ---
 apiVersion: v2
 appVersion: 0.0.1
-description: Streams graphic applications/games (retroarch, firefox, steam) runing on Kubernetes
-name: wolf
+description: Streams graphic applications/games (retroarch, firefox, steam) running on Kubernetes
+name: direwolf
 version: 0.0.1
 kubeVersion: ">=1.28.0-0"
 keywords:
