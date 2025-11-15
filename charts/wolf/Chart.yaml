@@ -1,0 +1,25 @@
+---
+apiVersion: v2
+appVersion: 0.0.1
+description: Streams graphic applications/games (retroarch, firefox, steam) runing on Kubernetes
+name: wolf
+version: 0.0.1
+kubeVersion: ">=1.28.0-0"
+keywords:
+  - games-on-whales
+  - steam
+  - X11
+  - pulse
+  - stream
+  - retroarch
+home: https://github.com/k8s-at-home/charts/tree/master/charts/wolf
+icon: https://images.opencollective.com/games-on-whales/33a2797/logo/128.png
+sources:
+  - https://github.com/games-on-whales/wolf
+maintainers:
+  - name: brunnels
+    email: kraven@kraven.org
+dependencies:
+  - name: common
+    repository: https://bjw-s-labs.github.io/helm-charts
+    version: 4.4.0
