@@ -59,6 +59,7 @@ jobs:
       - name: Package Helm chart
         run: |
           mkdir -p packaged
+          helm dependency update charts/direwolf
           helm package charts/direwolf -d packaged
           ls -lah packaged
 
