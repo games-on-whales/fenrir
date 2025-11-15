@@ -33,7 +33,7 @@ jobs:
         id: get_version
         run: |
           set -euo pipefail
-          chart_path="charts/direwolf"
+          chart_path="charts/direwolf-operator"
           if [ ! -f "$chart_path/Chart.yaml" ]; then
             echo "Chart.yaml not found at $chart_path" >&2
             exit 1
@@ -49,9 +49,9 @@ jobs:
       - name: Copy CRDs into chart
         run: |
           # Ensure the chart CRDs directory exists and copy repository CRDs there. This makes them part of the packaged chart.
-          mkdir -p charts/direwolf/crds
+          mkdir -p charts/direwolf-operator/crds
           if compgen -G "crds/*.yaml" > /dev/null; then
-            cp crds/*.yaml charts/direwolf/crds/
+            cp crds/*.yaml charts/direwolf-operator/crds/
           else
             echo "No CRDs found in repository crds/ - continuing"
           fi
@@ -59,8 +59,8 @@ jobs:
       - name: Package Helm chart
         run: |
           mkdir -p packaged
-          helm dependency update charts/direwolf
-          helm package charts/direwolf -d packaged
+          helm dependency update charts/direwolf-operator
+          helm package charts/direwolf-operator -d packaged
           ls -lah packaged
 
       - name: Login to GHCR for Helm OCI
