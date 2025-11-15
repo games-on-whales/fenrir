@@ -80,11 +80,11 @@ jobs:
             echo "No packaged chart found" >&2
             exit 1
           fi
-          chart_ref="oci://ghcr.io/${{ github.repository_owner }}/direwolf-chart"
+          chart_ref="oci://ghcr.io/${{ github.repository_owner }}/charts"
           echo "Pushing $chart_file to $chart_ref"
           helm push "$chart_file" "$chart_ref"
 
       - name: Verify pushed artifact
         run: |
-          chart_ref="oci://ghcr.io/${{ github.repository_owner }}/direwolf-chart:${{ steps.get_version.outputs.version }}"
+          chart_ref="oci://ghcr.io/${{ github.repository_owner }}/charts:${{ steps.get_version.outputs.version }}"
           echo "Pushed chart $chart_ref"
