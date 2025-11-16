@@ -944,6 +944,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
 	var wolfAgentVolumeMounts, pulseAudioVolumeMounts, wolfVolumeMounts []corev1.VolumeMount
 	var wolfAgentSecurityContext, pulseAudioSecurityContext, wolfSecurityContext *corev1.SecurityContext
+	var podHostIPC bool // Variable to track if HostIPC should be enabled for the pod
 
 	// Set defaults first
 	wolfAgentResources = wolfAgentDefaultResources
@@ -965,6 +966,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
 			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
 			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
+			if policies.WolfAgent.HostIPC != nil && *policies.WolfAgent.HostIPC {
+				podHostIPC = true
+			}
 		}
 		if policies.PulseAudio != nil {
 			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
@@ -973,6 +977,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
 			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
 			pulseAudioSecurityContext = policies.PulseAudio.SecurityContext
+			if policies.PulseAudio.HostIPC != nil && *policies.PulseAudio.HostIPC {
+				podHostIPC = true
+			}
 		}
 		if policies.Wolf != nil {
 			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
@@ -981,8 +988,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
 			wolfVolumeMounts = policies.Wolf.VolumeMounts
 			wolfSecurityContext = policies.Wolf.SecurityContext
+			if policies.Wolf.HostIPC != nil && *policies.Wolf.HostIPC {
+				podHostIPC = true
+			}
 		}
 	}
+
+	// Apply HostIPC setting to the pod spec if requested by any sidecar policy
+	podToCreate.Spec.HostIPC = podHostIPC
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{

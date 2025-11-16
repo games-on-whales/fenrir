@@ -109,6 +109,12 @@ spec:
                   pulseaudio:
                     description: Policy for the 'pulseaudio' audio control container
                     properties:
+                      hostIPC:
+                        description: |-
+                          HostIPC requests that the pod share the host's IPC namespace.
+                          This is a pod-level setting. If any sidecar policy requests it, it will be enabled for the entire pod.
+                          I'm not sure if this is safe.
+                        type: boolean
                       resources:
                         description: Resources for the sidecar
                         properties:
@@ -430,6 +436,12 @@ spec:
                   wolf:
                     description: Policy for the 'wolf' streaming sidecar
                     properties:
+                      hostIPC:
+                        description: |-
+                          HostIPC requests that the pod share the host's IPC namespace.
+                          This is a pod-level setting. If any sidecar policy requests it, it will be enabled for the entire pod.
+                          I'm not sure if this is safe.
+                        type: boolean
                       resources:
                         description: Resources for the sidecar
                         properties:
@@ -751,6 +763,12 @@ spec:
                   wolfAgent:
                     description: Policy for the 'wolf' session starter container
                     properties:
+                      hostIPC:
+                        description: |-
+                          HostIPC requests that the pod share the host's IPC namespace.
+                          This is a pod-level setting. If any sidecar policy requests it, it will be enabled for the entire pod.
+                          I'm not sure if this is safe.
+                        type: boolean
                       resources:
                         description: Resources for the sidecar
                         properties:

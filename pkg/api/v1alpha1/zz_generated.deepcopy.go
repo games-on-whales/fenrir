@@ -449,6 +449,11 @@ func (in *SidecarPolicy) DeepCopyInto(out *SidecarPolicy) {
 		*out = new(v1.SecurityContext)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.HostIPC != nil {
+		in, out := &in.HostIPC, &out.HostIPC
+		*out = new(bool)
+		**out = **in
+	}
 	return
 }
 
