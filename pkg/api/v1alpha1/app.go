@@ -56,6 +56,29 @@ type AppSpec struct {
     VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
 }
 
+type RuntimeWolfVariables struct {
+	// RenderNode specifies the filepath to the DRM render node device.
+	// Example: "/dev/dri/renderD128", empty by default
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=""
+	RenderNode string `json:"renderNode,omitempty""`
+	
+	// Time zone for the wolf container
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=UTC
+	TimeZone string `json:"timeZone,omitempty"`
+
+	// Logging level for wolf.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=ERROR;WARNING;INFO;DEBUG;TRACE
+	// +kubebuilder:default:="DEBUG"
+	LogLevel string `json:"logLevel,omitempty"`
+
+	// This is the client IP, put it as your node ip or whatever, otherwise it'll fail, or maybe it only fails in my kind cluster i don't know
+	// +kubebuilder:validation:Optional
+	ClientIP string `json:"clientIP,omitempty"`
+}
+
 type WolfConfig struct {
 	StartAudioServer       *bool `json:"startAudioServer,omitempty" toml:"start_audio_server,omitempty"`
 	StartVirtualCompositor *bool `json:"startVirtualCompositor,omitempty" toml:"start_video_compositor,omitempty"`
@@ -67,6 +90,10 @@ type WolfConfig struct {
 	Video *WolfStreamConfig `json:"video,omitempty" toml:"video,omitempty"`
 
 	Runner *WolfRunnerConfig `json:"runner,omitempty" toml:"runner,omitempty"`
+	
+	// Additional wolf configs to use.
+	// +kubebuilder:validation:Optional
+	RuntimeVariables *RuntimeWolfVariables `json:"runtimeVariables,omitempty"`
 }
 
 type WolfStreamConfig struct {

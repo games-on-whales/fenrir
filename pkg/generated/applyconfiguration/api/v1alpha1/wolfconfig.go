@@ -21,13 +21,14 @@ package v1alpha1
 // WolfConfigApplyConfiguration represents a declarative configuration of the WolfConfig type for use
 // with apply.
 type WolfConfigApplyConfiguration struct {
-	StartAudioServer       *bool                               `json:"startAudioServer,omitempty"`
-	StartVirtualCompositor *bool                               `json:"startVirtualCompositor,omitempty"`
-	Title                  *string                             `json:"title,omitempty"`
-	ID                     *string                             `json:"id,omitempty"`
-	Audio                  *WolfStreamConfigApplyConfiguration `json:"audio,omitempty"`
-	Video                  *WolfStreamConfigApplyConfiguration `json:"video,omitempty"`
-	Runner                 *WolfRunnerConfigApplyConfiguration `json:"runner,omitempty"`
+	StartAudioServer       *bool                                   `json:"startAudioServer,omitempty"`
+	StartVirtualCompositor *bool                                   `json:"startVirtualCompositor,omitempty"`
+	Title                  *string                                 `json:"title,omitempty"`
+	ID                     *string                                 `json:"id,omitempty"`
+	Audio                  *WolfStreamConfigApplyConfiguration     `json:"audio,omitempty"`
+	Video                  *WolfStreamConfigApplyConfiguration     `json:"video,omitempty"`
+	Runner                 *WolfRunnerConfigApplyConfiguration     `json:"runner,omitempty"`
+	RuntimeVariables       *RuntimeWolfVariablesApplyConfiguration `json:"runtimeVariables,omitempty"`
 }
 
 // WolfConfigApplyConfiguration constructs a declarative configuration of the WolfConfig type for use with
@@ -89,5 +90,13 @@ func (b *WolfConfigApplyConfiguration) WithVideo(value *WolfStreamConfigApplyCon
 // If called multiple times, the Runner field is set to the value of the last call.
 func (b *WolfConfigApplyConfiguration) WithRunner(value *WolfRunnerConfigApplyConfiguration) *WolfConfigApplyConfiguration {
 	b.Runner = value
+	return b
+}
+
+// WithRuntimeVariables sets the RuntimeVariables field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the RuntimeVariables field is set to the value of the last call.
+func (b *WolfConfigApplyConfiguration) WithRuntimeVariables(value *RuntimeWolfVariablesApplyConfiguration) *WolfConfigApplyConfiguration {
+	b.RuntimeVariables = value
 	return b
 }

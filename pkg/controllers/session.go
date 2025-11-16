@@ -748,7 +748,46 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	if err != nil {
 		return fmt.Errorf("failed to get app: %s", err)
 	}
+	// Prepare environment variables for the wolf container
+	wolfEnvVars := map[string]string{
+		"PUID":                   "1000",
+		"PGID":                   "1000",
+		"UNAME":                  "ubuntu",
+		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
+		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
+		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
+		"WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
+		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
+		"WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml",
+		"WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
+		"WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
+		// Keeping those for later
+		// "GST_VAAPI_ALL_DRIVERS":      "1",
+		// "GST_DEBUG":                  "2",
+		// "__GL_SYNC_TO_VBLANK":        "0",
+		// "NVIDIA_VISIBLE_DEVICES":     "all",
+		// "NVIDIA_DRIVER_CAPABILITIES": "all",
+		// "LIBVA_DRIVER_NAME":          "nvidia",
+		// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+	}
 
+	// Check if runtime variables are defined in the App spec and override defaults
+	if app.Spec.WolfConfig.RuntimeVariables != nil {
+		runtimeVars := app.Spec.WolfConfig.RuntimeVariables
+		if runtimeVars.LogLevel != "" {
+			wolfEnvVars["WOLF_LOG_LEVEL"] = runtimeVars.LogLevel
+		}
+		if runtimeVars.TimeZone != "" {
+			wolfEnvVars["TZ"] = runtimeVars.TimeZone
+		}
+		if runtimeVars.RenderNode != "" {
+			wolfEnvVars["WOLF_RENDER_NODE"] = runtimeVars.RenderNode
+		}
+		// This is a debug option, it's only here for people to test stuff until the ip is dynamically acquired
+		if runtimeVars.RenderNode != "" {
+			wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = runtimeVars.ClientIP
+		}
+	}
 	var podToCreate corev1.PodTemplateSpec
 	if app.Spec.Template != nil {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
@@ -810,7 +849,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Container must have extra logic to wait for this to be set up
 			// unfortunately.
 			"WAYLAND_DISPLAY": "wayland-1",
-			"TZ":              "America/Los_Angeles",
+			"TZ":              wolfEnvVars["TZ"],
 			"UNAME":           "retro",
 			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
 			"UID":             "1000",
@@ -943,9 +982,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
-			Name:            "wolf-agent",
-			Image:           c.WolfAgentImage,
-			ImagePullPolicy: corev1.PullAlways,
+			Name:  "wolf-agent",
+			Image: c.WolfAgentImage,
+			// ImagePullPolicy: corev1.PullAlways,
+			ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
 				"--socket=/etc/wolf/wolf.sock",
 				"--port=8443",
@@ -1049,29 +1089,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:  "wolf",
 			Image: WOLF_IMAGE,
-			Env: mapToEnvApplyList(map[string]string{
-				"PUID":                       "1000",
-				"PGID":                       "1000",
-				"TZ":                         "America/Los_Angeles",
-				"UNAME":                      "ubuntu",
-				"XDG_RUNTIME_DIR":            "/tmp/.X11-unix",
-				"PULSE_SERVER":               "unix:/tmp/.X11-unix/pulse-socket",
-				"HOST_APPS_STATE_FOLDER":     "/mnt/data/wolf",
-				"WOLF_LOG_LEVEL":             "DEBUG",
-				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0", //Need to find the correct streaming id / ingress, later.
-				"WOLF_SOCKET_PATH":           "/etc/wolf/wolf.sock",
-				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
-				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
-				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
-				"WOLF_RENDER_NODE":           "/dev/dri/renderD128",
-				"GST_VAAPI_ALL_DRIVERS":      "1",
-				"GST_DEBUG":                  "2",
-				"__GL_SYNC_TO_VBLANK":        "0",
-				"NVIDIA_VISIBLE_DEVICES":     "all",
-				"NVIDIA_DRIVER_CAPABILITIES": "all",
-				"LIBVA_DRIVER_NAME":          "nvidia",
-				"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			}),
+			Env:   mapToEnvApplyList(wolfEnvVars),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
 			Ports: []corev1.ContainerPort{
@@ -1336,7 +1354,7 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 	if app.Spec.VolumeClaimTemplate == nil {
 		klog.Infof("App %s does not define a VolumeClaimTemplate, skipping PVC creation.", app.Name)
 		return nil
-	}	
+	}
 
 	pvcName := c.deploymentName(session)
 	templateSpec := app.Spec.VolumeClaimTemplate.Spec.DeepCopy()
@@ -1519,19 +1537,29 @@ func (c *SessionController) reconcileActiveStreams(
 		// Either scenario is invalid. Delete the session
 		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
 	}
+	// Will need this for later
+	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get app: %s", err)
+	}
 
 	if !found {
 		//!TODO: Add the ports into the request for this to support multiple
 		// sessions per Gateway.
 		//
 		// Create the session
+		clientIP := "10.128.1.0" // This is temporary
+		if app.Spec.WolfConfig.RuntimeVariables != nil && app.Spec.WolfConfig.RuntimeVariables.ClientIP != "" {
+			clientIP = app.Spec.WolfConfig.RuntimeVariables.ClientIP
+		}
+
 		sessionID, err := wolfclient.AddSession(ctx, wolfapi.Session{
 			VideoWidth:        session.Spec.Config.VideoWidth,
 			VideoHeight:       session.Spec.Config.VideoHeight,
 			VideoRefreshRate:  session.Spec.Config.VideoRefreshRate,
 			AppID:             "1",
-			AudioChannelCount: 2, // !TODO: parse from audio info
-			ClientIP:          "10.128.1.0",
+			AudioChannelCount: 2,        // !TODO: parse from audio info
+			ClientIP:          clientIP, // In the future, this will be acquired dynamically
 			ClientSettings: wolfapi.ClientSettings{
 				RunGID:              1000,
 				RunUID:              1000,
@@ -1540,16 +1568,12 @@ func (c *SessionController) reconcileActiveStreams(
 				VScrollAcceleration: 1.0,
 				HScrollAcceleration: 1.0,
 			},
-			AESKey: session.Spec.Config.AESKey,
-			AESIV:  session.Spec.Config.AESIV,
-			//!TODO: not this. This is the hash of the client cert we are
-			// hardcoding into wolf config. Should call pair endpoint to genuinely
-			// add it. Though not really needed since user doesnt connect via HTTPS
-			// to wolf, we just need a client ID wolf accepts for this specific
-			// pairing/client...
-			ClientID: "4193251087262667199",
+			AESKey:     session.Spec.Config.AESKey,
+			AESIV:      session.Spec.Config.AESIV,
+			ClientID:   "4193251087262667199",
 			RTSPFakeIP: service.Spec.ClusterIP,
 		})
+
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)
 		}
@@ -1591,7 +1615,7 @@ func GenerateWolfConfig(
 
 	var gstreamerConfig = map[string]interface{}{
 		"audio": map[string]interface{}{
-			"default_source": `interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false`,
+			"default_source":       `interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false`,
 			"default_audio_params": `queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert`,
 			"default_opus_encoder": `opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400`,
 			"default_sink": `rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
@@ -1625,35 +1649,35 @@ func GenerateWolfConfig(
 			},
 			"hevc_encoders": []map[string]interface{}{
 				{
-					"plugin_name": "nvcodec",
+					"plugin_name":    "nvcodec",
 					"check_elements": []string{"nvh265enc", "cudaconvertscale", "cudaupload"},
 					"encoder_pipeline": `nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
 	h265parse !
 	video/x-h265, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "qsv",
+					"plugin_name":    "qsv",
 					"check_elements": []string{"qsvh265enc", "vapostproc"},
 					"encoder_pipeline": `qsvh265enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
 	h265parse !
 	video/x-h265, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "va",
+					"plugin_name":    "va",
 					"check_elements": []string{"vah265enc", "vapostproc"},
 					"encoder_pipeline": `vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
 	h265parse !
 	video/x-h265, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "va",
+					"plugin_name":    "va",
 					"check_elements": []string{"vah265lpenc", "vapostproc"},
 					"encoder_pipeline": `vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
 	h265parse !
 	video/x-h265, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "x265",
+					"plugin_name":    "x265",
 					"check_elements": []string{"x265enc"},
 					"video_params": `videoconvertscale !
 	videorate !
@@ -1667,35 +1691,35 @@ func GenerateWolfConfig(
 			},
 			"h264_encoders": []map[string]interface{}{
 				{
-					"plugin_name": "nvcodec",
+					"plugin_name":    "nvcodec",
 					"check_elements": []string{"nvh264enc", "cudaconvertscale", "cudaupload"},
 					"encoder_pipeline": `nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
 	h264parse !
 	video/x-h264, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "qsv",
+					"plugin_name":    "qsv",
 					"check_elements": []string{"qsvh264enc", "vapostproc"},
 					"encoder_pipeline": `qsvh264enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6 !
 	h264parse !
 	video/x-h264, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "va",
+					"plugin_name":    "va",
 					"check_elements": []string{"vah264enc", "vapostproc"},
 					"encoder_pipeline": `vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
 	h264parse !
 	video/x-h264, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "va",
+					"plugin_name":    "va",
 					"check_elements": []string{"vah264lpenc", "vapostproc"},
 					"encoder_pipeline": `vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
 	h264parse !
 	video/x-h264, profile=main, stream-format=byte-stream`,
 				},
 				{
-					"plugin_name": "x264",
+					"plugin_name":    "x264",
 					"check_elements": []string{"x264enc"},
 					"encoder_pipeline": `x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0" b-adapt=false bitrate={bitrate} aud=false !
 	video/x-h264, profile=high, stream-format=byte-stream`,
@@ -1703,35 +1727,35 @@ func GenerateWolfConfig(
 			},
 			"av1_encoders": []map[string]interface{}{
 				{
-					"plugin_name": "nvcodec",
+					"plugin_name":    "nvcodec",
 					"check_elements": []string{"nvav1enc", "cudaconvertscale", "cudaupload"},
 					"encoder_pipeline": `nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
 	av1parse !
 	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
 				},
 				{
-					"plugin_name": "qsv",
+					"plugin_name":    "qsv",
 					"check_elements": []string{"qsvav1enc", "vapostproc"},
 					"encoder_pipeline": `qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
 	av1parse !
 	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
 				},
 				{
-					"plugin_name": "va",
+					"plugin_name":    "va",
 					"check_elements": []string{"vaav1enc", "vapostproc"},
 					"encoder_pipeline": `vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
 	av1parse !
 	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
 				},
 				{
-					"plugin_name": "va",
+					"plugin_name":    "va",
 					"check_elements": []string{"vaav1lpenc", "vapostproc"},
 					"encoder_pipeline": `vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
 	av1parse !
 	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
 				},
 				{
-					"plugin_name": "aom",
+					"plugin_name":    "aom",
 					"check_elements": []string{"av1enc"},
 					"video_params": `videoconvertscale !
 	videorate !
@@ -1746,7 +1770,6 @@ func GenerateWolfConfig(
 			},
 		},
 	}
-	
 
 	configMap := map[string]interface{}{
 		"config_version": 4,

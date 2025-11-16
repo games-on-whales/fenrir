@@ -8316,6 +8316,35 @@ spec:
                       type:
                         type: string
                     type: object
+                  runtimeVariables:
+                    description: Additional wolf configs to use.
+                    properties:
+                      clientIP:
+                        description: This is the client IP, put it as your node ip
+                          or whatever, otherwise it'll fail, or maybe it only fails
+                          in my kind cluster i don't know
+                        type: string
+                      logLevel:
+                        default: DEBUG
+                        description: Logging level for wolf.
+                        enum:
+                        - ERROR
+                        - WARNING
+                        - INFO
+                        - DEBUG
+                        - TRACE
+                        type: string
+                      renderNode:
+                        default: ""
+                        description: |-
+                          RenderNode specifies the filepath to the DRM render node device.
+                          Example: "/dev/dri/renderD128", empty by default
+                        type: string
+                      timeZone:
+                        default: UTC
+                        description: Time zone for the wolf container
+                        type: string
+                    type: object
                   startAudioServer:
                     type: boolean
                   startVirtualCompositor:

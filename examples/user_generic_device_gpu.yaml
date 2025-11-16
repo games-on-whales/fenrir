@@ -4,12 +4,21 @@ metadata:
   name: alex
   namespace: direwolf
 spec:
-  sessionResources:
+  resources:
+    limits:
+      squat.ai/dri: "1"
+      cpu: 4000m
+      memory: 8G
+    requests:
+      squat.ai/dri: "1"
+      cpu: 4000m
+      memory: 8G
+
+  sidecarPolicies:
     # We are overriding the default resources for some sidecars for this user.
-    
     wolf:
       # I'm using generic devices to pass along the gpu.
-      sidecarPolicies:      
+      resources:
         requests:
           squat.ai/dri: "1"
           squat.ai/uinput: "1"

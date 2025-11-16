@@ -24,7 +24,11 @@ func main() {
 	appContext, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	wolfAgentImage := flag.String("wolf-agent-image", "ghcr.io/games-on-whales/wolf-agent:main", "Wolf Agent image")
+	im := os.Getenv("AGENT_IMAGE")
+	if im == "" {
+		im = "ghcr.io/games-on-whales/wolf-agent:main"
+	}
+	wolfAgentImage := flag.String("wolf-agent-image", im, "Wolf Agent image")
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
