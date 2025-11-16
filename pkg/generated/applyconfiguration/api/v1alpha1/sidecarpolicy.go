@@ -25,8 +25,9 @@ import (
 // SidecarPolicyApplyConfiguration represents a declarative configuration of the SidecarPolicy type for use
 // with apply.
 type SidecarPolicyApplyConfiguration struct {
-	Resources    *v1.ResourceRequirements `json:"resources,omitempty"`
-	VolumeMounts []v1.VolumeMount         `json:"volumeMounts,omitempty"`
+	Resources       *v1.ResourceRequirements `json:"resources,omitempty"`
+	VolumeMounts    []v1.VolumeMount         `json:"volumeMounts,omitempty"`
+	SecurityContext *v1.SecurityContext      `json:"securityContext,omitempty"`
 }
 
 // SidecarPolicyApplyConfiguration constructs a declarative configuration of the SidecarPolicy type for use with
@@ -50,5 +51,13 @@ func (b *SidecarPolicyApplyConfiguration) WithVolumeMounts(values ...v1.VolumeMo
 	for i := range values {
 		b.VolumeMounts = append(b.VolumeMounts, values[i])
 	}
+	return b
+}
+
+// WithSecurityContext sets the SecurityContext field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SecurityContext field is set to the value of the last call.
+func (b *SidecarPolicyApplyConfiguration) WithSecurityContext(value v1.SecurityContext) *SidecarPolicyApplyConfiguration {
+	b.SecurityContext = &value
 	return b
 }

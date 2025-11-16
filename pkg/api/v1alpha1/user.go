@@ -44,6 +44,9 @@ type SidecarPolicy struct {
 	// VolumeMounts specifies the volumes to mount into the sidecar.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// SecurityContext defines the security options the container should be run with.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 type SidecarPolicies struct {

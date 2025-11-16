@@ -943,6 +943,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// Prepare sidecar policies
 	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
 	var wolfAgentVolumeMounts, pulseAudioVolumeMounts, wolfVolumeMounts []corev1.VolumeMount
+	var wolfAgentSecurityContext, pulseAudioSecurityContext, wolfSecurityContext *corev1.SecurityContext
 
 	// Set defaults first
 	wolfAgentResources = wolfAgentDefaultResources
@@ -963,6 +964,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
 			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
+			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
 		}
 		if policies.PulseAudio != nil {
 			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
@@ -970,6 +972,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
 			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
+			pulseAudioSecurityContext = policies.PulseAudio.SecurityContext
 		}
 		if policies.Wolf != nil {
 			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
@@ -977,6 +980,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
 			wolfVolumeMounts = policies.Wolf.VolumeMounts
+			wolfSecurityContext = policies.Wolf.SecurityContext
 		}
 	}
 
@@ -1056,7 +1060,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					},
 				},
 			},
-			Resources: wolfAgentResources,
+			Resources:       wolfAgentResources,
+			SecurityContext: wolfAgentSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
@@ -1078,7 +1083,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"UID":             "1000",
 				"GID":             "1000",
 			}),
-			Resources: pulseAudioResources,
+			Resources:       pulseAudioResources,
+			SecurityContext: pulseAudioSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-runtime",
@@ -1118,7 +1124,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: session.Status.Ports.AudioRTP,
 				},
 			},
-			Resources: wolfResources,
+			Resources:       wolfResources,
+			SecurityContext: wolfSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
@@ -1558,7 +1565,7 @@ func (c *SessionController) reconcileActiveStreams(
 			VideoHeight:       session.Spec.Config.VideoHeight,
 			VideoRefreshRate:  session.Spec.Config.VideoRefreshRate,
 			AppID:             "1",
-			AudioChannelCount: 2,        // !TODO: parse from audio info
+			AudioChannelCount: 2,            // !TODO: parse from audio info
 			ClientIP:          clientIP, // In the future, this will be acquired dynamically
 			ClientSettings: wolfapi.ClientSettings{
 				RunGID:              1000,
@@ -1568,8 +1575,13 @@ func (c *SessionController) reconcileActiveStreams(
 				VScrollAcceleration: 1.0,
 				HScrollAcceleration: 1.0,
 			},
-			AESKey:     session.Spec.Config.AESKey,
-			AESIV:      session.Spec.Config.AESIV,
+			AESKey: session.Spec.Config.AESKey,
+			AESIV:  session.Spec.Config.AESIV,
+			//!TODO: not this. This is the hash of the client cert we are
+			// hardcoding into wolf config. Should call pair endpoint to genuinely
+			// add it. Though not really needed since user doesnt connect via HTTPS
+			// to wolf, we just need a client ID wolf accepts for this specific
+			// pairing/client...
 			ClientID:   "4193251087262667199",
 			RTSPFakeIP: service.Spec.ClusterIP,
 		})
