@@ -762,13 +762,13 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		"WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
 		"WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
 		// Keeping those for later
-		// "GST_VAAPI_ALL_DRIVERS":      "1",
-		// "GST_DEBUG":                  "2",
-		// "__GL_SYNC_TO_VBLANK":        "0",
-		// "NVIDIA_VISIBLE_DEVICES":     "all",
-		// "NVIDIA_DRIVER_CAPABILITIES": "all",
-		// "LIBVA_DRIVER_NAME":          "nvidia",
-		// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+		"GST_VAAPI_ALL_DRIVERS":      "1",
+		"GST_DEBUG":                  "2",
+		"__GL_SYNC_TO_VBLANK":        "0",
+		"NVIDIA_VISIBLE_DEVICES":     "all",
+		"NVIDIA_DRIVER_CAPABILITIES": "all",
+		"LIBVA_DRIVER_NAME":          "nvidia",
+		"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 	}
 
 	// Check if runtime variables are defined in the App spec and override defaults
