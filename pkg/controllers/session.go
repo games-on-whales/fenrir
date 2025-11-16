@@ -861,12 +861,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Assorted NVIDIA. Unsure if required. Probabky not.
 			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
 			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
-			// "LIBVA_DRIVER_NAME":          "nvidia",
-			// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			// "NVIDIA_DRIVER_CAPABILITIES": "all",
-			// "NVIDIA_VISIBLE_DEVICES":     "all",
-			// "GST_VAAPI_ALL_DRIVERS":      "1",
-			// "GST_DEBUG":                  "2",
+			"LIBVA_DRIVER_NAME":          "nvidia",
+			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+			"NVIDIA_DRIVER_CAPABILITIES": "all",
+			"NVIDIA_VISIBLE_DEVICES":     "all",
+			"GST_VAAPI_ALL_DRIVERS":      "1",
+			"GST_DEBUG":                  "2",
 
 			// Gamescape envar injection. Ham-handed. Why not.
 			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
