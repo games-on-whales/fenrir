@@ -119,7 +119,7 @@ jobs:
               echo "Base Version: $base_version"
               echo "Short SHA: $short_sha"
             elif [[ "$ref" == refs/tags/* ]]; then
-              full_version="${ref/refs\/tags\//}"
+              full_version="${{ github.ref_name }}"
             fi
             yq e ".version = \"$full_version\"" -i "$chart_path/Chart.yaml"
             echo "Full Version: $full_version"
