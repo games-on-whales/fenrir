@@ -137,12 +137,8 @@ jobs:
           cmd: |   
             VALUES_FILE=charts/direwolf-operator/values.yaml
             
-            ls -lah
-            ls -lah operator-artifact
-            ls -lah proxy-artifact
-            
             DIGEST="$(cat operator-artifact/image-digest-operator.txt)"
-            yq eval -i ".controllers.direwolf_operator.containers.operator.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
 
             DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
             yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
