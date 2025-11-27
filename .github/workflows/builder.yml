@@ -100,9 +100,10 @@ jobs:
             set -euo pipefail
             
             ref="${{ github.ref }}"
-            
-            if [[ "$ref" == "refs/heads/main" ]]; then            
-              chart_path="charts/direwolf-operator"
+            chart_path="charts/direwolf-operator"
+            full_version=""
+
+            if [[ "$ref" == "refs/heads/main" ]]; then
               if [ ! -f "$chart_path/Chart.yaml" ]; then
                 echo "Chart.yaml not found at $chart_path" >&2
                 exit 1
@@ -115,15 +116,19 @@ jobs:
               fi
               
               short_sha=$(echo "${{ github.sha }}" | cut -c1-7)
-              full_version="${base_version}+${short_sha}"
-              echo "Base Version: $base_version"
-              echo "Short SHA: $short_sha"
+              full_version="${base_version}+${short_sha}"              
             elif [[ "$ref" == refs/tags/* ]]; then
               full_version="${{ github.ref_name }}"
             fi
+            
+            if [ -z "$full_version" ]; then
+              echo "Could not determine full version. Exiting." >&2
+              exit 1
+            fi
+            
+            echo "Full Version: $full_version"          
             yq e ".version = \"$full_version\"" -i "$chart_path/Chart.yaml"
-            echo "Full Version: $full_version"
-            echo "version=$full_version" >> "$GITHUB_OUTPUT"`
+            echo "version=$full_version" >> "$GITHUB_OUTPUT"
 
       - name: Copy CRDs into chart
         run: |
