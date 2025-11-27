@@ -123,24 +123,28 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: image-digest-operator
-          path: artifacts
+          path: operator-artifact
 
       - name: Download image digest artifact (moonlight-proxy)
         uses: actions/download-artifact@v4
         with:
           name: image-digest-moonlight-proxy
-          path: artifacts
+          path: proxy-artifact
 
       - name: Update Helm chart image tags
         uses: mikefarah/yq@master
         with:
           cmd: |   
             VALUES_FILE=charts/direwolf-operator/values.yaml
-                   
-            DIGEST="$(cat artifacts/image-digest-operator.txt)"
+            
+            ls -lah
+            ls -lah operator-artifact
+            ls -lah proxy-artifact
+            
+            DIGEST="$(cat operator-artifact/image-digest-operator.txt)"
             yq eval -i ".controllers.direwolf_operator.containers.operator.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
 
-            DIGEST="$(cat artifacts/image-digest-moonlight-proxy.txt)"
+            DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
             yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
             
             echo "Updated $VALUES_FILE"
