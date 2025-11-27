@@ -5,9 +5,9 @@ global:
   fullnameOverride: direwolf
 
 serviceAccount:
-  direwolf-operator:
+  direwolf_operator:
     forceRename: &operatorName direwolf-operator
-  moonlight-proxy:
+  moonlight_proxy:
     forceRename: &proxyName moonlight-proxy
 
 defaultPodOptions:
@@ -19,7 +19,7 @@ defaultPodOptions:
     fsGroupChangePolicy: OnRootMismatch
 
 controllers:
-  direwolf-operator:
+  direwolf_operator:
     forceRename: *operatorName
     serviceAccount:
       identifier: *operatorName
@@ -39,7 +39,7 @@ controllers:
     containers:
       operator:
         image:
-          repository: ghcr.io/games-on-whales/operator
+          repository: ghcr.io/brunnels/fenrir/direwolf-operator
           tag: main
           pullPolicy: Always
         env:
@@ -59,7 +59,7 @@ controllers:
           limits:
             cpu: 250m
             memory: 256Mi
-  moonlight-proxy:
+  moonlight_proxy:
     forceRename: *proxyName
     serviceAccount:
       identifier: *proxyName
@@ -69,7 +69,7 @@ controllers:
           - --tls-cert=/etc/certs/tls.crt
           - --tls-key=/etc/certs/tls.key
         image:
-          repository: ghcr.io/games-on-whales/moonlight-proxy
+          repository: ghcr.io/brunnels/fenrir/moonlight-proxy
           tag: main
           pullPolicy: Always
         env:
@@ -91,7 +91,7 @@ controllers:
             memory: 256Mi
 service:
   app:
-    controller: moonlight-proxy
+    controller: moonlight_proxy
     type: LoadBalancer
     annotations:
       lbipam.cilium.io/sharing-key: direwolf
@@ -108,13 +108,13 @@ persistence:
     name: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}-tls'
     defaultMode: 0400
     advancedMounts:
-      moonlight-proxy:
+      moonlight_proxy:
         proxy:
           - path: /etc/certs
             readOnly: true
 rbac:
   roles:
-    direwolf-operator:
+    direwolf_operator:
       forceRename: *operatorName
       type: Role
       rules:
@@ -130,7 +130,7 @@ rbac:
         - apiGroups: [""]
           resources: ["services", "persistentvolumeclaims", "configmaps"]
           verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-    moonlight-proxy:
+    moonlight_proxy:
       forceRename: *proxyName
       type: Role
       rules:
@@ -144,14 +144,14 @@ rbac:
         resources: ["pairings", "sessions"]
         verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
   bindings:
-    direwolf-operator:
+    direwolf_operator:
       forceRename: *operatorName
       type: RoleBinding
       roleRef:
         identifier: *operatorName
       subjects:
         - identifier: *operatorName
-    moonlight-proxy:
+    moonlight_proxy:
       forceRename: *proxyName
       type: RoleBinding
       roleRef:
