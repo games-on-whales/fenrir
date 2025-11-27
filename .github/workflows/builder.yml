@@ -54,6 +54,7 @@ jobs:
             name=ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}
 
       - name: Build and push image
+        id: build
         uses: docker/build-push-action@v6.15.0
         with:
           platforms: linux/amd64
@@ -66,13 +67,12 @@ jobs:
             APP_NAME=${{ matrix.app }}
           
       - name: Write image digest file
-        if: ${{ steps.build.outputs.digest != '' }}
+        if: ${{ steps.build.outputs.digest }}
         run: |
-          # Write only the image digest value into a small artifact file. The chart job will combine
-          # this digest with the existing tag in values.yaml (e.g. 'main@sha256:...').
           echo "${{ steps.build.outputs.digest }}" > "image-digest-${{ matrix.app }}.txt"
 
       - name: Upload image digest artifact
+        if: ${{ steps.build.outputs.digest }}
         uses: actions/upload-artifact@v4
         with:
           name: image-digest-${{ matrix.app }}
