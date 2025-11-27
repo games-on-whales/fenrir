@@ -98,37 +98,38 @@ jobs:
         with:
           cmd: |
             set -euo pipefail
+                        
+            REF="${{ github.ref }}"
+            CHART_PATH="charts/direwolf-operator"
+            FULL_VERSION=""
             
-            ref="${{ github.ref }}"
-            chart_path="charts/direwolf-operator"
-            full_version=""
-
-            if [[ "$ref" == "refs/heads/main" ]]; then
-              if [ ! -f "$chart_path/Chart.yaml" ]; then
-                echo "Chart.yaml not found at $chart_path" >&2
+            if [[ "$REF" == "refs/heads/main" ]]; then
+              if [ ! -f "$CHART_PATH/Chart.yaml" ]; then
+                echo "Chart.yaml not found at $CHART_PATH" >&2
                 exit 1
               fi
-      
-              base_version=$(yq e '.version' "$chart_path/Chart.yaml")
-              if [ -z "$base_version" ]; then
+            
+              BASE_VERSION="$(yq e '.version' "${CHART_PATH}/Chart.yaml")"
+              if [ -z "$BASE_VERSION" ]; then
                 echo "Could not determine chart version" >&2
                 exit 1
               fi
               
-              short_sha=$(echo "${{ github.sha }}" | cut -c1-7)
-              full_version="${base_version}+${short_sha}"              
-            elif [[ "$ref" == refs/tags/* ]]; then
-              full_version="${{ github.ref_name }}"
+              SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
+              FULL_VERSION="${BASE_VERSION}+${SHORT_SHA}"   
+                         
+            elif [[ "$REF" == refs/tags/* ]]; then
+              FULL_VERSION="${{ github.ref_name }}"
             fi
             
-            if [ -z "$full_version" ]; then
+            if [ -z "$FULL_VERSION" ]; then
               echo "Could not determine full version. Exiting." >&2
               exit 1
             fi
             
-            echo "Full Version: $full_version"          
-            yq e ".version = \"$full_version\"" -i "$chart_path/Chart.yaml"
-            echo "version=$full_version" >> "$GITHUB_OUTPUT"
+            echo "Full Version: $FULL_VERSION"          
+            yq e -i ".version = \"$FULL_VERSION\"" "${CHART_PATH}/Chart.yaml"
+            echo "version=$FULL_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Copy CRDs into chart
         run: |
