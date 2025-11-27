@@ -94,20 +94,36 @@ jobs:
 
       - name: Read chart version
         id: get_version
-        run: |
-          set -euo pipefail
-          chart_path="charts/direwolf-operator"
-          if [ ! -f "$chart_path/Chart.yaml" ]; then
-            echo "Chart.yaml not found at $chart_path" >&2
-            exit 1
-          fi
-          # read the 'version:' field from Chart.yaml (simple YAML -> space-separated)
-          version=$(grep '^version:' "$chart_path/Chart.yaml" | head -n1 | awk '{print $2}')
-          if [ -z "$version" ]; then
-            echo "Could not determine chart version" >&2
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            set -euo pipefail
+            
+            ref="${{ github.ref }}"
+            
+            if [[ "$ref" == "refs/heads/main" ]]; then            
+              chart_path="charts/direwolf-operator"
+              if [ ! -f "$chart_path/Chart.yaml" ]; then
+                echo "Chart.yaml not found at $chart_path" >&2
+                exit 1
+              fi
+      
+              base_version=$(yq e '.version' "$chart_path/Chart.yaml")
+              if [ -z "$base_version" ]; then
+                echo "Could not determine chart version" >&2
+                exit 1
+              fi
+              
+              short_sha=$(echo "${{ github.sha }}" | cut -c1-7)
+              full_version="${base_version}+${short_sha}"
+              echo "Base Version: $base_version"
+              echo "Short SHA: $short_sha"
+            elif [[ "$ref" == refs/tags/* ]]; then
+              full_version="${ref/refs\/tags\//}"
+            fi
+            yq e ".version = \"$full_version\"" -i "$chart_path/Chart.yaml"
+            echo "Full Version: $full_version"
+            echo "version=$full_version" >> "$GITHUB_OUTPUT"`
 
       - name: Copy CRDs into chart
         run: |
