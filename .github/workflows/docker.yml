@@ -51,7 +51,7 @@ jobs:
             # Disable latest tag
             latest=false
           images: |
-            name=ghcr.io/${{ github.repository_owner }}/${{ matrix.app }}
+            name=ghcr.io/${{ github.repository_owner }}/${{ matrix.app == 'operator' && 'direwolf' || 'fenrir' }}/${{ matrix.app }}
 
       - name: Build and push image
         uses: docker/build-push-action@v6.15.0
@@ -65,3 +65,43 @@ jobs:
           build-args: |
             APP_NAME=${{ matrix.app }}
           
+      - name: Write image refs file
+        if: ${{ steps.build.outputs.digest != '' }}
+        run: |
+          tags="${{ steps.metadata.outputs.tags }}"
+          digest="${{ steps.build.outputs.digest }}"
+          # split comma-separated tags and append digest
+          IFS=',' read -ra ARR <<< "$tags"
+          for t in "${ARR[@]}"; do
+            echo "${t}@${digest}" >> "image-refs-${{ matrix.app }}.txt"
+          done
+
+      - name: Upload image refs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-refs-${{ matrix.app }}
+          path: image-refs-${{ matrix.app }}.txt
+
+  collect_images:
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    outputs:
+      images: ${{ steps.set_images.outputs.images }}
+    steps:
+      - name: Download all image-refs artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: downloaded-image-refs
+
+      - name: Combine and dedupe image refs
+        run: |
+          mkdir -p out
+          find downloaded-image-refs -type f -name 'image-refs-*.txt' -exec cat {} \; | sort -u > out/all-image-refs.txt
+          cat out/all-image-refs.txt
+
+      - name: Set job output with all image refs
+        id: set_images
+        run: |
+          echo "images<<EOF" >> $GITHUB_OUTPUT
+          cat out/all-image-refs.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
