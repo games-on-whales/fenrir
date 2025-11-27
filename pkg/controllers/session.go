@@ -44,7 +44,7 @@ var (
 			return im
 		}
 
-		return "ghcr.io/games-on-whales/wolf:wolf-ui"
+		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
 	}()
 )
 
