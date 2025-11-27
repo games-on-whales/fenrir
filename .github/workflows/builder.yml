@@ -131,25 +131,19 @@ jobs:
           name: image-digest-moonlight-proxy
           path: artifacts/proxy
 
-      - name: Install yq
-        run: |
-          set -euo pipefail
-          YQ_VERSION="v4.38.1"
-          wget -q "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64" -O /usr/local/bin/yq
-          chmod +x /usr/local/bin/yq
-          yq --version
-
       - name: Update Helm chart image tags
-        run: |     
-          VALUES_FILE=charts/direwolf-operator/values.yaml
-          
-          DIGEST="$(cat artifacts/operator/image-digest-operator)"
-          yq eval -i ".controllers.direwolf_operator.containers.operator.image.tag = \"main@${DIGEST}\"" "$$VALUES_FILE"
-          
-          DIGEST="$(cat artifacts/proxy/image-digest-moonlight-proxy)"
-          yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \"main@${DIGEST}\"" "$$VALUES_FILE"
-          
-          echo "Updated $VALUES_FILE"
+        uses: mikefarah/yq@master
+        with:
+          cmd: |   
+            VALUES_FILE=charts/direwolf-operator/values.yaml
+            
+            DIGEST="$(cat artifacts/operator/image-digest-operator)"
+            yq eval -i ".controllers.direwolf_operator.containers.operator.image.tag = \"main@${DIGEST}\"" "$$VALUES_FILE"
+            
+            DIGEST="$(cat artifacts/proxy/image-digest-moonlight-proxy)"
+            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \"main@${DIGEST}\"" "$$VALUES_FILE"
+            
+            echo "Updated $VALUES_FILE"
 
       - name: Package Helm chart
         run: |
