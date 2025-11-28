@@ -115,8 +115,8 @@ jobs:
                 echo "Could not determine chart version" >&2
                 exit 1
               fi
-              
-              FULL_VERSION="${BASE_VERSION}+${{ github.run_id }}-SNAPSHOT"
+              RUN_ID="${{ github.run_id }}"
+              FULL_VERSION="${BASE_VERSION}-${RUN_ID: -5}-SNAPSHOT"
             fi
             
             echo "Full Version: $FULL_VERSION"          
