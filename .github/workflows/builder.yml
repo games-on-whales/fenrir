@@ -120,7 +120,7 @@ jobs:
             fi
             
             echo "Full Version: $FULL_VERSION"          
-            yq e -i ".version = '$FULL_VERSION'" "${CHART_PATH}/Chart.yaml"
+            yq e -i ".version = \\"$FULL_VERSION\\"" "${CHART_PATH}/Chart.yaml"
             echo "version=$FULL_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Copy CRDs into chart
