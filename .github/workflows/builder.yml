@@ -101,9 +101,10 @@ jobs:
                         
             REF="${{ github.ref }}"
             CHART_PATH="charts/direwolf-operator"
-            FULL_VERSION=""
-            
-            if [[ "$REF" == "refs/heads/main" ]]; then
+
+            if [[ "$REF" == refs/tags/* ]]; then
+              FULL_VERSION="${{ github.ref_name }}"
+            else
               if [ ! -f "$CHART_PATH/Chart.yaml" ]; then
                 echo "Chart.yaml not found at $CHART_PATH" >&2
                 exit 1
@@ -115,20 +116,11 @@ jobs:
                 exit 1
               fi
               
-              SHORT_SHA="$(echo "${{ github.sha }}" | cut -c1-7)"
-              FULL_VERSION="${BASE_VERSION}+${SHORT_SHA}"   
-                         
-            elif [[ "$REF" == refs/tags/* ]]; then
-              FULL_VERSION="${{ github.ref_name }}"
-            fi
-            
-            if [ -z "$FULL_VERSION" ]; then
-              echo "Could not determine full version. Exiting." >&2
-              exit 1
+              FULL_VERSION="${BASE_VERSION}+${{ github.run_id }}-SNAPSHOT"
             fi
             
             echo "Full Version: $FULL_VERSION"          
-            yq e -i ".version = \"$FULL_VERSION\"" "${CHART_PATH}/Chart.yaml"
+            yq e -i ".version = '$FULL_VERSION'" "${CHART_PATH}/Chart.yaml"
             echo "version=$FULL_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Copy CRDs into chart
