@@ -810,7 +810,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Container must have extra logic to wait for this to be set up
 			// unfortunately.
 			"WAYLAND_DISPLAY": "wayland-1",
-			"TZ":              "America/Los_Angeles",
+			"TZ":              "America/Chicago",
 			"UNAME":           "retro",
 			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
 			"UID":             "1000",
@@ -1032,7 +1032,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:  "pulseaudio",
 			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
 			Env: mapToEnvApplyList(map[string]string{
-				"TZ":              "America/Los_Angeles",
+				"TZ":              "America/Chicago",
 				"UNAME":           "retro",
 				"XDG_RUNTIME_DIR": "/tmp/pulse",
 				"UID":             "1000",
@@ -1052,7 +1052,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Env: mapToEnvApplyList(map[string]string{
 				"PUID":                       "1000",
 				"PGID":                       "1000",
-				"TZ":                         "America/Los_Angeles",
+				"TZ":                         "America/Chicago",
 				"UNAME":                      "ubuntu",
 				"XDG_RUNTIME_DIR":            "/tmp/.X11-unix",
 				"PULSE_SERVER":               "unix:/tmp/.X11-unix/pulse-socket",
