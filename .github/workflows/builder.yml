@@ -159,15 +159,15 @@ jobs:
             VALUES_FILE=charts/direwolf-operator/values.yaml
             
             DIGEST="$(cat operator-artifact/image-digest-operator.txt)"
-            yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \"ghcr.io/${{ github.repository_owner }}/fenrir/direwolf-operator\"" "$VALUES_FILE"
-            yq e -i ".controllers.direwolf_operator.containers.operator.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/direwolf-operator\\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.tag = \\"main@${DIGEST}\\"" "$VALUES_FILE"
             
             DIGEST="$(cat agent-artifact/image-digest-wolf-agent.txt)"
-            yq e -i ".controllers.direwolf_operator.containers.operator.env.AGENT_IMAGE = \"ghcr.io/${{ github.repository_owner }}/fenrir/wolf-agent:main@${DIGEST}\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.env.AGENT_IMAGE = \\"ghcr.io/${{ github.repository_owner }}/fenrir/wolf-agent:main@${DIGEST}\\"" "$VALUES_FILE"
 
             DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
-            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \"main@${DIGEST}\"" "$VALUES_FILE"
-            yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\"" "$VALUES_FILE"
+            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \\"main@${DIGEST}\\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\\"" "$VALUES_FILE"
             
             echo "Updated $VALUES_FILE"
 
