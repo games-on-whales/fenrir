@@ -22,7 +22,7 @@ controllers:
   direwolf_operator:
     forceRename: *operatorName
     serviceAccount:
-      identifier: *operatorName
+      identifier: &operatorId direwolf_operator
     pod:
       affinity:
         podAntiAffinity:
@@ -62,7 +62,7 @@ controllers:
   moonlight_proxy:
     forceRename: *proxyName
     serviceAccount:
-      identifier: *proxyName
+      identifier: &proxyId moonlight_proxy
     containers:
       proxy:
         args:
@@ -148,16 +148,16 @@ rbac:
       forceRename: *operatorName
       type: RoleBinding
       roleRef:
-        identifier: *operatorName
+        identifier: *operatorId
       subjects:
-        - identifier: *operatorName
+        - identifier: *operatorId
     moonlight_proxy:
       forceRename: *proxyName
       type: RoleBinding
       roleRef:
-        identifier: *proxyName
+        identifier: *proxyId
       subjects:
-        - identifier: *proxyName
+        - identifier: *proxyId
 rawResources:
   # Create a selfsigned Issuer, in order to create a root CA certificate for signing certificates
   self-signed-issuer:
