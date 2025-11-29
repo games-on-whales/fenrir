@@ -48,6 +48,8 @@ controllers:
               fieldRef:
                 fieldPath: metadata.name
           POD_NAMESPACE: "{{ .Release.Namespace }}"
+          WOLF_IMAGE: ghcr.io/games-on-whales/wolf:stable
+          AGENT_IMAGE: ghcr.io/brunnels/fenrir/wolf-agent:main
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

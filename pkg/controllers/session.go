@@ -748,7 +748,46 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	if err != nil {
 		return fmt.Errorf("failed to get app: %s", err)
 	}
+	// Prepare environment variables for the wolf container
+	wolfEnvVars := map[string]string{
+		"PUID":                   "1000",
+		"PGID":                   "1000",
+		"UNAME":                  "ubuntu",
+		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
+		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
+		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
+		"WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
+		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
+		"WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml",
+		"WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
+		"WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
+		// Keeping those for later
+		"GST_VAAPI_ALL_DRIVERS":      "1",
+		"GST_DEBUG":                  "2",
+		"__GL_SYNC_TO_VBLANK":        "0",
+		"NVIDIA_VISIBLE_DEVICES":     "all",
+		"NVIDIA_DRIVER_CAPABILITIES": "all",
+		"LIBVA_DRIVER_NAME":          "nvidia",
+		"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+	}
 
+	// Check if runtime variables are defined in the App spec and override defaults
+	if app.Spec.WolfConfig.RuntimeVariables != nil {
+		runtimeVars := app.Spec.WolfConfig.RuntimeVariables
+		if runtimeVars.LogLevel != "" {
+			wolfEnvVars["WOLF_LOG_LEVEL"] = runtimeVars.LogLevel
+		}
+		if runtimeVars.TimeZone != "" {
+			wolfEnvVars["TZ"] = runtimeVars.TimeZone
+		}
+		if runtimeVars.RenderNode != "" {
+			wolfEnvVars["WOLF_RENDER_NODE"] = runtimeVars.RenderNode
+		}
+		// This is a debug option, it's only here for people to test stuff until the ip is dynamically acquired
+		if runtimeVars.RenderNode != "" {
+			wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = runtimeVars.ClientIP
+		}
+	}
 	var podToCreate corev1.PodTemplateSpec
 	if app.Spec.Template != nil {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
@@ -810,7 +849,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Container must have extra logic to wait for this to be set up
 			// unfortunately.
 			"WAYLAND_DISPLAY": "wayland-1",
-			"TZ":              "America/Chicago",
+			"TZ":              wolfEnvVars["TZ"],
 			"UNAME":           "retro",
 			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
 			"UID":             "1000",
@@ -822,12 +861,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Assorted NVIDIA. Unsure if required. Probabky not.
 			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
 			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
-			// "LIBVA_DRIVER_NAME":          "nvidia",
-			// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			// "NVIDIA_DRIVER_CAPABILITIES": "all",
-			// "NVIDIA_VISIBLE_DEVICES":     "all",
-			// "GST_VAAPI_ALL_DRIVERS":      "1",
-			// "GST_DEBUG":                  "2",
+			"LIBVA_DRIVER_NAME":          "nvidia",
+			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+			"NVIDIA_DRIVER_CAPABILITIES": "all",
+			"NVIDIA_VISIBLE_DEVICES":     "all",
+			"GST_VAAPI_ALL_DRIVERS":      "1",
+			"GST_DEBUG":                  "2",
 
 			// Gamescape envar injection. Ham-handed. Why not.
 			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
@@ -904,6 +943,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// Prepare sidecar policies
 	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
 	var wolfAgentVolumeMounts, pulseAudioVolumeMounts, wolfVolumeMounts []corev1.VolumeMount
+	var wolfAgentSecurityContext, pulseAudioSecurityContext, wolfSecurityContext *corev1.SecurityContext
+	var podHostIPC bool // Variable to track if HostIPC should be enabled for the pod
 
 	// Set defaults first
 	wolfAgentResources = wolfAgentDefaultResources
@@ -924,6 +965,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
 			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
+			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
+			if policies.WolfAgent.HostIPC != nil && *policies.WolfAgent.HostIPC {
+				podHostIPC = true
+			}
 		}
 		if policies.PulseAudio != nil {
 			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
@@ -931,6 +976,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
 			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
+			pulseAudioSecurityContext = policies.PulseAudio.SecurityContext
+			if policies.PulseAudio.HostIPC != nil && *policies.PulseAudio.HostIPC {
+				podHostIPC = true
+			}
 		}
 		if policies.Wolf != nil {
 			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
@@ -938,14 +987,22 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
 			wolfVolumeMounts = policies.Wolf.VolumeMounts
+			wolfSecurityContext = policies.Wolf.SecurityContext
+			if policies.Wolf.HostIPC != nil && *policies.Wolf.HostIPC {
+				podHostIPC = true
+			}
 		}
 	}
+
+	// Apply HostIPC setting to the pod spec if requested by any sidecar policy
+	podToCreate.Spec.HostIPC = podHostIPC
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
 			Name:            "wolf-agent",
 			Image:           c.WolfAgentImage,
 			ImagePullPolicy: corev1.PullAlways,
+			//ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
 				"--socket=/etc/wolf/wolf.sock",
 				"--port=8443",
@@ -1016,7 +1073,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					},
 				},
 			},
-			Resources: wolfAgentResources,
+			Resources:       wolfAgentResources,
+			SecurityContext: wolfAgentSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
@@ -1032,13 +1090,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:  "pulseaudio",
 			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
 			Env: mapToEnvApplyList(map[string]string{
-				"TZ":              "America/Chicago",
+				"TZ":              wolfEnvVars["TZ"],
 				"UNAME":           "retro",
 				"XDG_RUNTIME_DIR": "/tmp/pulse",
 				"UID":             "1000",
 				"GID":             "1000",
 			}),
-			Resources: pulseAudioResources,
+			Resources:       pulseAudioResources,
+			SecurityContext: pulseAudioSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-runtime",
@@ -1049,29 +1108,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:  "wolf",
 			Image: WOLF_IMAGE,
-			Env: mapToEnvApplyList(map[string]string{
-				"PUID":                       "1000",
-				"PGID":                       "1000",
-				"TZ":                         "America/Chicago",
-				"UNAME":                      "ubuntu",
-				"XDG_RUNTIME_DIR":            "/tmp/.X11-unix",
-				"PULSE_SERVER":               "unix:/tmp/.X11-unix/pulse-socket",
-				"HOST_APPS_STATE_FOLDER":     "/mnt/data/wolf",
-				"WOLF_LOG_LEVEL":             "DEBUG",
-				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0", //Need to find the correct streaming id / ingress, later.
-				"WOLF_SOCKET_PATH":           "/etc/wolf/wolf.sock",
-				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
-				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
-				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
-				"WOLF_RENDER_NODE":           "SOFTWARE",
-				"GST_VAAPI_ALL_DRIVERS":      "1",
-				"GST_DEBUG":                  "2",
-				"__GL_SYNC_TO_VBLANK":        "0",
-				"NVIDIA_VISIBLE_DEVICES":     "all",
-				"NVIDIA_DRIVER_CAPABILITIES": "all",
-				"LIBVA_DRIVER_NAME":          "nvidia",
-				"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			}),
+			Env:   mapToEnvApplyList(wolfEnvVars),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
 			Ports: []corev1.ContainerPort{
@@ -1100,7 +1137,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: session.Status.Ports.AudioRTP,
 				},
 			},
-			Resources: wolfResources,
+			Resources:       wolfResources,
+			SecurityContext: wolfSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
@@ -1519,19 +1557,29 @@ func (c *SessionController) reconcileActiveStreams(
 		// Either scenario is invalid. Delete the session
 		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
 	}
+	// Will need this for later
+	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get app: %s", err)
+	}
 
 	if !found {
 		//!TODO: Add the ports into the request for this to support multiple
 		// sessions per Gateway.
 		//
 		// Create the session
+		clientIP := "10.128.1.0" // This is temporary
+		if app.Spec.WolfConfig.RuntimeVariables != nil && app.Spec.WolfConfig.RuntimeVariables.ClientIP != "" {
+			clientIP = app.Spec.WolfConfig.RuntimeVariables.ClientIP
+		}
+
 		sessionID, err := wolfclient.AddSession(ctx, wolfapi.Session{
 			VideoWidth:        session.Spec.Config.VideoWidth,
 			VideoHeight:       session.Spec.Config.VideoHeight,
 			VideoRefreshRate:  session.Spec.Config.VideoRefreshRate,
 			AppID:             "1",
-			AudioChannelCount: 2, // !TODO: parse from audio info
-			ClientIP:          "10.128.1.0",
+			AudioChannelCount: 2,        // !TODO: parse from audio info
+			ClientIP:          clientIP, // In the future, this will be acquired dynamically
 			ClientSettings: wolfapi.ClientSettings{
 				RunGID:              1000,
 				RunUID:              1000,
@@ -1550,6 +1598,7 @@ func (c *SessionController) reconcileActiveStreams(
 			ClientID:   "4193251087262667199",
 			RTSPFakeIP: service.Spec.ClusterIP,
 		})
+
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)
 		}

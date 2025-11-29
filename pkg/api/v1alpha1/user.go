@@ -44,6 +44,14 @@ type SidecarPolicy struct {
 	// VolumeMounts specifies the volumes to mount into the sidecar.
 	// +optional
 	VolumeMounts []corev1.VolumeMount `json:"volumeMounts,omitempty"`
+	// SecurityContext defines the security options the container should be run with.
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
+	// HostIPC requests that the pod share the host's IPC namespace.
+	// This is a pod-level setting. If any sidecar policy requests it, it will be enabled for the entire pod.
+	// I'm not sure if this is safe.
+	// +optional
+	HostIPC *bool `json:"hostIPC,omitempty"`
 }
 
 type SidecarPolicies struct {

@@ -98,7 +98,7 @@ metadata:
     app: direwolf
     component: operator
 spec:
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: direwolf
@@ -139,6 +139,11 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          ## To specify which image you want to use for wolf and wolf-agent
+          # - name: WOLF_IMAGE
+          #   value: ghcr.io/games-on-whales/wolf:wolf-ui
+          # - name: AGENT_IMAGE
+          #   value: localhost/fenrir/wolf-agent:latest
           resources:
             requests:
               cpu: 100m
