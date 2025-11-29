@@ -788,6 +788,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = runtimeVars.ClientIP
 		}
 	}
+
+	if session.Spec.Config.ClientIP != "" {
+		wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = session.Spec.Config.ClientIP
+	}
 	var podToCreate corev1.PodTemplateSpec
 	if app.Spec.Template != nil {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
@@ -1568,8 +1572,10 @@ func (c *SessionController) reconcileActiveStreams(
 		// sessions per Gateway.
 		//
 		// Create the session
-		clientIP := "10.128.1.0" // This is temporary
-		if app.Spec.WolfConfig.RuntimeVariables != nil && app.Spec.WolfConfig.RuntimeVariables.ClientIP != "" {
+		clientIP := "10.128.1.0" // I'm  keeping this, for now...
+		if session.Spec.Config.ClientIP != "" {
+			clientIP = session.Spec.Config.ClientIP
+		} else if app.Spec.WolfConfig.RuntimeVariables != nil && app.Spec.WolfConfig.RuntimeVariables.ClientIP != "" {
 			clientIP = app.Spec.WolfConfig.RuntimeVariables.ClientIP
 		}
 

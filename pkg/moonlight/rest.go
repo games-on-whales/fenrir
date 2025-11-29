@@ -371,6 +371,7 @@ func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
+	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 
 	// 2025/03/03 11:34:48 HTTP/2.0 GET /launch map[additionalStates:[1] appid:[firefox] localAudioPlayMode:[0] mode:[1920x1080x60] rikey:[773448F67992470C5C62848D361E1025] rikeyid:[1311662065] sops:[0] surroundAudioInfo:[196610] uniqueid:[0123456789ABCDEF]] 127.0.0.1:65314
 	// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
@@ -483,6 +484,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 					Namespace: "unused",
 				},
 				Config: v1alpha1types.SessionInfo{
+					ClientIP:           clientIP,
 					AESIV:              rikeyID,
 					AESKey:             rikey,
 					SurroundAudioFlags: surroundFlags,

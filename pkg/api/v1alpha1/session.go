@@ -82,6 +82,9 @@ type SessionList struct {
 }
 
 type SessionInfo struct {
+	//+kubebuilder:validation:Optional
+	ClientIP string `json:"clientIP,omitempty"`
+
 	//+kubebuilder:validation:Required
 	AESKey string `json:"aesKey,omitempty"`
 
