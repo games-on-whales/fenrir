@@ -45,7 +45,8 @@
             "videoRefreshRate",
             "videoWidth"
           ],
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "gameReference": {
           "properties": {
@@ -56,7 +57,8 @@
           "required": [
             "name"
           ],
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "gateway": {
           "description": "The name of the Gateway used to access the moonlight server.\nThe gateway IP used for the stream session must be the same as the IP of\nthe moonlight server used to initiate the connection due to moonlight\nprotocol restrictions.",
@@ -71,7 +73,8 @@
           "required": [
             "name"
           ],
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "pairingReference": {
           "properties": {
@@ -82,7 +85,8 @@
           "required": [
             "name"
           ],
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "userReference": {
           "properties": {
@@ -93,7 +97,8 @@
           "required": [
             "name"
           ],
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         }
       },
       "required": [
@@ -103,7 +108,8 @@
         "pairingReference",
         "userReference"
       ],
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false
     },
     "status": {
       "description": "Session State machine\nPending -> Initializing -> WaitForPing -> Streaming -> Ended",
@@ -159,7 +165,8 @@
               "status",
               "type"
             ],
-            "type": "object"
+            "type": "object",
+            "additionalProperties": false
           },
           "type": "array",
           "x-kubernetes-list-map-keys": [
@@ -190,7 +197,8 @@
               "type": "integer"
             }
           },
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         },
         "serviceName": {
           "type": "string"
@@ -206,7 +214,8 @@
       "required": [
         "ports"
       ],
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false
     }
   },
   "required": [

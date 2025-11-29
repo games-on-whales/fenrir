@@ -82,3 +82,5 @@ echo "Patching crd manifests..." >&2
 
 echo "Done" >&2
 popd >/dev/null
+
+python3 hack/openapi2jsonschema.py crds/*

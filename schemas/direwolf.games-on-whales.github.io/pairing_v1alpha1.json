@@ -26,14 +26,16 @@
           "required": [
             "name"
           ],
-          "type": "object"
+          "type": "object",
+          "additionalProperties": false
         }
       },
       "required": [
         "clientCertPEM",
         "userReference"
       ],
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false
     }
   },
   "type": "object"
