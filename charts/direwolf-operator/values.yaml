@@ -39,7 +39,7 @@ controllers:
     containers:
       operator:
         image:
-          repository: ghcr.io/brunnels/fenrir/direwolf-operator
+          repository: ghcr.io/games-on-whales/fenrir/direwolf-operator
           tag: main
           pullPolicy: Always
         env:
@@ -49,7 +49,7 @@ controllers:
                 fieldPath: metadata.name
           POD_NAMESPACE: "{{ .Release.Namespace }}"
           WOLF_IMAGE: ghcr.io/games-on-whales/wolf:stable
-          AGENT_IMAGE: ghcr.io/brunnels/fenrir/wolf-agent:main
+          AGENT_IMAGE: ghcr.io/games-on-whales/fenrir/wolf-agent:main
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -71,7 +71,7 @@ controllers:
           - --tls-cert=/etc/certs/tls.crt
           - --tls-key=/etc/certs/tls.key
         image:
-          repository: ghcr.io/brunnels/fenrir/moonlight-proxy
+          repository: ghcr.io/games-on-whales/fenrir/moonlight-proxy
           tag: main
           pullPolicy: Always
         env:
