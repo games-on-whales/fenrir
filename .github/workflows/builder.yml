@@ -167,7 +167,7 @@ jobs:
 
             PX_DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
             yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \\"${{ github.ref_name }}@${PX_DIGEST}\\"" "$VALUES_FILE"
-            yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\\"" "$VALUES_FILE"
+            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\\"" "$VALUES_FILE"
             
             echo "Updated $VALUES_FILE"
 
