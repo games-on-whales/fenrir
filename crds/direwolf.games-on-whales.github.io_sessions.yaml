@@ -59,6 +59,8 @@ spec:
                     type: string
                   aesKey:
                     type: string
+                  clientIP:
+                    type: string
                   surroundAudioFlags:
                     type: integer
                   videoHeight:

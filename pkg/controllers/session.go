@@ -16,7 +16,7 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
-	"github.com/pelletier/go-toml/v2"
+	// "github.com/pelletier/go-toml/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -276,22 +276,22 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		})
 	}
 
-	configError := c.reconcileConfigMap(context.TODO(), newObj)
-	if configError != nil {
-		klog.Errorf("Failed to reconcile configmap: %s", configError)
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:    "ConfigMapCreated",
-			Status:  metav1.ConditionFalse,
-			Reason:  "ConfigMapCreationFailed",
-			Message: configError.Error(),
-		})
-	} else {
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:   "ConfigMapCreated",
-			Status: metav1.ConditionTrue,
-			Reason: "Success",
-		})
-	}
+	// configError := c.reconcileConfigMap(context.TODO(), newObj)
+	// if configError != nil {
+	// 	klog.Errorf("Failed to reconcile configmap: %s", configError)
+	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+	// 		Type:    "ConfigMapCreated",
+	// 		Status:  metav1.ConditionFalse,
+	// 		Reason:  "ConfigMapCreationFailed",
+	// 		Message: configError.Error(),
+	// 	})
+	// } else {
+	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+	// 		Type:   "ConfigMapCreated",
+	// 		Status: metav1.ConditionTrue,
+	// 		Reason: "Success",
+	// 	})
+	// }
 
 	if pvcError := c.reconcilePVC(context.TODO(), newObj); pvcError != nil {
 		klog.Errorf("Failed to reconcile pvc: %s", pvcError)
@@ -756,19 +756,21 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
 		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
 		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
-		"WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
-		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
-		"WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml",
-		"WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
-		"WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
+		// "WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
+		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock", 
+		// "WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml", // no longer needed
+		// "WOLF_PRIVATE_CERT_FILE": "/mnt/data/wolf/cfg/cert.pem",
+		// "WOLF_PRIVATE_KEY_FILE": "/mnt/data/wolf/cfg/key.pem",
+		// "WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
+		// "WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
 		// Keeping those for later
-		"GST_VAAPI_ALL_DRIVERS":      "1",
-		"GST_DEBUG":                  "2",
-		"__GL_SYNC_TO_VBLANK":        "0",
-		"NVIDIA_VISIBLE_DEVICES":     "all",
-		"NVIDIA_DRIVER_CAPABILITIES": "all",
-		"LIBVA_DRIVER_NAME":          "nvidia",
-		"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+		// "GST_VAAPI_ALL_DRIVERS":      "1",
+		// "GST_DEBUG":                  "2",
+		// "__GL_SYNC_TO_VBLANK":        "0",
+		// "NVIDIA_VISIBLE_DEVICES":     "all",
+		// "NVIDIA_DRIVER_CAPABILITIES": "all",
+		// "LIBVA_DRIVER_NAME":          "nvidia",
+		// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 	}
 
 	// Check if runtime variables are defined in the App spec and override defaults
@@ -782,10 +784,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		if runtimeVars.RenderNode != "" {
 			wolfEnvVars["WOLF_RENDER_NODE"] = runtimeVars.RenderNode
-		}
-		// This is a debug option, it's only here for people to test stuff until the ip is dynamically acquired
-		if runtimeVars.RenderNode != "" {
-			wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = runtimeVars.ClientIP
 		}
 	}
 
@@ -856,8 +854,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			"TZ":              wolfEnvVars["TZ"],
 			"UNAME":           "retro",
 			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
-			"UID":             "1000",
-			"GID":             "1000",
+			// "UID":             "1000",
+			// "GID":             "1000",
 			"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
 			// PULSE_SINK & PULSE_SOURCE set at runtime calculated based off session ID.
 			// But would be nice if unnecessary
@@ -865,12 +863,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Assorted NVIDIA. Unsure if required. Probabky not.
 			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
 			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
-			"LIBVA_DRIVER_NAME":          "nvidia",
-			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			"NVIDIA_DRIVER_CAPABILITIES": "all",
-			"NVIDIA_VISIBLE_DEVICES":     "all",
-			"GST_VAAPI_ALL_DRIVERS":      "1",
-			"GST_DEBUG":                  "2",
+			// "LIBVA_DRIVER_NAME":          "nvidia",
+			// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+			// "NVIDIA_DRIVER_CAPABILITIES": "all",
+			// "NVIDIA_VISIBLE_DEVICES":     "all",
+			// "GST_VAAPI_ALL_DRIVERS":      "1",
+			// "GST_DEBUG":                  "2",
 
 			// Gamescape envar injection. Ham-handed. Why not.
 			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
@@ -891,19 +889,30 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:  "init",
 			Image: "ghcr.io/games-on-whales/base:edge",
+			// This will need to be updated / removed since /etc/wolf/cfg is no longer used by wolf
+			// Also, we're no longer injecting the app info into the config.toml
 			Command: []string{
 				"sh", "-c", `
+				mkdir -p /mnt/data/wolf/cfg
+				cp /certs/* /mnt/data/wolf/cfg/
 				chown 1000:1000 /mnt/data/wolf
 				chmod 777 /mnt/data/wolf
+				chown -R 1000:1000 /mnt/data/wolf/cfg
+				chmod 777 /mnt/data/wolf/cfg
 				chown -R ubuntu:ubuntu /tmp/.X11-unix
 				chmod 1777 -R /tmp/.X11-unix
 				mkdir -p /etc/wolf/cfg
-				cp -LR /cfg/* /etc/wolf/cfg
+				# cp -LR /cfg/* /etc/wolf/cfg
 				chown -R ubuntu:ubuntu /etc/wolf
 				chmod 777 -R /etc/wolf
 			`,
 			},
 			VolumeMounts: []corev1.VolumeMount{
+				// {
+				// 	Name:      "wolf-tls-secret",
+				// 	MountPath: "/certs",
+				// 	ReadOnly:  true,
+				// },
 				{
 					Name:      "wolf-cfg",
 					MountPath: "/etc/wolf",
@@ -916,10 +925,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/.X11-unix",
 				},
-				{
-					Name:      "config",
-					MountPath: "/cfg",
-				},
+				// {
+				// 	Name:      "config",
+				// 	MountPath: "/cfg",
+				// },
 			},
 		},
 	)
@@ -1022,14 +1031,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:  "XDG_RUNTIME_DIR",
 					Value: "/tmp/.X11-unix",
 				},
-				{
-					Name:  "PUID",
-					Value: "1000",
-				},
-				{
-					Name:  "PGID",
-					Value: "1000",
-				},
+				// {
+				// 	Name:  "PUID",
+				// 	Value: "1000",
+				// },
+				// {
+				// 	Name:  "PGID",
+				// 	Value: "1000",
+				// },
 				{
 					Name:  "WOLF_SOCKET_PATH",
 					Value: "/etc/wolf/wolf.sock",
@@ -1097,8 +1106,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				"TZ":              "America/Los_Angeles",
 				"UNAME":           "retro",
 				"XDG_RUNTIME_DIR": "/tmp/pulse",
-				"UID":             "1000",
-				"GID":             "1000",
+				// "UID":             "1000",
+				// "GID":             "1000",
 			}),
 			Resources:       pulseAudioResources,
 			SecurityContext: pulseAudioSecurityContext,
@@ -1186,16 +1195,25 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	}
 
 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
-		corev1.Volume{
-			Name: "config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: c.deploymentName(session),
-					},
-				},
-			},
-		},
+		// corev1.Volume{
+		// 	Name: "config",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
+		// 			LocalObjectReference: corev1.LocalObjectReference{
+		// 				Name: c.deploymentName(session),
+		// 			},
+		// 		},
+		// 	},
+		// },
+		// corev1.Volume{
+		// 	Name: "wolf-tls-secret",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		Secret: &corev1.SecretVolumeSource{
+		// 			SecretName: "wolf-tls-secret",
+		// 			Optional:   ptr.To(true), // Optional so it doesn't crash if you forgot to create it
+		// 		},
+		// 	},
+		// },
 		corev1.Volume{
 			Name: "wolf-cfg",
 			VolumeSource: corev1.VolumeSource{
@@ -1308,61 +1326,61 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	return nil
 }
 
-func (c *SessionController) reconcileConfigMap(
-	ctx context.Context,
-	session *v1alpha1types.Session,
-) error {
-	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get app: %s", err)
-	}
+// func (c *SessionController) reconcileConfigMap(
+// 	ctx context.Context,
+// 	session *v1alpha1types.Session,
+// ) error {
+// 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get app: %s", err)
+// 	}
 
-	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get user: %s", err)
-	}
+// 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get user: %s", err)
+// 	}
 
-	wolfConfig, err := GenerateWolfConfig(app)
-	if err != nil {
-		return fmt.Errorf("failed to generate wolf config: %s", err)
-	}
-	deploymentName := c.deploymentName(session)
+// 	wolfConfig, err := GenerateWolfConfig(app)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to generate wolf config: %s", err)
+// 	}
+// 	deploymentName := c.deploymentName(session)
 
-	_, err = c.K8sClient.CoreV1().
-		ConfigMaps(session.Namespace).
-		Apply(
-			context.Background(),
-			v1ac.ConfigMap(deploymentName, session.Namespace).
-				WithLabels(
-					map[string]string{
-						"app":           "direwolf-worker",
-						"direwolf/app":  session.Spec.GameReference.Name,
-						"direwolf/user": session.Spec.UserReference.Name,
-					}).
-				WithOwnerReferences(
-					metav1ac.OwnerReference().
-						WithName(app.Name).
-						WithAPIVersion(v1alpha1.GroupVersion.String()).
-						WithKind("App").
-						WithUID(app.UID).
-						WithController(true),
-					metav1ac.OwnerReference().
-						WithName(user.Name).
-						WithAPIVersion(v1alpha1.GroupVersion.String()).
-						WithKind("User").
-						WithUID(user.UID),
-				).
-				WithData(map[string]string{
-					"config.toml": wolfConfig,
-				}),
-			metav1.ApplyOptions{
-				FieldManager: "direwolf-session-controller",
-			})
-	if err != nil {
-		return fmt.Errorf("failed to apply configmap: %s", err)
-	}
-	return nil
-}
+// 	_, err = c.K8sClient.CoreV1().
+// 		ConfigMaps(session.Namespace).
+// 		Apply(
+// 			context.Background(),
+// 			v1ac.ConfigMap(deploymentName, session.Namespace).
+// 				WithLabels(
+// 					map[string]string{
+// 						"app":           "direwolf-worker",
+// 						"direwolf/app":  session.Spec.GameReference.Name,
+// 						"direwolf/user": session.Spec.UserReference.Name,
+// 					}).
+// 				WithOwnerReferences(
+// 					metav1ac.OwnerReference().
+// 						WithName(app.Name).
+// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
+// 						WithKind("App").
+// 						WithUID(app.UID).
+// 						WithController(true),
+// 					metav1ac.OwnerReference().
+// 						WithName(user.Name).
+// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
+// 						WithKind("User").
+// 						WithUID(user.UID),
+// 				).
+// 				WithData(map[string]string{
+// 					"config.toml": wolfConfig,
+// 				}),
+// 			metav1.ApplyOptions{
+// 				FieldManager: "direwolf-session-controller",
+// 			})
+// 	if err != nil {
+// 		return fmt.Errorf("failed to apply configmap: %s", err)
+// 	}
+// 	return nil
+// }
 
 func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1types.Session) error {
 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
@@ -1567,7 +1585,88 @@ func (c *SessionController) reconcileActiveStreams(
 		return fmt.Errorf("failed to get app: %s", err)
 	}
 
-	if !found {
+	if !found && app != nil {
+		// apps, err := wolfclient.ListApps(ctx)
+		// if err != nil {
+		// 	return fmt.Errorf("failed to list apps from wolf: %w", err)
+		// }
+
+		// Determine the title we expect the app to have
+		// expectedTitle := app.Spec.Title
+		// if app.Spec.WolfConfig.Title != "" {
+		// 	expectedTitle = app.Spec.WolfConfig.Title
+		// }
+
+		// var appID string
+
+		// 1. Check if the app already exists
+		// for _, loadedApp := range apps {
+		// 	if loadedApp.Title == expectedTitle {
+		// 		appID = loadedApp.ID
+		// 		klog.Infof("App '%s' already exists in Wolf with ID: %s. Skipping creation.", expectedTitle, appID)
+		// 		break
+		// 	}
+		// }
+
+		// 2. If app doesn't exist, create it
+		// if appID == "" {
+		// 	klog.Infof("App '%s' not found in Wolf. Creating it...", expectedTitle)
+
+		// 	if len(apps) == 0 {
+		// 		return fmt.Errorf("no apps found in wolf container to use as template")
+		// 	}
+
+		// 	// get the GST pipelines from the first app (supposedly wolf-ui)
+		// 	templateApp := apps[0]
+		// 	klog.Infof("Using app[0] (%s) as template for pipelines", templateApp.Title)
+
+		// 	// Defaults for booleans if nil
+		// 	startAudio := true
+		// 	if app.Spec.WolfConfig.StartAudioServer != nil {
+		// 		startAudio = *app.Spec.WolfConfig.StartAudioServer
+		// 	}
+		// 	startCompositor := true
+		// 	if app.Spec.WolfConfig.StartVirtualCompositor != nil {
+		// 		startCompositor = *app.Spec.WolfConfig.StartVirtualCompositor
+		// 	}
+
+		// 	runner := wolfapi.Runner{
+		// 		Type:   "process",
+		// 		RunCmd: "sh -c \"while :; do echo 'running...'; sleep 10; done\"",
+		// 	}
+		// 	if app.Spec.WolfConfig.Runner != nil {
+		// 		runner.Type = app.Spec.WolfConfig.Runner.Type
+		// 		runner.RunCmd = app.Spec.WolfConfig.Runner.RunCommand
+		// 	}
+		// 	var renderNode string
+		// 	if app.Spec.WolfConfig.RuntimeVariables != nil {
+		// 		renderNode = app.Spec.WolfConfig.RuntimeVariables.RenderNode
+		// 	}
+
+		// 	// Create the App in Wolf
+		// 	newApp := wolfapi.App{
+		// 		ID:                     app.Name, // Use K8s App Name as ID
+		// 		Title:                  expectedTitle,
+		// 		SupportHDR:             false, // Default
+		// 		StartVirtualCompositor: startCompositor,
+		// 		StartAudioServer:       startAudio,
+		// 		RenderNode:             renderNode,
+		// 		Runner:                 runner,
+
+		// 		// Injected Pipelines
+		// 		H264GSTPipeline: templateApp.H264GSTPipeline,
+		// 		HEVCGSTPipeline: templateApp.HEVCGSTPipeline,
+		// 		AV1GSTPipeline:  templateApp.AV1GSTPipeline,
+		// 		OpusGSTPipeline: templateApp.OpusGSTPipeline,
+		// 	}
+		// 	// no need to create an app
+		// 	// klog.Infof("Creating App in Wolf: %+v", newApp)
+		// 	// if err := wolfclient.AddApp(ctx, newApp); err != nil {
+		// 	// 	return fmt.Errorf("failed to add app to wolf: %w", err)
+		// 	// }
+		// 	appID = newApp.ID
+		// }
+
 		//!TODO: Add the ports into the request for this to support multiple
 		// sessions per Gateway.
 		//
@@ -1575,17 +1674,18 @@ func (c *SessionController) reconcileActiveStreams(
 		clientIP := "10.128.1.0" // I'm  keeping this, for now...
 		if session.Spec.Config.ClientIP != "" {
 			clientIP = session.Spec.Config.ClientIP
-		} else if app.Spec.WolfConfig.RuntimeVariables != nil && app.Spec.WolfConfig.RuntimeVariables.ClientIP != "" {
-			clientIP = app.Spec.WolfConfig.RuntimeVariables.ClientIP
 		}
 
 		sessionID, err := wolfclient.AddSession(ctx, wolfapi.Session{
 			VideoWidth:        session.Spec.Config.VideoWidth,
 			VideoHeight:       session.Spec.Config.VideoHeight,
 			VideoRefreshRate:  session.Spec.Config.VideoRefreshRate,
-			AppID:             "1",
-			AudioChannelCount: 2,            // !TODO: parse from audio info
-			ClientIP:          clientIP, // In the future, this will be acquired dynamically
+			// AppID:             appID,
+			AudioChannelCount: 2, // !TODO: parse from audio info
+
+			ClientIP: clientIP, // In the future, this will be acquired dynamically
+			//If this isn't present it crashes
+			//so, I'll keep it here until I figure out a way to pass off from moonlight client
 			ClientSettings: wolfapi.ClientSettings{
 				RunGID:              1000,
 				RunUID:              1000,
@@ -1601,14 +1701,13 @@ func (c *SessionController) reconcileActiveStreams(
 			// add it. Though not really needed since user doesnt connect via HTTPS
 			// to wolf, we just need a client ID wolf accepts for this specific
 			// pairing/client...
-			ClientID:   "4193251087262667199",
+			// ClientID:   "4193251087262667199",
 			RTSPFakeIP: service.Spec.ClusterIP,
 		})
 
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)
 		}
-
 		session.Status.WolfSessionID = sessionID
 	} else {
 		//!TODO: Update wolf API to include session ID in list so we can update
@@ -1618,233 +1717,4 @@ func (c *SessionController) reconcileActiveStreams(
 
 	session.Status.StreamURL = fmt.Sprintf("rtsp://%s:%d", service.Spec.ClusterIP, session.Status.Ports.RTSP)
 	return nil
-}
-
-func GenerateWolfConfig(
-	app *v1alpha1.App,
-) (string, error) {
-	config := app.Spec.WolfConfig
-
-	if len(config.Title) == 0 {
-		config.Title = app.Spec.Title
-	}
-
-	if config.StartAudioServer == nil {
-		config.StartAudioServer = ptr.To(true)
-	}
-
-	if config.StartVirtualCompositor == nil {
-		config.StartVirtualCompositor = ptr.To(true)
-	}
-
-	if config.Runner == nil {
-		config.Runner = &v1alpha1.WolfRunnerConfig{
-			Type:       "process",
-			RunCommand: "sh -c \"while :; do echo 'running...'; sleep 10; done\"",
-		}
-	}
-
-	var gstreamerConfig = map[string]interface{}{
-		"audio": map[string]interface{}{
-			"default_source":       `interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false`,
-			"default_audio_params": `queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert`,
-			"default_opus_encoder": `opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400`,
-			"default_sink": `rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt={encrypt} aes_key="{aes_key}" aes_iv="{aes_iv}" !
-	appsink name=wolf_udp_sink`,
-		},
-		"video": map[string]interface{}{
-			"default_source": `interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=1 leaky-type=downstream`,
-			"default_sink": `rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
-	appsink sync=false name=wolf_udp_sink`,
-			"defaults": map[string]interface{}{
-				"nvcodec": map[string]interface{}{
-					"video_params": `cudaupload !
-	cudaconvertscale !
-	video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
-					"video_params_zero_copy": `glupload !
-	glcolorconvert !
-	video/x-raw(memory:GLMemory),format=NV12, width={width}, height={height}, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
-				},
-				"qsv": map[string]interface{}{
-					"video_params": `videoconvertscale !
-	video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
-					"video_params_zero_copy": `vapostproc !
-	video/x-raw(memory:VAMemory),format=NV12, chroma-site={color_range}, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
-				},
-				"va": map[string]interface{}{
-					"video_params": `vapostproc !
-	video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
-					"video_params_zero_copy": `vapostproc !
-	video/x-raw(memory:VAMemory), format=NV12, chroma-site={color_range}, width={width}, height={height}, colorimetry={color_space}, pixel-aspect-ratio=1/1`,
-				},
-			},
-			"hevc_encoders": []map[string]interface{}{
-				{
-					"plugin_name":    "nvcodec",
-					"check_elements": []string{"nvh265enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": `nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
-	h265parse !
-	video/x-h265, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "qsv",
-					"check_elements": []string{"qsvh265enc", "vapostproc"},
-					"encoder_pipeline": `qsvh265enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
-	h265parse !
-	video/x-h265, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "va",
-					"check_elements": []string{"vah265enc", "vapostproc"},
-					"encoder_pipeline": `vah265enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
-	h265parse !
-	video/x-h265, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "va",
-					"check_elements": []string{"vah265lpenc", "vapostproc"},
-					"encoder_pipeline": `vah265lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
-	h265parse !
-	video/x-h265, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "x265",
-					"check_elements": []string{"x265enc"},
-					"video_params": `videoconvertscale !
-	videorate !
-	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
-					"video_params_zero_copy": `videoconvertscale !
-	videorate !
-	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
-					"encoder_pipeline": `x265enc tune=zerolatency speed-preset=superfast bitrate={bitrate} option-string="info=0:keyint=-1:qp=28:repeat-headers=1:slices={slices_per_frame}:aud=0:annexb=1:log-level=3:open-gop=0:bframes=0:intra-refresh=0" !
-	video/x-h265, profile=main, stream-format=byte-stream`,
-				},
-			},
-			"h264_encoders": []map[string]interface{}{
-				{
-					"plugin_name":    "nvcodec",
-					"check_elements": []string{"nvh264enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": `nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false !
-	h264parse !
-	video/x-h264, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "qsv",
-					"check_elements": []string{"qsvh264enc", "vapostproc"},
-					"encoder_pipeline": `qsvh264enc b-frames=0 gop-size=0 idr-interval=1 ref-frames=1 bitrate={bitrate} rate-control=cbr target-usage=6 !
-	h264parse !
-	video/x-h264, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "va",
-					"check_elements": []string{"vah264enc", "vapostproc"},
-					"encoder_pipeline": `vah264enc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
-	h264parse !
-	video/x-h264, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "va",
-					"check_elements": []string{"vah264lpenc", "vapostproc"},
-					"encoder_pipeline": `vah264lpenc aud=false b-frames=0 ref-frames=1 num-slices={slices_per_frame} bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
-	h264parse !
-	video/x-h264, profile=main, stream-format=byte-stream`,
-				},
-				{
-					"plugin_name":    "x264",
-					"check_elements": []string{"x264enc"},
-					"encoder_pipeline": `x264enc pass=qual tune=zerolatency speed-preset=superfast b-adapt=false bframes=0 ref=1 sliced-threads=true threads={slices_per_frame} option-string="slices={slices_per_frame}:keyint=infinite:open-gop=0" b-adapt=false bitrate={bitrate} aud=false !
-	video/x-h264, profile=high, stream-format=byte-stream`,
-				},
-			},
-			"av1_encoders": []map[string]interface{}{
-				{
-					"plugin_name":    "nvcodec",
-					"check_elements": []string{"nvav1enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": `nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter !
-	av1parse !
-	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
-				},
-				{
-					"plugin_name":    "qsv",
-					"check_elements": []string{"qsvav1enc", "vapostproc"},
-					"encoder_pipeline": `qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 !
-	av1parse !
-	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
-				},
-				{
-					"plugin_name":    "va",
-					"check_elements": []string{"vaav1enc", "vapostproc"},
-					"encoder_pipeline": `vaav1enc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
-	av1parse !
-	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
-				},
-				{
-					"plugin_name":    "va",
-					"check_elements": []string{"vaav1lpenc", "vapostproc"},
-					"encoder_pipeline": `vaav1lpenc ref-frames=1 bitrate={bitrate} cpb-size={bitrate} key-int-max=1024 rate-control=cqp target-usage=6 !
-	av1parse !
-	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
-				},
-				{
-					"plugin_name":    "aom",
-					"check_elements": []string{"av1enc"},
-					"video_params": `videoconvertscale !
-	videorate !
-	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
-					"video_params_zero_copy": `videoconvertscale !
-	videorate !
-	video/x-raw, width={width}, height={height}, framerate={fps}/1, format=I420, chroma-site={color_range}, colorimetry={color_space}`,
-					"encoder_pipeline": `av1enc usage-profile=realtime end-usage=vbr target-bitrate={bitrate} !
-	av1parse !
-	video/x-av1, stream-format=obu-stream, alignment=frame, profile=main`,
-				},
-			},
-		},
-	}
-
-	configMap := map[string]interface{}{
-		"config_version": 4,
-		"hostname":       "Direwolf",
-		"uuid":           "dd7c60f6-4b88-4ef1-be07-eeec72f96080",
-		"apps":           []any{config},
-
-		//!TODO: Send PR to wolf to populate the default gstreamer config
-		// if its not provided? Or start with empty wolf and use api to
-		// populate application
-		"gstreamer": gstreamerConfig,
-
-		//!TODO: Doesnt really matter since we handle moonlight. But
-		// we need a client to associate to streams. It would be better though
-		// to actually mirror the real moonlight clients into wolf via API
-		"paired_clients": []interface{}{
-			map[string]interface{}{
-				"app_state_folder": "state",
-				"client_cert": `-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjQxMjE2MDgzMTE4WhcNNDQxMjExMDgz
-MTE4WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCXcEKK/Desa7EcvntGHxtA3ercOxbd
-kUtkPPacz7mKVZBKayZmbfTMAQV5dS2yqeyZOId+X4JEPO7DeuMkkr9INnvl3etB
-WIj0q8FTuBrGAb+XozFTb3Tvo3plezpLXecl4mquvXA2mEtVILnm6NltdJ+GYNkT
-UBbOjneZIdBfFjIP+0k2JZD+VmnxmwCDlPryMa2nFi8rNAkYSfIWdyIlOzUJfZ/i
-8Hw4wLtSGy5W7YZ3kbQQJzPkW6pLFbREcNmslprwxZduo3mDAyDndj9qsVqopJOF
-Oj3Nlzj53kNRozgB9b/wkNcxi3lvOoQrNGJNTp39WNDmPFVzfBvCKVDJAgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBAA+Rh4KAuTYtcH8X5RdUstjGXiYbONMmEuKl/kE/
-hj8ddefXA4pjf1Vozx6NunMlC4g0QQAZrsxn1NBVe/5L3gxrwyYLn/2kDJUw7P5o
-aTXnL5xYzhcPjQOER9+36S4aUTpwR/rURK0MyOmZOVk3Ex4rAnyetKg3Dd9v6uL3
-zaycOje4fxJpVH713NbFaGLMeKPW61lW+Lh9WlXOKrd0EABVBPmSYlk8gYnPrXxA
-dxohk8q/MqUqcm/k8ZGKYMc998ix6ldXJm5xaPTXSQcSC/xycoLjnUCkcv+sfh1T
-nKI+KlDXa1HikPGT/uB/b+SS6v9bD8kU03Ci4ahdKb6Mw7Q=
------END CERTIFICATE-----
-`,
-			},
-		},
-	}
-
-	data, err := toml.Marshal(configMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal toml: %s", err)
-	}
-
-	return string(data), nil
 }

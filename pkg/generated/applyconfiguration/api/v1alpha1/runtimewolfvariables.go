@@ -24,7 +24,6 @@ type RuntimeWolfVariablesApplyConfiguration struct {
 	RenderNode *string `json:"renderNode,omitempty"`
 	TimeZone   *string `json:"timeZone,omitempty"`
 	LogLevel   *string `json:"logLevel,omitempty"`
-	ClientIP   *string `json:"clientIP,omitempty"`
 }
 
 // RuntimeWolfVariablesApplyConfiguration constructs a declarative configuration of the RuntimeWolfVariables type for use with
@@ -54,13 +53,5 @@ func (b *RuntimeWolfVariablesApplyConfiguration) WithTimeZone(value string) *Run
 // If called multiple times, the LogLevel field is set to the value of the last call.
 func (b *RuntimeWolfVariablesApplyConfiguration) WithLogLevel(value string) *RuntimeWolfVariablesApplyConfiguration {
 	b.LogLevel = &value
-	return b
-}
-
-// WithClientIP sets the ClientIP field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the ClientIP field is set to the value of the last call.
-func (b *RuntimeWolfVariablesApplyConfiguration) WithClientIP(value string) *RuntimeWolfVariablesApplyConfiguration {
-	b.ClientIP = &value
 	return b
 }

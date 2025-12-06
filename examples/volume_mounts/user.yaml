@@ -1,0 +1,49 @@
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: User
+metadata:
+  name: alex
+  namespace: direwolf
+spec:
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 8G
+    requests:
+      cpu: 4000m
+      memory: 8G
+  volumes:
+    - name: dev-input
+      hostPath:
+        path: /dev/input
+        type: Directory
+
+    - name: dev-uinput
+      hostPath:
+        path: /dev/uinput
+        type: CharDevice
+
+    - name: host-dri
+      hostPath:
+        path: /dev/dri/renderD128
+        type: CharDevice
+
+  sidecarPolicies:
+    # We are overriding the default resources for some sidecars for this user.
+    wolf:
+      # I'm using generic devices to pass along the gpu.
+      resources:
+        requests:
+          cpu: 1000m
+          memory: 2G
+        limits:
+          cpu: 1000m
+          memory: 2G
+      volumeMounts:
+       - name: dev-input
+         mountPath: /dev/input
+       - name: dev-uinput
+         mountPath: /dev/uinput
+       - name: host-dri
+         mountPath: /dev/dri/renderD128
+         readOnly: false
+    # pulseaudio:

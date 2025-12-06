@@ -1,0 +1,31 @@
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: User
+metadata:
+  name: alex
+  namespace: direwolf
+spec:
+  resources:
+    limits:
+      squat.ai/dri: "1"
+      cpu: 4000m
+      memory: 8G
+    requests:
+      squat.ai/dri: "1"
+      cpu: 4000m
+      memory: 8G
+  sidecarPolicies:
+    # We are overriding the default resources for some sidecars for this user.
+    wolf:
+      # I'm using generic devices to pass along the gpu.
+      resources:
+        requests:
+          squat.ai/dri: "1"
+          squat.ai/uinput: "1"
+          cpu: 1000m
+          memory: 2G
+        limits:
+          squat.ai/dri: "1"
+          squat.ai/uinput: "1"
+          cpu: 1000m
+          memory: 2G
+    # pulseaudio:
