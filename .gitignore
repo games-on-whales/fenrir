@@ -23,3 +23,11 @@ go.work.sum
 
 # env file
 .env
+
+.idea/
+
+charts/*/Chart.lock
+charts/*/crds/
+charts/*/charts/
+
+packaged/

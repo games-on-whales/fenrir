@@ -44,7 +44,7 @@ var (
 			return im
 		}
 
-		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
+		return "ghcr.io/games-on-whales/wolf:stable"
 	}()
 )
 
@@ -863,12 +863,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// Assorted NVIDIA. Unsure if required. Probabky not.
 			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
 			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
-			// "LIBVA_DRIVER_NAME":          "nvidia",
-			// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			// "NVIDIA_DRIVER_CAPABILITIES": "all",
-			// "NVIDIA_VISIBLE_DEVICES":     "all",
-			// "GST_VAAPI_ALL_DRIVERS":      "1",
-			// "GST_DEBUG":                  "2",
+			"LIBVA_DRIVER_NAME":          "nvidia",
+			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+			"NVIDIA_DRIVER_CAPABILITIES": "all",
+			"NVIDIA_VISIBLE_DEVICES":     "all",
+			"GST_VAAPI_ALL_DRIVERS":      "1",
+			"GST_DEBUG":                  "2",
 
 			// Gamescape envar injection. Ham-handed. Why not.
 			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
@@ -1014,8 +1014,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:  "wolf-agent",
 			Image: c.WolfAgentImage,
-			// ImagePullPolicy: corev1.PullAlways,
-			ImagePullPolicy: corev1.PullIfNotPresent,
+			ImagePullPolicy: corev1.PullAlways,
+			// ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
 				"--socket=/etc/wolf/wolf.sock",
 				"--port=8443",
@@ -1103,7 +1103,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:  "pulseaudio",
 			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
 			Env: mapToEnvApplyList(map[string]string{
-				"TZ":              "America/Los_Angeles",
+				"TZ":              wolfEnvVars["TZ"],
 				"UNAME":           "retro",
 				"XDG_RUNTIME_DIR": "/tmp/pulse",
 				// "UID":             "1000",

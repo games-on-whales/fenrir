@@ -47,13 +47,36 @@ type AppSpec struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	WolfConfig WolfConfig `json:"wolfConfig" xml:"-"`
 
-    // A template for a PersistentVolumeClaim to be created for the app's
-    // home directory. If provided, the operator will create a PVC from
-    // this template and mount it at /home/retro.
-    // If not provided, an emptyDir volume will be used.
-    // all other volumes must be defined in the pod template's spec.volumes field.
+	// A template for a PersistentVolumeClaim to be created for the app's
+	// home directory. If provided, the operator will create a PVC from
+	// this template and mount it at /home/retro.
+	// If not provided, an emptyDir volume will be used.
+	// all other volumes must be defined in the pod template's spec.volumes field.
 	// +kubebuilder:validation:Optional
-    VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
+	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
+}
+
+type RuntimeWolfVariables struct {
+	// RenderNode specifies the filepath to the DRM render node device.
+	// Example: "/dev/dri/renderD128", empty by default
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=""
+	RenderNode string `json:"renderNode,omitempty""`
+
+	// Time zone for the wolf container
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=UTC
+	TimeZone string `json:"timeZone,omitempty"`
+
+	// Logging level for wolf.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=ERROR;WARNING;INFO;DEBUG;TRACE
+	// +kubebuilder:default:="DEBUG"
+	LogLevel string `json:"logLevel,omitempty"`
+
+	// This is the client IP, put it as your node ip or whatever, otherwise it'll fail, or maybe it only fails in my kind cluster i don't know
+	// +kubebuilder:validation:Optional
+	ClientIP string `json:"clientIP,omitempty"`
 }
 
 type RuntimeWolfVariables struct {
