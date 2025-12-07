@@ -1,3 +1,5 @@
+---
+# yaml-language-server: $schema=https://github.com/games-on-whales/fenrir/raw/refs/heads/main/schemas/direwolf.games-on-whales.github.io/app_v1alpha1.json
 apiVersion: direwolf.games-on-whales.github.io/v1alpha1
 kind: App
 metadata:

@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://github.com/brunnels/fenrir/raw/refs/heads/main/schemas/direwolf.games-on-whales.github.io/app_v1alpha1.json
+# yaml-language-server: $schema=https://github.com/games-on-whaless/fenrir/raw/refs/heads/main/schemas/direwolf.games-on-whales.github.io/app_v1alpha1.json
 apiVersion: direwolf.games-on-whales.github.io/v1alpha1
 kind: App
 metadata:
@@ -16,7 +16,7 @@ spec:
   wolfConfig:
     runtimeVariables:
       renderNode: /dev/dri/renderD128
-      clientIP: 10.244.1.1
+      # clientIP: 10.244.1.1
   template:
     spec:
       containers:

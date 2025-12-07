@@ -58,29 +58,6 @@ type AppSpec struct {
 
 type RuntimeWolfVariables struct {
 	// RenderNode specifies the filepath to the DRM render node device.
-	// Example: "/dev/dri/renderD128", empty by default
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=""
-	RenderNode string `json:"renderNode,omitempty""`
-
-	// Time zone for the wolf container
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=UTC
-	TimeZone string `json:"timeZone,omitempty"`
-
-	// Logging level for wolf.
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Enum=ERROR;WARNING;INFO;DEBUG;TRACE
-	// +kubebuilder:default:="DEBUG"
-	LogLevel string `json:"logLevel,omitempty"`
-
-	// This is the client IP, put it as your node ip or whatever, otherwise it'll fail, or maybe it only fails in my kind cluster i don't know
-	// +kubebuilder:validation:Optional
-	ClientIP string `json:"clientIP,omitempty"`
-}
-
-type RuntimeWolfVariables struct {
-	// RenderNode specifies the filepath to the DRM render node device.
 	// Wolf defaults to: "/dev/dri/renderD128"
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="/dev/dri/renderD128"

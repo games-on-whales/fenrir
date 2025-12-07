@@ -24,6 +24,9 @@
             "aesKey": {
               "type": "string"
             },
+            "clientIP": {
+              "type": "string"
+            },
             "surroundAudioFlags": {
               "type": "integer"
             },

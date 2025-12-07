@@ -141,9 +141,9 @@ spec:
                 fieldPath: metadata.namespace
           ## To specify which image you want to use for wolf and wolf-agent 
           # - name: WOLF_IMAGE
-          #   value: ghcr.io/games-on-whales/wolf:wolf-ui
+          #   value: ghcr.io/games-on-whales/wolf:session
           # - name: AGENT_IMAGE
-          #   value: localhost/fenrir/wolf-agent:latest
+          #   value: ghcr.io/games-on-whales/fenrir/wolf-agent:main
           resources:
             requests:
               cpu: 100m

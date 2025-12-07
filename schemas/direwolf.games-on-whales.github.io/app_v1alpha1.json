@@ -7170,10 +7170,6 @@
             "runtimeVariables": {
               "description": "Additional wolf configs to use.",
               "properties": {
-                "clientIP": {
-                  "description": "This is the client IP, put it as your node ip or whatever, otherwise it'll fail, or maybe it only fails in my kind cluster i don't know",
-                  "type": "string"
-                },
                 "logLevel": {
                   "default": "DEBUG",
                   "description": "Logging level for wolf.",
@@ -7187,8 +7183,8 @@
                   "type": "string"
                 },
                 "renderNode": {
-                  "default": "",
-                  "description": "RenderNode specifies the filepath to the DRM render node device.\nExample: \"/dev/dri/renderD128\", empty by default",
+                  "default": "/dev/dri/renderD128",
+                  "description": "RenderNode specifies the filepath to the DRM render node device.\nWolf defaults to: \"/dev/dri/renderD128\"",
                   "type": "string"
                 },
                 "timeZone": {
