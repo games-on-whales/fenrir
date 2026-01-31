@@ -749,6 +749,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		return fmt.Errorf("failed to get app: %s", err)
 	}
 	// Prepare environment variables for the wolf container
+	// commenting these out was the main reason nvidia stuff wasn't working.
+	// specifically the NVIDIA_VISIBLE_DEVICES
+	// I need a better method of injecting env vars / configs to the pod
+	// TODO
 	wolfEnvVars := map[string]string{
 		"PUID":                   "1000",
 		"PGID":                   "1000",
@@ -820,16 +824,11 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// 	}
 	// }
 
-	mapToEnvApplyList := func(m map[string]string) []corev1.EnvVar {
-		var res []corev1.EnvVar
-		for k, v := range m {
-			res = append(res, corev1.EnvVar{
-				Name:  k,
-				Value: v,
-			})
-		}
-		return res
-	}
+	wolfEnvVarsSlice := make([]corev1.EnvVar, 0, len(wolfEnvVars))
+	for k, v := range wolfEnvVars {
+		wolfEnvVarsSlice = append(wolfEnvVarsSlice, corev1.EnvVar{Name: k, Value: v})
+ 	}
+
 
 	// Inject volume mounts into existing containers
 	for i := range podToCreate.Spec.Containers {
@@ -845,36 +844,35 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			},
 		)
 
-		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, mapToEnvApplyList(map[string]string{
+		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, []corev1.EnvVar{
 			// Standard GOW envars
-			"DISPLAY": ":0",
+			{Name: "DISPLAY", Value: ":0"},
 			// Container must have extra logic to wait for this to be set up
 			// unfortunately.
-			"WAYLAND_DISPLAY": "wayland-1",
-			"TZ":              wolfEnvVars["TZ"],
-			"UNAME":           "retro",
-			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
-			// "UID":             "1000",
+			{Name: "WAYLAND_DISPLAY", Value: "wayland-1"},
+			{Name: "TZ", Value: wolfEnvVars["TZ"]},
+			{Name: "UNAME", Value: "retro"},
+			{Name: "XDG_RUNTIME_DIR", Value: "/tmp/.X11-unix"},			// "UID":             "1000",
 			// "GID":             "1000",
-			"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
+			{Name: "PULSE_SERVER", Value: "unix:/tmp/.X11-unix/pulse-socket"},
 			// PULSE_SINK & PULSE_SOURCE set at runtime calculated based off session ID.
 			// But would be nice if unnecessary
 
 			// Assorted NVIDIA. Unsure if required. Probabky not.
 			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
 			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
-			"LIBVA_DRIVER_NAME":          "nvidia",
-			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			"NVIDIA_DRIVER_CAPABILITIES": "all",
-			"NVIDIA_VISIBLE_DEVICES":     "all",
-			"GST_VAAPI_ALL_DRIVERS":      "1",
-			"GST_DEBUG":                  "2",
+			{Name: "LIBVA_DRIVER_NAME", Value: "nvidia"},
+			{Name: "LD_LIBRARY_PATH", Value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib"},
+			{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "all"},
+			{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
+			{Name: "GST_VAAPI_ALL_DRIVERS", Value: "1"},
+			{Name: "GST_DEBUG", Value: "2"},
 
 			// Gamescape envar injection. Ham-handed. Why not.
-			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
-			"GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
-			"GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
-		})...)
+			{Name: "GAMESCOPE_WIDTH", Value: fmt.Sprint(session.Spec.Config.VideoWidth)},
+			{Name: "GAMESCOPE_HEIGHT", Value: fmt.Sprint(session.Spec.Config.VideoHeight)},
+			{Name: "GAMESCOPE_REFRESH", Value: fmt.Sprint(session.Spec.Config.VideoRefreshRate)},
+		}...)
 
 		// Validate the main app container's resources against the user's policy.
 		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, user.Spec.Resources)
@@ -954,6 +952,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	}
 
 	// Prepare sidecar policies
+	var wolfAgentEnv, pulseAudioEnv, wolfEnv []corev1.EnvVar
 	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
 	var wolfAgentVolumeMounts, pulseAudioVolumeMounts, wolfVolumeMounts []corev1.VolumeMount
 	var wolfAgentSecurityContext, pulseAudioSecurityContext, wolfSecurityContext *corev1.SecurityContext
@@ -976,6 +975,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
 				return err
 			}
+			wolfAgentEnv = policies.WolfAgent.Env
+			// klog.debug("User defined env vars: %+v", wolfAgentEnv)
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
 			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
 			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
@@ -987,6 +988,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
 				return err
 			}
+			pulseAudioEnv = policies.PulseAudio.Env
+			// klog.Infof("User defined env vars: %+v", pulseAudioEnv)
 			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
 			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
 			pulseAudioSecurityContext = policies.PulseAudio.SecurityContext
@@ -998,6 +1001,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
 				return err
 			}
+			wolfEnv = policies.Wolf.Env
+			// klog.Infof("User defined env vars: %+v", wolfEnv)
 			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
 			wolfVolumeMounts = policies.Wolf.VolumeMounts
 			wolfSecurityContext = policies.Wolf.SecurityContext
@@ -1026,48 +1031,49 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: 8443,
 				},
 			},
-			Env: []corev1.EnvVar{
-				{
-					Name:  "XDG_RUNTIME_DIR",
-					Value: "/tmp/.X11-unix",
-				},
-				// {
-				// 	Name:  "PUID",
-				// 	Value: "1000",
-				// },
-				// {
-				// 	Name:  "PGID",
-				// 	Value: "1000",
-				// },
-				{
-					Name:  "WOLF_SOCKET_PATH",
-					Value: "/etc/wolf/wolf.sock",
-				},
-				{
-					Name:  "DIREWOLF_USER",
-					Value: session.Spec.UserReference.Name,
-				},
-				{
-					Name:  "DIREWOLF_APP",
-					Value: session.Spec.GameReference.Name,
-				},
-				{
-					Name: "POD_NAME",
-					ValueFrom: &corev1.EnvVarSource{
-						FieldRef: &corev1.ObjectFieldSelector{
-							FieldPath: "metadata.name",
+			Env: append([]corev1.EnvVar{
+					{
+						Name:  "XDG_RUNTIME_DIR",
+						Value: "/tmp/.X11-unix",
+					},
+					// {
+					// 	Name:  "PUID",
+					// 	Value: "1000",
+					// },
+					// {
+					// 	Name:  "PGID",
+					// 	Value: "1000",
+					// },
+					{
+						Name:  "WOLF_SOCKET_PATH",
+						Value: "/etc/wolf/wolf.sock",
+					},
+					{
+						Name:  "DIREWOLF_USER",
+						Value: session.Spec.UserReference.Name,
+					},
+					{
+						Name:  "DIREWOLF_APP",
+						Value: session.Spec.GameReference.Name,
+					},
+					{
+						Name: "POD_NAME",
+						ValueFrom: &corev1.EnvVarSource{
+							FieldRef: &corev1.ObjectFieldSelector{
+								FieldPath: "metadata.name",
+							},
 						},
 					},
-				},
-				{
-					Name: "POD_NAMESPACE",
-					ValueFrom: &corev1.EnvVarSource{
-						FieldRef: &corev1.ObjectFieldSelector{
-							FieldPath: "metadata.namespace",
+					{
+						Name: "POD_NAMESPACE",
+						ValueFrom: &corev1.EnvVarSource{
+							FieldRef: &corev1.ObjectFieldSelector{
+								FieldPath: "metadata.namespace",
+							},
 						},
 					},
-				},
-			},
+				},wolfAgentEnv...
+			),
 			ReadinessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
@@ -1102,13 +1108,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:  "pulseaudio",
 			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
-			Env: mapToEnvApplyList(map[string]string{
-				"TZ":              wolfEnvVars["TZ"],
-				"UNAME":           "retro",
-				"XDG_RUNTIME_DIR": "/tmp/pulse",
+			Env: append([]corev1.EnvVar{
+				{Name: "TZ", Value: wolfEnvVars["TZ"]},
+				{Name: "UNAME", Value: "retro"},
+				{Name: "XDG_RUNTIME_DIR", Value: "/tmp/pulse"},
 				// "UID":             "1000",
 				// "GID":             "1000",
-			}),
+			}, pulseAudioEnv...),
+
 			Resources:       pulseAudioResources,
 			SecurityContext: pulseAudioSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
@@ -1121,7 +1128,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:  "wolf",
 			Image: WOLF_IMAGE,
-			Env:   mapToEnvApplyList(wolfEnvVars),
+			Env:   append(wolfEnvVarsSlice, wolfEnv...),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
 			Ports: []corev1.ContainerPort{

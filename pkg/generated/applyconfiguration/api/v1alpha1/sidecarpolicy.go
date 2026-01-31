@@ -25,6 +25,7 @@ import (
 // SidecarPolicyApplyConfiguration represents a declarative configuration of the SidecarPolicy type for use
 // with apply.
 type SidecarPolicyApplyConfiguration struct {
+	Env             []v1.EnvVar              `json:"env,omitempty"`
 	Resources       *v1.ResourceRequirements `json:"resources,omitempty"`
 	VolumeMounts    []v1.VolumeMount         `json:"volumeMounts,omitempty"`
 	SecurityContext *v1.SecurityContext      `json:"securityContext,omitempty"`
@@ -35,6 +36,16 @@ type SidecarPolicyApplyConfiguration struct {
 // apply.
 func SidecarPolicy() *SidecarPolicyApplyConfiguration {
 	return &SidecarPolicyApplyConfiguration{}
+}
+
+// WithEnv adds the given value to the Env field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Env field.
+func (b *SidecarPolicyApplyConfiguration) WithEnv(values ...v1.EnvVar) *SidecarPolicyApplyConfiguration {
+	for i := range values {
+		b.Env = append(b.Env, values[i])
+	}
+	return b
 }
 
 // WithResources sets the Resources field in the declarative configuration to the given value

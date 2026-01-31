@@ -56,6 +56,9 @@ type AppSpec struct {
 	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
 }
 
+// TODO so I can easily find it
+// This entire implementation needs a rework
+// It'll be modified later to better inject env vars and configs.
 type RuntimeWolfVariables struct {
 	// RenderNode specifies the filepath to the DRM render node device.
 	// Wolf defaults to: "/dev/dri/renderD128"
