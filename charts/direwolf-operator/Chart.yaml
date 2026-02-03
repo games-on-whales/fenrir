@@ -12,7 +12,7 @@ keywords:
   - pulse
   - stream
   - retroarch
-home: https://github.com/k8s-at-home/charts/tree/master/charts/wolf
+home: https://github.com/users/games-on-whales/packages/container/package/charts%2Fdirewolf-operator
 icon: https://images.opencollective.com/games-on-whales/33a2797/logo/128.png
 sources:
   - https://github.com/games-on-whales/wolf
