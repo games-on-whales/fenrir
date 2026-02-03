@@ -24,8 +24,6 @@ spec:
         value: all
       - name: NVIDIA_VISIBLE_DEVICES
         value: all
-      # In case of nvidia, you'll need the gpu env var to work
-      # I'm using generic devices to pass along the gpu.
       resources:
         requests:
           nvidia.com/gpu: "1"
@@ -37,4 +35,7 @@ spec:
           squat.ai/uinput: "1"
           cpu: 1000m
           memory: 2G
+      ## Not needed most of the time.
+      # securityContext:
+      #   privileged: true
     # pulseaudio:
