@@ -30,8 +30,8 @@ import (
 type UserApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *apiv1alpha1.UserSpec   `json:"spec,omitempty"`
-	Status                           *apiv1alpha1.UserStatus `json:"status,omitempty"`
+	Spec                             *UserSpecApplyConfiguration `json:"spec,omitempty"`
+	Status                           *apiv1alpha1.UserStatus     `json:"status,omitempty"`
 }
 
 // User constructs a declarative configuration of the User type for use with
@@ -206,8 +206,8 @@ func (b *UserApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithSpec(value apiv1alpha1.UserSpec) *UserApplyConfiguration {
-	b.Spec = &value
+func (b *UserApplyConfiguration) WithSpec(value *UserSpecApplyConfiguration) *UserApplyConfiguration {
+	b.Spec = value
 	return b
 }
 

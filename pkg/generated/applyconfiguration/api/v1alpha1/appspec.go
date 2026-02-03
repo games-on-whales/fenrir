@@ -25,12 +25,13 @@ import (
 // AppSpecApplyConfiguration represents a declarative configuration of the AppSpec type for use
 // with apply.
 type AppSpecApplyConfiguration struct {
-	Title          *string                       `json:"title,omitempty"`
-	ID             *int                          `json:"id,omitempty"`
-	IsHDRSupported *bool                         `json:"isHDRSupported,omitempty"`
-	AppAssetWebP   []byte                        `json:"appAssetWebP,omitempty"`
-	Template       *v1.PodTemplateSpec           `json:"template,omitempty"`
-	WolfConfig     *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
+	Title               *string                           `json:"title,omitempty"`
+	ID                  *int                              `json:"id,omitempty"`
+	IsHDRSupported      *bool                             `json:"isHDRSupported,omitempty"`
+	AppAssetWebP        []byte                            `json:"appAssetWebP,omitempty"`
+	Template            *v1.PodTemplateSpec               `json:"template,omitempty"`
+	WolfConfig          *WolfConfigApplyConfiguration     `json:"wolfConfig,omitempty"`
+	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
 }
 
 // AppSpecApplyConfiguration constructs a declarative configuration of the AppSpec type for use with
@@ -86,5 +87,13 @@ func (b *AppSpecApplyConfiguration) WithTemplate(value v1.PodTemplateSpec) *AppS
 // If called multiple times, the WolfConfig field is set to the value of the last call.
 func (b *AppSpecApplyConfiguration) WithWolfConfig(value *WolfConfigApplyConfiguration) *AppSpecApplyConfiguration {
 	b.WolfConfig = value
+	return b
+}
+
+// WithVolumeClaimTemplate sets the VolumeClaimTemplate field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the VolumeClaimTemplate field is set to the value of the last call.
+func (b *AppSpecApplyConfiguration) WithVolumeClaimTemplate(value v1.PersistentVolumeClaimTemplate) *AppSpecApplyConfiguration {
+	b.VolumeClaimTemplate = &value
 	return b
 }

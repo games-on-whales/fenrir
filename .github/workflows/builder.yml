@@ -1,0 +1,206 @@
+name: Build and Push Docker Images
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [released]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  packages: write
+
+jobs:
+  build_and_push_containers:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app:
+          - wolf-agent
+          - moonlight-proxy
+          - operator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3.6.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3.3.0
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate docker image tags
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          flavor: |
+            # Disable latest tag
+            latest=false
+          images: |
+            name=ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v6.15.0
+        with:
+          platforms: linux/amd64
+          push: ${{ !github.event.pull_request.head.repo.fork }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          build-args: |
+            APP_NAME=${{ matrix.app }}
+          
+      - name: Write image digest file
+        if: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "${{ steps.build.outputs.digest }}" > "image-digest-${{ matrix.app }}.txt"
+
+      - name: Upload image digest artifact
+        if: ${{ steps.build.outputs.digest }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.app }}
+          path: image-digest-${{ matrix.app }}.txt
+
+  build_and_push_chart:
+    runs-on: ubuntu-latest
+    needs: build_and_push_containers
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.12.0'
+
+      - name: Get chart version
+        id: get_version
+        uses: mikefarah/yq@master
+        with:
+          cmd: |
+            set -euo pipefail
+                        
+            REF="${{ github.ref }}"
+            CHART_PATH="charts/direwolf-operator"
+
+            if [[ "$REF" == refs/tags/* ]]; then
+              FULL_VERSION="${{ github.ref_name }}"
+            else
+              if [ ! -f "$CHART_PATH/Chart.yaml" ]; then
+                echo "Chart.yaml not found at $CHART_PATH" >&2
+                exit 1
+              fi
+            
+              BASE_VERSION="$(yq e '.version' "${CHART_PATH}/Chart.yaml")"
+              if [ -z "$BASE_VERSION" ]; then
+                echo "Could not determine chart version" >&2
+                exit 1
+              fi
+              RUN_ID="${{ github.run_id }}"
+              FULL_VERSION="${BASE_VERSION}-${RUN_ID}-SNAPSHOT"
+              #FULL_VERSION="${BASE_VERSION}-SNAPSHOT"
+            fi
+            
+            echo "Full Version: $FULL_VERSION"          
+            yq e -i ".version = \\"$FULL_VERSION\\"" "${CHART_PATH}/Chart.yaml"
+            echo "version=$FULL_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Copy CRDs into chart
+        run: |
+          # Ensure the chart CRDs directory exists and copy repository CRDs there. This makes them part of the packaged chart.
+          mkdir -p charts/direwolf-operator/crds
+          if compgen -G "crds/*.yaml" > /dev/null; then
+            cp crds/*.yaml charts/direwolf-operator/crds/
+          else
+            echo "No CRDs found in repository crds/ - continuing"
+          fi
+
+      - name: Download image digest artifact (operator)
+        uses: actions/download-artifact@v4
+        with:
+          name: image-digest-operator
+          path: operator-artifact
+
+      - name: Download image digest artifact (moonlight-proxy)
+        uses: actions/download-artifact@v4
+        with:
+          name: image-digest-moonlight-proxy
+          path: proxy-artifact
+
+      - name: Download image digest artifact (wolf-agent)
+        uses: actions/download-artifact@v4
+        with:
+          name: image-digest-wolf-agent
+          path: agent-artifact
+
+      - name: Update Helm chart image tags
+        uses: mikefarah/yq@master
+        with:
+          cmd: |   
+            VALUES_FILE=charts/direwolf-operator/values.yaml
+            
+            OP_DIGEST="$(cat operator-artifact/image-digest-operator.txt)"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/direwolf-operator\\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.tag = \\"${{ github.ref_name }}@${OP_DIGEST}\\"" "$VALUES_FILE"
+            
+            AG_DIGEST="$(cat agent-artifact/image-digest-wolf-agent.txt)"
+            yq e -i ".controllers.direwolf_operator.containers.operator.env.AGENT_IMAGE = \\"ghcr.io/${{ github.repository_owner }}/fenrir/wolf-agent:${{ github.ref_name }}@${AG_DIGEST}\\"" "$VALUES_FILE"
+
+            PX_DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
+            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \\"${{ github.ref_name }}@${PX_DIGEST}\\"" "$VALUES_FILE"
+            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\\"" "$VALUES_FILE"
+            
+            echo "Updated $VALUES_FILE"
+
+      - name: Package Helm chart
+        run: |
+          mkdir -p packaged
+          helm dependency update charts/direwolf-operator
+          helm package charts/direwolf-operator -d packaged
+          ls -lah packaged
+
+      - name: Login to GHCR for Helm OCI
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        run: |
+          set -euo pipefail
+          echo "Logging in to ghcr.io with helm registry login"
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+
+      - name: Push packaged chart with Helm (OCI)
+        env:
+          CHART_VERSION: ${{ steps.get_version.outputs.version }}
+        run: |
+          set -euo pipefail
+          chart_file=$(ls packaged/*.tgz | head -n1)
+          if [ -z "$chart_file" ]; then
+            echo "No packaged chart found" >&2
+            exit 1
+          fi
+          chart_ref="oci://ghcr.io/${{ github.repository_owner }}/charts"
+          echo "Pushing $chart_file to $chart_ref"
+          helm push "$chart_file" "$chart_ref"
+
+      - name: Verify pushed artifact
+        run: |
+          chart_ref="oci://ghcr.io/${{ github.repository_owner }}/charts:${{ steps.get_version.outputs.version }}"
+          echo "Pushed chart $chart_ref"
+

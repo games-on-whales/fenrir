@@ -16,7 +16,7 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
-	"github.com/pelletier/go-toml/v2"
+	// "github.com/pelletier/go-toml/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -44,7 +44,7 @@ var (
 			return im
 		}
 
-		return "ghcr.io/games-on-whales/wolf:dev-moonlight-fixes"
+		return "ghcr.io/games-on-whales/wolf:stable"
 	}()
 )
 
@@ -276,22 +276,22 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		})
 	}
 
-	configError := c.reconcileConfigMap(context.TODO(), newObj)
-	if configError != nil {
-		klog.Errorf("Failed to reconcile configmap: %s", configError)
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:    "ConfigMapCreated",
-			Status:  metav1.ConditionFalse,
-			Reason:  "ConfigMapCreationFailed",
-			Message: configError.Error(),
-		})
-	} else {
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:   "ConfigMapCreated",
-			Status: metav1.ConditionTrue,
-			Reason: "Success",
-		})
-	}
+	// configError := c.reconcileConfigMap(context.TODO(), newObj)
+	// if configError != nil {
+	// 	klog.Errorf("Failed to reconcile configmap: %s", configError)
+	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+	// 		Type:    "ConfigMapCreated",
+	// 		Status:  metav1.ConditionFalse,
+	// 		Reason:  "ConfigMapCreationFailed",
+	// 		Message: configError.Error(),
+	// 	})
+	// } else {
+	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+	// 		Type:   "ConfigMapCreated",
+	// 		Status: metav1.ConditionTrue,
+	// 		Reason: "Success",
+	// 	})
+	// }
 
 	if pvcError := c.reconcilePVC(context.TODO(), newObj); pvcError != nil {
 		klog.Errorf("Failed to reconcile pvc: %s", pvcError)
@@ -603,11 +603,98 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 	return nil
 }
 
+// mergeResourceRequirements merges a default and an override ResourceRequirements object for sidecars.
+// It gives precedence to the values specified in the overrides.
+func mergeResourceRequirements(defaults corev1.ResourceRequirements, overrides *corev1.ResourceRequirements) corev1.ResourceRequirements {
+	if overrides == nil {
+		return defaults
+	}
+
+	// Start with a copy of the defaults
+	merged := defaults.DeepCopy()
+
+	// Ensure maps are initialized
+	if merged.Limits == nil {
+		merged.Limits = make(corev1.ResourceList)
+	}
+	if merged.Requests == nil {
+		merged.Requests = make(corev1.ResourceList)
+	}
+
+	// Override limits
+	for resourceName, quantity := range overrides.Limits {
+		merged.Limits[resourceName] = quantity
+	}
+
+	// Override requests
+	for resourceName, quantity := range overrides.Requests {
+		merged.Requests[resourceName] = quantity
+	}
+
+	return *merged
+}
+
+// validateAppResources checks if the app's resource requirements are within the user's policy.
+// It returns an error if any app request/limit exceeds the user policy.
+// If the policy is nil, it allows any resources.
+func validateAppResources(appResources corev1.ResourceRequirements, userPolicy *corev1.ResourceRequirements) (corev1.ResourceRequirements, error) {
+	// If there's no policy, the app's resources are inherently valid.
+	if userPolicy == nil {
+		return appResources, nil
+	}
+
+	// Validate Limits
+	for resourceName, appLimit := range appResources.Limits {
+		if userLimit, ok := userPolicy.Limits[resourceName]; ok {
+			// Cmp returns 1 if appLimit > userLimit
+			if appLimit.Cmp(userLimit) > 0 {
+				return corev1.ResourceRequirements{}, fmt.Errorf(
+					"app limit for resource %q (%s) exceeds user policy limit (%s)",
+					resourceName, appLimit.String(), userLimit.String(),
+				)
+			}
+		}
+	}
+
+	// Validate Requests, I'm not sure if this is needed because we could just limit using... limits.
+	for resourceName, appRequest := range appResources.Requests {
+		if userRequest, ok := userPolicy.Requests[resourceName]; ok {
+			// Cmp returns 1 if appRequest > userRequest
+			if appRequest.Cmp(userRequest) > 0 {
+				return corev1.ResourceRequirements{}, fmt.Errorf(
+					"app request for resource %q (%s) exceeds user policy request (%s)",
+					resourceName, appRequest.String(), userRequest.String(),
+				)
+			}
+		}
+	}
+
+	// All checks passed. The app's requested resources are valid.
+	return appResources, nil
+}
+
+// validateVolumeMounts checks if all volume mounts in the provided slice
+// correspond to a volume defined in the validVolumes map.
+func validateVolumeMounts(mounts []corev1.VolumeMount, validVolumes map[string]struct{}, sidecarName string) error {
+	for _, vm := range mounts {
+		if _, ok := validVolumes[vm.Name]; !ok {
+			return fmt.Errorf("validation failed: volumeMount %q in %s sidecar policy refers to a volume that is not defined in the UserSpec.volumes", vm.Name, sidecarName)
+		}
+	}
+	return nil
+}
+
 func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) error {
 	//!TODO: Just allocate a ton of ports on the container, we wont be able to
 	// change them while its running if another user connects
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
 		return fmt.Errorf("waiting for PortsAllocated")
+	}
+
+	// Get the user object to access resource policies
+	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get user %s: %w", session.Spec.UserReference.Name, err)
 	}
 
 	ug := userGame{
@@ -661,7 +748,52 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	if err != nil {
 		return fmt.Errorf("failed to get app: %s", err)
 	}
+	// Prepare environment variables for the wolf container
+	// commenting these out was the main reason nvidia stuff wasn't working.
+	// specifically the NVIDIA_VISIBLE_DEVICES
+	// I need a better method of injecting env vars / configs to the pod
+	// TODO
+	wolfEnvVars := map[string]string{
+		"PUID":                   "1000",
+		"PGID":                   "1000",
+		"UNAME":                  "ubuntu",
+		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
+		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
+		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
+		// "WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
+		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock", 
+		// "WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml", // no longer needed
+		// "WOLF_PRIVATE_CERT_FILE": "/mnt/data/wolf/cfg/cert.pem",
+		// "WOLF_PRIVATE_KEY_FILE": "/mnt/data/wolf/cfg/key.pem",
+		// "WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
+		// "WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
+		// Keeping those for later
+		// "GST_VAAPI_ALL_DRIVERS":      "1",
+		// "GST_DEBUG":                  "2",
+		// "__GL_SYNC_TO_VBLANK":        "0",
+		// "NVIDIA_VISIBLE_DEVICES":     "all",
+		// "NVIDIA_DRIVER_CAPABILITIES": "all",
+		// "LIBVA_DRIVER_NAME":          "nvidia",
+		// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
+	}
 
+	// Check if runtime variables are defined in the App spec and override defaults
+	if app.Spec.WolfConfig.RuntimeVariables != nil {
+		runtimeVars := app.Spec.WolfConfig.RuntimeVariables
+		if runtimeVars.LogLevel != "" {
+			wolfEnvVars["WOLF_LOG_LEVEL"] = runtimeVars.LogLevel
+		}
+		if runtimeVars.TimeZone != "" {
+			wolfEnvVars["TZ"] = runtimeVars.TimeZone
+		}
+		if runtimeVars.RenderNode != "" {
+			wolfEnvVars["WOLF_RENDER_NODE"] = runtimeVars.RenderNode
+		}
+	}
+
+	if session.Spec.Config.ClientIP != "" {
+		wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = session.Spec.Config.ClientIP
+	}
 	var podToCreate corev1.PodTemplateSpec
 	if app.Spec.Template != nil {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
@@ -676,34 +808,29 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Labels["direwolf/app"] = session.Spec.GameReference.Name
 	podToCreate.Labels["direwolf/user"] = session.Spec.UserReference.Name
 
-	if podToCreate.Spec.SecurityContext == nil {
-		podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
-	}
+	// if podToCreate.Spec.SecurityContext == nil {
+	// 	podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
+	// }
 
-	if podToCreate.Spec.SecurityContext.SeccompProfile == nil {
-		podToCreate.Spec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
-			Type: corev1.SeccompProfileTypeUnconfined,
-		}
-	}
+	// if podToCreate.Spec.SecurityContext.SeccompProfile == nil {
+	// 	podToCreate.Spec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
+	// 		Type: corev1.SeccompProfileTypeUnconfined,
+	// 	}
+	// }
 
-	if podToCreate.Spec.SecurityContext.AppArmorProfile == nil {
-		podToCreate.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
-			Type: corev1.AppArmorProfileTypeUnconfined,
-		}
-	}
+	// if podToCreate.Spec.SecurityContext.AppArmorProfile == nil {
+	// 	podToCreate.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
+	// 		Type: corev1.AppArmorProfileTypeUnconfined,
+	// 	}
+	// }
 
-	mapToEnvApplyList := func(m map[string]string) []corev1.EnvVar {
-		var res []corev1.EnvVar
-		for k, v := range m {
-			res = append(res, corev1.EnvVar{
-				Name:  k,
-				Value: v,
-			})
-		}
-		return res
-	}
+	wolfEnvVarsSlice := make([]corev1.EnvVar, 0, len(wolfEnvVars))
+	for k, v := range wolfEnvVars {
+		wolfEnvVarsSlice = append(wolfEnvVarsSlice, corev1.EnvVar{Name: k, Value: v})
+ 	}
 
-	// Inject volumem ounts into existing containers
+
+	// Inject volume mounts into existing containers
 	for i := range podToCreate.Spec.Containers {
 		podToCreate.Spec.Containers[i].VolumeMounts = append(podToCreate.Spec.Containers[i].VolumeMounts,
 			corev1.VolumeMount{
@@ -717,67 +844,73 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			},
 		)
 
-		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, mapToEnvApplyList(map[string]string{
+		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, []corev1.EnvVar{
 			// Standard GOW envars
-			"DISPLAY": ":0",
+			{Name: "DISPLAY", Value: ":0"},
 			// Container must have extra logic to wait for this to be set up
 			// unfortunately.
-			"WAYLAND_DISPLAY": "wayland-1",
-			"TZ":              "America/Los_Angeles",
-			"UNAME":           "retro",
-			"XDG_RUNTIME_DIR": "/tmp/.X11-unix",
-			"UID":             "1000",
-			"GID":             "1000",
-			"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
+			{Name: "WAYLAND_DISPLAY", Value: "wayland-1"},
+			{Name: "TZ", Value: wolfEnvVars["TZ"]},
+			{Name: "UNAME", Value: "retro"},
+			{Name: "XDG_RUNTIME_DIR", Value: "/tmp/.X11-unix"},			// "UID":             "1000",
+			// "GID":             "1000",
+			{Name: "PULSE_SERVER", Value: "unix:/tmp/.X11-unix/pulse-socket"},
 			// PULSE_SINK & PULSE_SOURCE set at runtime calculated based off session ID.
 			// But would be nice if unnecessary
 
 			// Assorted NVIDIA. Unsure if required. Probabky not.
-			"LIBVA_DRIVER_NAME":          "nvidia",
-			"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			"NVIDIA_DRIVER_CAPABILITIES": "all",
-			"NVIDIA_VISIBLE_DEVICES":     "all",
-			"GST_VAAPI_ALL_DRIVERS":      "1",
-			"GST_DEBUG":                  "2",
+			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
+			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
+			{Name: "LIBVA_DRIVER_NAME", Value: "nvidia"},
+			{Name: "LD_LIBRARY_PATH", Value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib"},
+			{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "all"},
+			{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
+			{Name: "GST_VAAPI_ALL_DRIVERS", Value: "1"},
+			{Name: "GST_DEBUG", Value: "2"},
 
 			// Gamescape envar injection. Ham-handed. Why not.
-			"GAMESCOPE_WIDTH":   fmt.Sprint(session.Spec.Config.VideoWidth),
-			"GAMESCOPE_HEIGHT":  fmt.Sprint(session.Spec.Config.VideoHeight),
-			"GAMESCOPE_REFRESH": fmt.Sprint(session.Spec.Config.VideoRefreshRate),
-		})...)
+			{Name: "GAMESCOPE_WIDTH", Value: fmt.Sprint(session.Spec.Config.VideoWidth)},
+			{Name: "GAMESCOPE_HEIGHT", Value: fmt.Sprint(session.Spec.Config.VideoHeight)},
+			{Name: "GAMESCOPE_REFRESH", Value: fmt.Sprint(session.Spec.Config.VideoRefreshRate)},
+		}...)
 
-		if podToCreate.Spec.Containers[i].Resources.Requests == nil {
-			podToCreate.Spec.Containers[i].Resources.Requests = corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("100Mi"),
-			}
+		// Validate the main app container's resources against the user's policy.
+		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, user.Spec.Resources)
+		if err != nil {
+			// The error will be handled by the main Reconcile loop to update the session status.
+			return fmt.Errorf("resource validation for main app container failed: %w", err)
 		}
-
-		if podToCreate.Spec.Containers[i].Resources.Limits == nil {
-			podToCreate.Spec.Containers[i].Resources.Limits = corev1.ResourceList{}
-		}
-
-		podToCreate.Spec.Containers[i].Resources.Requests["nvidia.com/gpu"] = resource.MustParse("1")
-		podToCreate.Spec.Containers[i].Resources.Limits["nvidia.com/gpu"] = resource.MustParse("1")
+		podToCreate.Spec.Containers[i].Resources = validatedResources
 	}
 
 	podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
 		corev1.Container{
 			Name:  "init",
 			Image: "ghcr.io/games-on-whales/base:edge",
+			// This will need to be updated / removed since /etc/wolf/cfg is no longer used by wolf
+			// Also, we're no longer injecting the app info into the config.toml
 			Command: []string{
 				"sh", "-c", `
+				mkdir -p /mnt/data/wolf/cfg
+				cp /certs/* /mnt/data/wolf/cfg/
 				chown 1000:1000 /mnt/data/wolf
 				chmod 777 /mnt/data/wolf
+				chown -R 1000:1000 /mnt/data/wolf/cfg
+				chmod 777 /mnt/data/wolf/cfg
 				chown -R ubuntu:ubuntu /tmp/.X11-unix
 				chmod 1777 -R /tmp/.X11-unix
 				mkdir -p /etc/wolf/cfg
-				cp -LR /cfg/* /etc/wolf/cfg
+				# cp -LR /cfg/* /etc/wolf/cfg
 				chown -R ubuntu:ubuntu /etc/wolf
 				chmod 777 -R /etc/wolf
 			`,
 			},
 			VolumeMounts: []corev1.VolumeMount{
+				// {
+				// 	Name:      "wolf-tls-secret",
+				// 	MountPath: "/certs",
+				// 	ReadOnly:  true,
+				// },
 				{
 					Name:      "wolf-cfg",
 					MountPath: "/etc/wolf",
@@ -790,19 +923,104 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/.X11-unix",
 				},
-				{
-					Name:      "config",
-					MountPath: "/cfg",
-				},
+				// {
+				// 	Name:      "config",
+				// 	MountPath: "/cfg",
+				// },
 			},
 		},
 	)
 
+	// Define default resources for sidecars
+	wolfAgentDefaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("10m"),
+			corev1.ResourceMemory: resource.MustParse("100Mi"),
+		},
+	}
+	pulseAudioDefaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("100Mi"),
+		},
+	}
+	wolfDefaultResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("100Mi"),
+		},
+	}
+
+	// Prepare sidecar policies
+	var wolfAgentEnv, pulseAudioEnv, wolfEnv []corev1.EnvVar
+	var wolfAgentResources, pulseAudioResources, wolfResources corev1.ResourceRequirements
+	var wolfAgentVolumeMounts, pulseAudioVolumeMounts, wolfVolumeMounts []corev1.VolumeMount
+	var wolfAgentSecurityContext, pulseAudioSecurityContext, wolfSecurityContext *corev1.SecurityContext
+	var podHostIPC bool // Variable to track if HostIPC should be enabled for the pod
+
+	// Set defaults first
+	wolfAgentResources = wolfAgentDefaultResources
+	pulseAudioResources = pulseAudioDefaultResources
+	wolfResources = wolfDefaultResources
+
+	// Create a set of valid volume names for quick lookup
+	validVolumes := make(map[string]struct{})
+	for _, volume := range user.Spec.Volumes {
+		validVolumes[volume.Name] = struct{}{}
+	}
+
+	if user.Spec.SidecarPolicies != nil {
+		policies := user.Spec.SidecarPolicies
+		if policies.WolfAgent != nil {
+			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
+				return err
+			}
+			wolfAgentEnv = policies.WolfAgent.Env
+			// klog.debug("User defined env vars: %+v", wolfAgentEnv)
+			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
+			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
+			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
+			if policies.WolfAgent.HostIPC != nil && *policies.WolfAgent.HostIPC {
+				podHostIPC = true
+			}
+		}
+		if policies.PulseAudio != nil {
+			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
+				return err
+			}
+			pulseAudioEnv = policies.PulseAudio.Env
+			// klog.Infof("User defined env vars: %+v", pulseAudioEnv)
+			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
+			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
+			pulseAudioSecurityContext = policies.PulseAudio.SecurityContext
+			if policies.PulseAudio.HostIPC != nil && *policies.PulseAudio.HostIPC {
+				podHostIPC = true
+			}
+		}
+		if policies.Wolf != nil {
+			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
+				return err
+			}
+			wolfEnv = policies.Wolf.Env
+			// klog.Infof("User defined env vars: %+v", wolfEnv)
+			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
+			wolfVolumeMounts = policies.Wolf.VolumeMounts
+			wolfSecurityContext = policies.Wolf.SecurityContext
+			if policies.Wolf.HostIPC != nil && *policies.Wolf.HostIPC {
+				podHostIPC = true
+			}
+		}
+	}
+
+	// Apply HostIPC setting to the pod spec if requested by any sidecar policy
+	podToCreate.Spec.HostIPC = podHostIPC
+
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
-			Name:            "wolf-agent",
-			Image:           c.WolfAgentImage,
+			Name:  "wolf-agent",
+			Image: c.WolfAgentImage,
 			ImagePullPolicy: corev1.PullAlways,
+			// ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
 				"--socket=/etc/wolf/wolf.sock",
 				"--port=8443",
@@ -813,48 +1031,49 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: 8443,
 				},
 			},
-			Env: []corev1.EnvVar{
-				{
-					Name:  "XDG_RUNTIME_DIR",
-					Value: "/tmp/.X11-unix",
-				},
-				{
-					Name:  "PUID",
-					Value: "1000",
-				},
-				{
-					Name:  "PGID",
-					Value: "1000",
-				},
-				{
-					Name:  "WOLF_SOCKET_PATH",
-					Value: "/etc/wolf/wolf.sock",
-				},
-				{
-					Name:  "DIREWOLF_USER",
-					Value: session.Spec.UserReference.Name,
-				},
-				{
-					Name:  "DIREWOLF_APP",
-					Value: session.Spec.GameReference.Name,
-				},
-				{
-					Name: "POD_NAME",
-					ValueFrom: &corev1.EnvVarSource{
-						FieldRef: &corev1.ObjectFieldSelector{
-							FieldPath: "metadata.name",
+			Env: append([]corev1.EnvVar{
+					{
+						Name:  "XDG_RUNTIME_DIR",
+						Value: "/tmp/.X11-unix",
+					},
+					// {
+					// 	Name:  "PUID",
+					// 	Value: "1000",
+					// },
+					// {
+					// 	Name:  "PGID",
+					// 	Value: "1000",
+					// },
+					{
+						Name:  "WOLF_SOCKET_PATH",
+						Value: "/etc/wolf/wolf.sock",
+					},
+					{
+						Name:  "DIREWOLF_USER",
+						Value: session.Spec.UserReference.Name,
+					},
+					{
+						Name:  "DIREWOLF_APP",
+						Value: session.Spec.GameReference.Name,
+					},
+					{
+						Name: "POD_NAME",
+						ValueFrom: &corev1.EnvVarSource{
+							FieldRef: &corev1.ObjectFieldSelector{
+								FieldPath: "metadata.name",
+							},
 						},
 					},
-				},
-				{
-					Name: "POD_NAMESPACE",
-					ValueFrom: &corev1.EnvVarSource{
-						FieldRef: &corev1.ObjectFieldSelector{
-							FieldPath: "metadata.namespace",
+					{
+						Name: "POD_NAMESPACE",
+						ValueFrom: &corev1.EnvVarSource{
+							FieldRef: &corev1.ObjectFieldSelector{
+								FieldPath: "metadata.namespace",
+							},
 						},
 					},
-				},
-			},
+				},wolfAgentEnv...
+			),
 			ReadinessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
@@ -873,13 +1092,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					},
 				},
 			},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("10m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
+			Resources:       wolfAgentResources,
+			SecurityContext: wolfAgentSecurityContext,
+			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
 					MountPath: "/etc/wolf",
@@ -888,57 +1103,32 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/.X11-unix",
 				},
-			},
+			}, wolfAgentVolumeMounts...),
 		},
 		corev1.Container{
 			Name:  "pulseaudio",
 			Image: "ghcr.io/games-on-whales/pulseaudio:edge",
-			Env: mapToEnvApplyList(map[string]string{
-				"TZ":              "America/Los_Angeles",
-				"UNAME":           "retro",
-				"XDG_RUNTIME_DIR": "/tmp/pulse",
-				"UID":             "1000",
-				"GID":             "1000",
-			}),
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
+			Env: append([]corev1.EnvVar{
+				{Name: "TZ", Value: wolfEnvVars["TZ"]},
+				{Name: "UNAME", Value: "retro"},
+				{Name: "XDG_RUNTIME_DIR", Value: "/tmp/pulse"},
+				// "UID":             "1000",
+				// "GID":             "1000",
+			}, pulseAudioEnv...),
+
+			Resources:       pulseAudioResources,
+			SecurityContext: pulseAudioSecurityContext,
+			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/pulse",
 				},
-			},
+			}, pulseAudioVolumeMounts...),
 		},
 		corev1.Container{
 			Name:  "wolf",
 			Image: WOLF_IMAGE,
-			Env: mapToEnvApplyList(map[string]string{
-				"PUID":                       "1000",
-				"PGID":                       "1000",
-				"TZ":                         "America/Los_Angeles",
-				"UNAME":                      "ubuntu",
-				"XDG_RUNTIME_DIR":            "/tmp/.X11-unix",
-				"PULSE_SERVER":               "unix:/tmp/.X11-unix/pulse-socket",
-				"HOST_APPS_STATE_FOLDER":     "/mnt/data/wolf",
-				"WOLF_LOG_LEVEL":             "DEBUG",
-				"WOLF_STREAM_CLIENT_IP":      "10.128.1.0",
-				"WOLF_SOCKET_PATH":           "/etc/wolf/wolf.sock",
-				"WOLF_CFG_FILE":              "/etc/wolf/cfg/config.toml",
-				"WOLF_PULSE_IMAGE":           "ghcr.io/games-on-whales/pulseaudio:master",
-				"WOLF_CFG_FOLDER":            "/etc/wolf/cfg",
-				"WOLF_RENDER_NODE":           "/dev/dri/renderD128",
-				"GST_VAAPI_ALL_DRIVERS":      "1",
-				"GST_DEBUG":                  "2",
-				"__GL_SYNC_TO_VBLANK":        "0",
-				"NVIDIA_VISIBLE_DEVICES":     "all",
-				"NVIDIA_DRIVER_CAPABILITIES": "all",
-				"LIBVA_DRIVER_NAME":          "nvidia",
-				"LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-			}),
+			Env:   append(wolfEnvVarsSlice, wolfEnv...),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
 			Ports: []corev1.ContainerPort{
@@ -967,17 +1157,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					ContainerPort: session.Status.Ports.AudioRTP,
 				},
 			},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("100m"),
-					corev1.ResourceMemory: resource.MustParse("100Mi"),
-					"nvidia.com/gpu":      resource.MustParse("1"),
-				},
-				Limits: corev1.ResourceList{
-					"nvidia.com/gpu": resource.MustParse("1"),
-				},
-			},
-			VolumeMounts: []corev1.VolumeMount{
+			Resources:       wolfResources,
+			SecurityContext: wolfSecurityContext,
+			VolumeMounts: append([]corev1.VolumeMount{
 				{
 					Name:      "wolf-cfg",
 					MountPath: "/etc/wolf",
@@ -990,33 +1172,55 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Name:      "wolf-data",
 					MountPath: "/mnt/data/wolf",
 				},
-				{
-					Name:      "dev-input",
-					MountPath: "/dev/input",
-				},
+				// {
+				// 	Name:      "dev-input",
+				// 	MountPath: "/dev/input",
+				// },
 				// {
 				// 	Name:      "dev-uinput",
 				// 	MountPath: "/dev/uinput",
 				// },
-				{
-					Name:      "host-udev",
-					MountPath: "/run/udev",
-				},
-			},
+				// {
+				// 	Name:      "host-udev",
+				// 	MountPath: "/run/udev", //Need to find a more secure way to mount this
+				// },
+			}, wolfVolumeMounts...),
 		},
 	)
 
-	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
-		corev1.Volume{
-			Name: "config",
-			VolumeSource: corev1.VolumeSource{
-				ConfigMap: &corev1.ConfigMapVolumeSource{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: c.deploymentName(session),
-					},
-				},
+	var wolfDataVolumeSource corev1.VolumeSource
+	if app.Spec.VolumeClaimTemplate != nil {
+		wolfDataVolumeSource = corev1.VolumeSource{
+			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+				ClaimName: c.deploymentName(session),
 			},
-		},
+		}
+	} else {
+		wolfDataVolumeSource = corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		}
+	}
+
+	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
+		// corev1.Volume{
+		// 	Name: "config",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
+		// 			LocalObjectReference: corev1.LocalObjectReference{
+		// 				Name: c.deploymentName(session),
+		// 			},
+		// 		},
+		// 	},
+		// },
+		// corev1.Volume{
+		// 	Name: "wolf-tls-secret",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		Secret: &corev1.SecretVolumeSource{
+		// 			SecretName: "wolf-tls-secret",
+		// 			Optional:   ptr.To(true), // Optional so it doesn't crash if you forgot to create it
+		// 		},
+		// 	},
+		// },
 		corev1.Volume{
 			Name: "wolf-cfg",
 			VolumeSource: corev1.VolumeSource{
@@ -1030,22 +1234,19 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			},
 		},
 		corev1.Volume{
-			Name: "wolf-data",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: c.deploymentName(session),
-				},
-			},
+			Name:         "wolf-data",
+			VolumeSource: wolfDataVolumeSource,
 		},
-		corev1.Volume{
-			Name: "dev-input",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/dev/input",
-					Type: ptr.To(corev1.HostPathDirectory),
-				},
-			},
-		},
+		// corev1.Volume{ //Needs to be changed into something more secure, without host path
+		// 	Name: "dev-input",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		HostPath: &corev1.HostPathVolumeSource{
+		// 			Path: "/dev/input",
+		// 			Type: ptr.To(corev1.HostPathDirectory),
+		// 		},
+		// 	},
+		// },
+		// I'm moving this to volumeConfig
 		// corev1.Volume{
 		// 	Name: "dev-uinput",
 		// 	VolumeSource: corev1.VolumeSource{
@@ -1055,16 +1256,21 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		// 		},
 		// 	},
 		// },
-		corev1.Volume{
-			Name: "host-udev",
-			VolumeSource: corev1.VolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/run/udev",
-					Type: ptr.To(corev1.HostPathDirectory),
-				},
-			},
-		},
+		// corev1.Volume{ //Needs to be changed into something more secure, without host path
+		// 	Name: "host-udev",
+		// 	VolumeSource: corev1.VolumeSource{
+		// 		HostPath: &corev1.HostPathVolumeSource{
+		// 			Path: "/run/udev",
+		// 			Type: ptr.To(corev1.HostPathDirectory),
+		// 		},
+		// 	},
+		// },
 	)
+
+	// Add volumes from the user spec
+	if len(user.Spec.Volumes) > 0 {
+		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, user.Spec.Volumes...)
+	}
 
 	// Create deployment scaled to 1 for this pod
 	// Should use deployment so that changes in spec aren't rejected.
@@ -1127,103 +1333,173 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	return nil
 }
 
-func (c *SessionController) reconcileConfigMap(
-	ctx context.Context,
-	session *v1alpha1types.Session,
-) error {
-	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get app: %s", err)
-	}
+// func (c *SessionController) reconcileConfigMap(
+// 	ctx context.Context,
+// 	session *v1alpha1types.Session,
+// ) error {
+// 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get app: %s", err)
+// 	}
 
-	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get user: %s", err)
-	}
+// 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to get user: %s", err)
+// 	}
 
-	wolfConfig, err := GenerateWolfConfig(app)
-	if err != nil {
-		return fmt.Errorf("failed to generate wolf config: %s", err)
-	}
-	deploymentName := c.deploymentName(session)
+// 	wolfConfig, err := GenerateWolfConfig(app)
+// 	if err != nil {
+// 		return fmt.Errorf("failed to generate wolf config: %s", err)
+// 	}
+// 	deploymentName := c.deploymentName(session)
 
-	_, err = c.K8sClient.CoreV1().
-		ConfigMaps(session.Namespace).
-		Apply(
-			context.Background(),
-			v1ac.ConfigMap(deploymentName, session.Namespace).
-				WithLabels(
-					map[string]string{
-						"app":           "direwolf-worker",
-						"direwolf/app":  session.Spec.GameReference.Name,
-						"direwolf/user": session.Spec.UserReference.Name,
-					}).
-				WithOwnerReferences(
-					metav1ac.OwnerReference().
-						WithName(app.Name).
-						WithAPIVersion(v1alpha1.GroupVersion.String()).
-						WithKind("App").
-						WithUID(app.UID).
-						WithController(true),
-					metav1ac.OwnerReference().
-						WithName(user.Name).
-						WithAPIVersion(v1alpha1.GroupVersion.String()).
-						WithKind("User").
-						WithUID(user.UID),
-				).
-				WithData(map[string]string{
-					"config.toml": wolfConfig,
-				}),
-			metav1.ApplyOptions{
-				FieldManager: "direwolf-session-controller",
-			})
-	if err != nil {
-		return fmt.Errorf("failed to apply configmap: %s", err)
-	}
-	return nil
-}
+// 	_, err = c.K8sClient.CoreV1().
+// 		ConfigMaps(session.Namespace).
+// 		Apply(
+// 			context.Background(),
+// 			v1ac.ConfigMap(deploymentName, session.Namespace).
+// 				WithLabels(
+// 					map[string]string{
+// 						"app":           "direwolf-worker",
+// 						"direwolf/app":  session.Spec.GameReference.Name,
+// 						"direwolf/user": session.Spec.UserReference.Name,
+// 					}).
+// 				WithOwnerReferences(
+// 					metav1ac.OwnerReference().
+// 						WithName(app.Name).
+// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
+// 						WithKind("App").
+// 						WithUID(app.UID).
+// 						WithController(true),
+// 					metav1ac.OwnerReference().
+// 						WithName(user.Name).
+// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
+// 						WithKind("User").
+// 						WithUID(user.UID),
+// 				).
+// 				WithData(map[string]string{
+// 					"config.toml": wolfConfig,
+// 				}),
+// 			metav1.ApplyOptions{
+// 				FieldManager: "direwolf-session-controller",
+// 			})
+// 	if err != nil {
+// 		return fmt.Errorf("failed to apply configmap: %s", err)
+// 	}
+// 	return nil
+// }
 
 func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1types.Session) error {
 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %s", err)
 	}
-	deploymentName := c.deploymentName(session)
+	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %s", err)
+	}
+
+	// Check if the user defined a volume claim template. If not, return nil.
+	if app.Spec.VolumeClaimTemplate == nil {
+		klog.Infof("App %s does not define a VolumeClaimTemplate, skipping PVC creation.", app.Name)
+		return nil
+	}
+
+	pvcName := c.deploymentName(session)
+	templateSpec := app.Spec.VolumeClaimTemplate.Spec.DeepCopy()
+
+	// Default Access Mode: RWO
+	if len(templateSpec.AccessModes) == 0 {
+		templateSpec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+	}
+
+	// Default Storage: 5Gi
+	if templateSpec.Resources.Requests == nil {
+		templateSpec.Resources.Requests = make(corev1.ResourceList)
+	}
+	if _, ok := templateSpec.Resources.Requests[corev1.ResourceStorage]; !ok {
+		templateSpec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("5Gi")
+	}
+	// Note: Default storage class is handled by Kubernetes if StorageClassName is nil.
+
+	// Build the PVC spec apply configuration from the defaulted spec
+	pvcSpec := v1ac.PersistentVolumeClaimSpec().
+		WithAccessModes(templateSpec.AccessModes...).
+		WithResources(v1ac.VolumeResourceRequirements().
+			WithLimits(templateSpec.Resources.Limits).
+			WithRequests(templateSpec.Resources.Requests))
+
+	if templateSpec.Selector != nil {
+		selectorConfig := metav1ac.LabelSelector()
+		if len(templateSpec.Selector.MatchLabels) > 0 {
+			selectorConfig.WithMatchLabels(templateSpec.Selector.MatchLabels)
+		}
+		if len(templateSpec.Selector.MatchExpressions) > 0 {
+			var expressions []*metav1ac.LabelSelectorRequirementApplyConfiguration
+			for _, req := range templateSpec.Selector.MatchExpressions {
+				expressions = append(expressions, metav1ac.LabelSelectorRequirement().
+					WithKey(req.Key).
+					WithOperator(req.Operator).
+					WithValues(req.Values...))
+			}
+			selectorConfig.WithMatchExpressions(expressions...)
+		}
+		pvcSpec.WithSelector(selectorConfig)
+	}
+	if templateSpec.StorageClassName != nil {
+		pvcSpec.WithStorageClassName(*templateSpec.StorageClassName)
+	}
+	if templateSpec.VolumeMode != nil {
+		pvcSpec.WithVolumeMode(*templateSpec.VolumeMode)
+	}
+	if templateSpec.DataSource != nil {
+		dsConfig := v1ac.TypedLocalObjectReference().
+			WithKind(templateSpec.DataSource.Kind).
+			WithName(templateSpec.DataSource.Name)
+		if templateSpec.DataSource.APIGroup != nil {
+			dsConfig.WithAPIGroup(*templateSpec.DataSource.APIGroup)
+		}
+		pvcSpec.WithDataSource(dsConfig)
+	}
+	if templateSpec.DataSourceRef != nil {
+		dsrConfig := v1ac.TypedObjectReference().
+			WithKind(templateSpec.DataSourceRef.Kind).
+			WithName(templateSpec.DataSourceRef.Name)
+		if templateSpec.DataSourceRef.APIGroup != nil {
+			dsrConfig.WithAPIGroup(*templateSpec.DataSourceRef.APIGroup)
+		}
+		if templateSpec.DataSourceRef.Namespace != nil {
+			dsrConfig.WithNamespace(*templateSpec.DataSourceRef.Namespace)
+		}
+		pvcSpec.WithDataSourceRef(dsrConfig)
+	}
+
 	_, err = c.K8sClient.CoreV1().PersistentVolumeClaims(session.Namespace).Apply(
 		ctx,
-		v1ac.PersistentVolumeClaim(deploymentName, session.Namespace).
-			WithLabels(
-				map[string]string{
-					"app":           "direwolf-worker",
-					"direwolf/app":  session.Spec.GameReference.Name,
-					"direwolf/user": session.Spec.UserReference.Name,
-				}).
+		v1ac.PersistentVolumeClaim(pvcName, session.Namespace).
+			WithLabels(map[string]string{
+				"app":           "direwolf-worker",
+				"direwolf/app":  session.Spec.GameReference.Name,
+				"direwolf/user": session.Spec.UserReference.Name,
+			}).
 			WithOwnerReferences(metav1ac.OwnerReference().
-				WithName(session.Spec.UserReference.Name).
+				WithName(user.Name).
 				WithAPIVersion(v1alpha1.GroupVersion.String()).
 				WithKind("User").
-				WithUID(user.UID)).
-			WithSpec(
-				v1ac.PersistentVolumeClaimSpec().
-					WithAccessModes("ReadWriteOnce").
-					WithStorageClassName("openebs-hostpath").
-					WithResources(v1ac.VolumeResourceRequirements().
-						WithRequests(corev1.ResourceList{
-							corev1.ResourceStorage: resource.MustParse("100Gi"),
-						}),
-					),
-			),
+				WithUID(user.UID).
+				WithController(true)).
+			WithSpec(pvcSpec),
 		metav1.ApplyOptions{
 			FieldManager: "direwolf-session-controller-pvc",
 		},
 	)
+
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to apply PVC %s: %w", pvcName, err)
 	}
 
 	return nil
 }
-
 func (c *SessionController) deploymentName(session *v1alpha1types.Session) string {
 	return fmt.Sprintf("%s-%s", session.Spec.UserReference.Name, session.Spec.GameReference.Name)
 }
@@ -1310,19 +1586,113 @@ func (c *SessionController) reconcileActiveStreams(
 		// Either scenario is invalid. Delete the session
 		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
 	}
+	// Will need this for later
+	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
+	if err != nil {
+		return fmt.Errorf("failed to get app: %s", err)
+	}
 
-	if !found {
+	if !found && app != nil {
+		// apps, err := wolfclient.ListApps(ctx)
+		// if err != nil {
+		// 	return fmt.Errorf("failed to list apps from wolf: %w", err)
+		// }
+
+		// Determine the title we expect the app to have
+		// expectedTitle := app.Spec.Title
+		// if app.Spec.WolfConfig.Title != "" {
+		// 	expectedTitle = app.Spec.WolfConfig.Title
+		// }
+
+		// var appID string
+
+		// 1. Check if the app already exists
+		// for _, loadedApp := range apps {
+		// 	if loadedApp.Title == expectedTitle {
+		// 		appID = loadedApp.ID
+		// 		klog.Infof("App '%s' already exists in Wolf with ID: %s. Skipping creation.", expectedTitle, appID)
+		// 		break
+		// 	}
+		// }
+
+		// 2. If app doesn't exist, create it
+		// if appID == "" {
+		// 	klog.Infof("App '%s' not found in Wolf. Creating it...", expectedTitle)
+
+		// 	if len(apps) == 0 {
+		// 		return fmt.Errorf("no apps found in wolf container to use as template")
+		// 	}
+
+		// 	// get the GST pipelines from the first app (supposedly wolf-ui)
+		// 	templateApp := apps[0]
+		// 	klog.Infof("Using app[0] (%s) as template for pipelines", templateApp.Title)
+
+		// 	// Defaults for booleans if nil
+		// 	startAudio := true
+		// 	if app.Spec.WolfConfig.StartAudioServer != nil {
+		// 		startAudio = *app.Spec.WolfConfig.StartAudioServer
+		// 	}
+		// 	startCompositor := true
+		// 	if app.Spec.WolfConfig.StartVirtualCompositor != nil {
+		// 		startCompositor = *app.Spec.WolfConfig.StartVirtualCompositor
+		// 	}
+
+		// 	runner := wolfapi.Runner{
+		// 		Type:   "process",
+		// 		RunCmd: "sh -c \"while :; do echo 'running...'; sleep 10; done\"",
+		// 	}
+		// 	if app.Spec.WolfConfig.Runner != nil {
+		// 		runner.Type = app.Spec.WolfConfig.Runner.Type
+		// 		runner.RunCmd = app.Spec.WolfConfig.Runner.RunCommand
+		// 	}
+		// 	var renderNode string
+		// 	if app.Spec.WolfConfig.RuntimeVariables != nil {
+		// 		renderNode = app.Spec.WolfConfig.RuntimeVariables.RenderNode
+		// 	}
+
+		// 	// Create the App in Wolf
+		// 	newApp := wolfapi.App{
+		// 		ID:                     app.Name, // Use K8s App Name as ID
+		// 		Title:                  expectedTitle,
+		// 		SupportHDR:             false, // Default
+		// 		StartVirtualCompositor: startCompositor,
+		// 		StartAudioServer:       startAudio,
+		// 		RenderNode:             renderNode,
+		// 		Runner:                 runner,
+
+		// 		// Injected Pipelines
+		// 		H264GSTPipeline: templateApp.H264GSTPipeline,
+		// 		HEVCGSTPipeline: templateApp.HEVCGSTPipeline,
+		// 		AV1GSTPipeline:  templateApp.AV1GSTPipeline,
+		// 		OpusGSTPipeline: templateApp.OpusGSTPipeline,
+		// 	}
+		// 	// no need to create an app
+		// 	// klog.Infof("Creating App in Wolf: %+v", newApp)
+		// 	// if err := wolfclient.AddApp(ctx, newApp); err != nil {
+		// 	// 	return fmt.Errorf("failed to add app to wolf: %w", err)
+		// 	// }
+		// 	appID = newApp.ID
+		// }
+
 		//!TODO: Add the ports into the request for this to support multiple
 		// sessions per Gateway.
 		//
 		// Create the session
+		clientIP := "10.128.1.0" // I'm  keeping this, for now...
+		if session.Spec.Config.ClientIP != "" {
+			clientIP = session.Spec.Config.ClientIP
+		}
+
 		sessionID, err := wolfclient.AddSession(ctx, wolfapi.Session{
 			VideoWidth:        session.Spec.Config.VideoWidth,
 			VideoHeight:       session.Spec.Config.VideoHeight,
 			VideoRefreshRate:  session.Spec.Config.VideoRefreshRate,
-			AppID:             "1",
+			// AppID:             appID,
 			AudioChannelCount: 2, // !TODO: parse from audio info
-			ClientIP:          "10.128.1.0",
+
+			ClientIP: clientIP, // In the future, this will be acquired dynamically
+			//If this isn't present it crashes
+			//so, I'll keep it here until I figure out a way to pass off from moonlight client
 			ClientSettings: wolfapi.ClientSettings{
 				RunGID:              1000,
 				RunUID:              1000,
@@ -1338,12 +1708,13 @@ func (c *SessionController) reconcileActiveStreams(
 			// add it. Though not really needed since user doesnt connect via HTTPS
 			// to wolf, we just need a client ID wolf accepts for this specific
 			// pairing/client...
-			ClientID: "4193251087262667199",
+			// ClientID:   "4193251087262667199",
+			RTSPFakeIP: service.Spec.ClusterIP,
 		})
+
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)
 		}
-
 		session.Status.WolfSessionID = sessionID
 	} else {
 		//!TODO: Update wolf API to include session ID in list so we can update
@@ -1353,127 +1724,4 @@ func (c *SessionController) reconcileActiveStreams(
 
 	session.Status.StreamURL = fmt.Sprintf("rtsp://%s:%d", service.Spec.ClusterIP, session.Status.Ports.RTSP)
 	return nil
-}
-
-func GenerateWolfConfig(
-	app *v1alpha1.App,
-) (string, error) {
-	config := app.Spec.WolfConfig
-
-	if len(config.Title) == 0 {
-		config.Title = app.Spec.Title
-	}
-
-	if config.StartAudioServer == nil {
-		config.StartAudioServer = ptr.To(true)
-	}
-
-	if config.StartVirtualCompositor == nil {
-		config.StartVirtualCompositor = ptr.To(true)
-	}
-
-	if config.Runner == nil {
-		config.Runner = &v1alpha1.WolfRunnerConfig{
-			Type:       "process",
-			RunCommand: "sh -c \"while :; do echo 'running...'; sleep 10; done\"",
-		}
-	}
-
-	var gstreamerConfig = map[string]interface{}{
-		"audio": map[string]interface{}{
-			"default_audio_params": "queue max-size-buffers=3 leaky=downstream ! audiorate ! audioconvert",
-			"default_opus_encoder": "opusenc bitrate={bitrate} bitrate-type=cbr frame-size={packet_duration} bandwidth=fullband audio-type=restricted-lowdelay max-payload-size=1400",
-			"default_sink": `rtpmoonlightpay_audio name=moonlight_pay packet_duration={packet_duration} encrypt=true aes_key="{aes_key}" aes_iv="{aes_iv}" !
-	udpsink bind-port={host_port} host={client_ip} port={client_port} sync=true`,
-			"default_source": "interpipesrc listen-to={session_id}_audio is-live=true stream-sync=restart-ts max-bytes=0 max-buffers=3 block=false",
-		},
-		"video": map[string]interface{}{
-			"default_sink": `rtpmoonlightpay_video name=moonlight_pay payload_size={payload_size} fec_percentage={fec_percentage} min_required_fec_packets={min_required_fec_packets} !
-	udpsink bind-port={host_port} host={client_ip} port={client_port} sync=true`,
-			"default_source": "interpipesrc listen-to={session_id}_video is-live=true stream-sync=restart-ts max-buffers=1 block=false",
-			"defaults": map[string]interface{}{
-				"nvcodec": map[string]interface{}{
-					"video_params": "queue leaky=downstream max-size-buffers=1 ! cudaupload ! cudaconvertscale ! video/x-raw(memory:CUDAMemory), width={width}, height={height}, chroma-site={color_range}, format=NV12, colorimetry={color_space}, pixel-aspect-ratio=1/1",
-				},
-				"qsv": map[string]interface{}{
-					"video_params": "queue leaky=downstream max-size-buffers=1 ! videoconvertscale ! video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}",
-				},
-				"vaapi": map[string]interface{}{
-					"video_params": "queue leaky=downstream max-size-buffers=1 ! videoconvertscale ! video/x-raw, chroma-site={color_range}, width={width}, height={height}, format=NV12, colorimetry={color_space}",
-				},
-			},
-			"av1_encoders": []map[string]interface{}{
-				{
-					"check_elements":   []string{"nvav1enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": "nvav1enc gop-size=-1 bitrate={bitrate} rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter ! av1parse ! video/x-av1, stream-format=obu-stream, alignment=frame, profile=main",
-					"plugin_name":      "nvcodec",
-				},
-				{
-					"check_elements":   []string{"qsvav1enc", "videoconvertscale"},
-					"encoder_pipeline": "qsvav1enc gop-size=0 ref-frames=1 bitrate={bitrate} rate-control=cbr low-latency=1 target-usage=6 ! av1parse ! video/x-av1, stream-format=obu-stream, alignment=frame, profile=main",
-					"plugin_name":      "qsv",
-				},
-			},
-			"h264_encoders": []map[string]interface{}{
-				{
-					"check_elements":   []string{"nvh264enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": "nvh264enc preset=low-latency-hq zerolatency=true gop-size=0 rc-mode=cbr-ld-hq bitrate={bitrate} aud=false ! h264parse ! video/x-h264, profile=main, stream-format=byte-stream",
-					"plugin_name":      "nvcodec",
-				},
-			},
-			"hevc_encoders": []map[string]interface{}{
-				{
-					"check_elements":   []string{"nvh265enc", "cudaconvertscale", "cudaupload"},
-					"encoder_pipeline": "nvh265enc gop-size=-1 bitrate={bitrate} aud=false rc-mode=cbr zerolatency=true preset=p1 tune=ultra-low-latency multi-pass=two-pass-quarter ! h265parse ! video/x-h265, profile=main, stream-format=byte-stream",
-					"plugin_name":      "nvcodec",
-				},
-			},
-		},
-	}
-
-	configMap := map[string]interface{}{
-		"config_version": 4,
-		"hostname":       "Direwolf",
-		"uuid":           "dd7c60f6-4b88-4ef1-be07-eeec72f96080",
-		"apps":           []any{config},
-
-		//!TODO: Send PR to wolf to populate the default gstreamer config
-		// if its not provided? Or start with empty wolf and use api to
-		// populate application
-		"gstreamer": gstreamerConfig,
-
-		//!TODO: Doesnt really matter since we handle moonlight. But
-		// we need a client to associate to streams. It would be better though
-		// to actually mirror the real moonlight clients into wolf via API
-		"paired_clients": []interface{}{
-			map[string]interface{}{
-				"app_state_folder": "state",
-				"client_cert": `-----BEGIN CERTIFICATE-----
-MIICvzCCAaegAwIBAgIBADANBgkqhkiG9w0BAQsFADAjMSEwHwYDVQQDDBhOVklE
-SUEgR2FtZVN0cmVhbSBDbGllbnQwHhcNMjQxMjE2MDgzMTE4WhcNNDQxMjExMDgz
-MTE4WjAjMSEwHwYDVQQDDBhOVklESUEgR2FtZVN0cmVhbSBDbGllbnQwggEiMA0G
-CSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCXcEKK/Desa7EcvntGHxtA3ercOxbd
-kUtkPPacz7mKVZBKayZmbfTMAQV5dS2yqeyZOId+X4JEPO7DeuMkkr9INnvl3etB
-WIj0q8FTuBrGAb+XozFTb3Tvo3plezpLXecl4mquvXA2mEtVILnm6NltdJ+GYNkT
-UBbOjneZIdBfFjIP+0k2JZD+VmnxmwCDlPryMa2nFi8rNAkYSfIWdyIlOzUJfZ/i
-8Hw4wLtSGy5W7YZ3kbQQJzPkW6pLFbREcNmslprwxZduo3mDAyDndj9qsVqopJOF
-Oj3Nlzj53kNRozgB9b/wkNcxi3lvOoQrNGJNTp39WNDmPFVzfBvCKVDJAgMBAAEw
-DQYJKoZIhvcNAQELBQADggEBAA+Rh4KAuTYtcH8X5RdUstjGXiYbONMmEuKl/kE/
-hj8ddefXA4pjf1Vozx6NunMlC4g0QQAZrsxn1NBVe/5L3gxrwyYLn/2kDJUw7P5o
-aTXnL5xYzhcPjQOER9+36S4aUTpwR/rURK0MyOmZOVk3Ex4rAnyetKg3Dd9v6uL3
-zaycOje4fxJpVH713NbFaGLMeKPW61lW+Lh9WlXOKrd0EABVBPmSYlk8gYnPrXxA
-dxohk8q/MqUqcm/k8ZGKYMc998ix6ldXJm5xaPTXSQcSC/xycoLjnUCkcv+sfh1T
-nKI+KlDXa1HikPGT/uB/b+SS6v9bD8kU03Ci4ahdKb6Mw7Q=
------END CERTIFICATE-----
-`,
-			},
-		},
-	}
-
-	data, err := toml.Marshal(configMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal toml: %s", err)
-	}
-
-	return string(data), nil
 }

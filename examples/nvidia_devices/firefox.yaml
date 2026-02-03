@@ -10,25 +10,27 @@ spec:
   id: 1
   isHDRSupported: false
   title: Firefox
-  #This will automatically provision storage with the default parameters
-  volumeClaimTemplate: 
-    spec: {}
+  ##This will automatically provision storage with the default parameters
+  # volumeClaimTemplate: 
+  #   spec: {}
   wolfConfig:
     runtimeVariables:
+      ## Change this into the card id of your device, or comment it out and let wolf find it.
       renderNode: /dev/dri/renderD128
       # clientIP: 10.244.1.1
   template:
     spec:
+      runtimeClassName: nvidia
       containers:
       - name: app
         image: ghcr.io/games-on-whales/firefox:edge
         resources:
           limits:
-            squat.ai/dri: "1"
+            nvidia.com/gpu: "1"
             cpu: 2000m
             memory: 4G
           requests:
-            squat.ai/dri: "1"
+            nvidia.com/gpu: "1"
             cpu: 2000m
             memory: 4G
         command:

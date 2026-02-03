@@ -38,6 +38,7 @@ type AppSpec struct {
 	AppAssetWebP []byte `json:"appAssetWebP" xml:"-"`
 
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:X-kubernetes-preserve-unknown-fields:true
 	Template *v1.PodTemplateSpec `json:"template" xml:"-"`
 
 	// Unstructured wolf configuration for app to be merged with the default
@@ -45,6 +46,37 @@ type AppSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	WolfConfig WolfConfig `json:"wolfConfig" xml:"-"`
+
+	// A template for a PersistentVolumeClaim to be created for the app's
+	// home directory. If provided, the operator will create a PVC from
+	// this template and mount it at /home/retro.
+	// If not provided, an emptyDir volume will be used.
+	// all other volumes must be defined in the pod template's spec.volumes field.
+	// +kubebuilder:validation:Optional
+	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
+}
+
+// TODO so I can easily find it
+// This entire implementation needs a rework
+// It'll be modified later to better inject env vars and configs.
+type RuntimeWolfVariables struct {
+	// RenderNode specifies the filepath to the DRM render node device.
+	// Wolf defaults to: "/dev/dri/renderD128"
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="/dev/dri/renderD128"
+	RenderNode string `json:"renderNode,omitempty""`
+	
+	// Time zone for the wolf container
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=UTC
+	TimeZone string `json:"timeZone,omitempty"`
+
+	// Logging level for wolf.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=ERROR;WARNING;INFO;DEBUG;TRACE
+	// +kubebuilder:default:="DEBUG"
+	LogLevel string `json:"logLevel,omitempty"`
+
 }
 
 type WolfConfig struct {
@@ -58,6 +90,10 @@ type WolfConfig struct {
 	Video *WolfStreamConfig `json:"video,omitempty" toml:"video,omitempty"`
 
 	Runner *WolfRunnerConfig `json:"runner,omitempty" toml:"runner,omitempty"`
+	
+	// Additional wolf configs to use.
+	// +kubebuilder:validation:Optional
+	RuntimeVariables *RuntimeWolfVariables `json:"runtimeVariables,omitempty"`
 }
 
 type WolfStreamConfig struct {

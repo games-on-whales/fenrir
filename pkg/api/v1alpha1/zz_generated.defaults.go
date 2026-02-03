@@ -32,6 +32,8 @@ import (
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&App{}, func(obj interface{}) { SetObjectDefaults_App(obj.(*App)) })
 	scheme.AddTypeDefaultingFunc(&AppList{}, func(obj interface{}) { SetObjectDefaults_AppList(obj.(*AppList)) })
+	scheme.AddTypeDefaultingFunc(&User{}, func(obj interface{}) { SetObjectDefaults_User(obj.(*User)) })
+	scheme.AddTypeDefaultingFunc(&UserList{}, func(obj interface{}) { SetObjectDefaults_UserList(obj.(*UserList)) })
 	return nil
 }
 
@@ -188,5 +190,60 @@ func SetObjectDefaults_AppList(in *AppList) {
 	for i := range in.Items {
 		a := &in.Items[i]
 		SetObjectDefaults_App(a)
+	}
+}
+
+func SetObjectDefaults_User(in *User) {
+	for i := range in.Spec.Volumes {
+		a := &in.Spec.Volumes[i]
+		if a.VolumeSource.ISCSI != nil {
+			if a.VolumeSource.ISCSI.ISCSIInterface == "" {
+				a.VolumeSource.ISCSI.ISCSIInterface = "default"
+			}
+		}
+		if a.VolumeSource.RBD != nil {
+			if a.VolumeSource.RBD.RBDPool == "" {
+				a.VolumeSource.RBD.RBDPool = "rbd"
+			}
+			if a.VolumeSource.RBD.RadosUser == "" {
+				a.VolumeSource.RBD.RadosUser = "admin"
+			}
+			if a.VolumeSource.RBD.Keyring == "" {
+				a.VolumeSource.RBD.Keyring = "/etc/ceph/keyring"
+			}
+		}
+		if a.VolumeSource.AzureDisk != nil {
+			if a.VolumeSource.AzureDisk.CachingMode == nil {
+				ptrVar1 := v1.AzureDataDiskCachingMode(v1.AzureDataDiskCachingReadWrite)
+				a.VolumeSource.AzureDisk.CachingMode = &ptrVar1
+			}
+			if a.VolumeSource.AzureDisk.FSType == nil {
+				var ptrVar1 string = "ext4"
+				a.VolumeSource.AzureDisk.FSType = &ptrVar1
+			}
+			if a.VolumeSource.AzureDisk.ReadOnly == nil {
+				var ptrVar1 bool = false
+				a.VolumeSource.AzureDisk.ReadOnly = &ptrVar1
+			}
+			if a.VolumeSource.AzureDisk.Kind == nil {
+				ptrVar1 := v1.AzureDataDiskKind(v1.AzureSharedBlobDisk)
+				a.VolumeSource.AzureDisk.Kind = &ptrVar1
+			}
+		}
+		if a.VolumeSource.ScaleIO != nil {
+			if a.VolumeSource.ScaleIO.StorageMode == "" {
+				a.VolumeSource.ScaleIO.StorageMode = "ThinProvisioned"
+			}
+			if a.VolumeSource.ScaleIO.FSType == "" {
+				a.VolumeSource.ScaleIO.FSType = "xfs"
+			}
+		}
+	}
+}
+
+func SetObjectDefaults_UserList(in *UserList) {
+	for i := range in.Items {
+		a := &in.Items[i]
+		SetObjectDefaults_User(a)
 	}
 }

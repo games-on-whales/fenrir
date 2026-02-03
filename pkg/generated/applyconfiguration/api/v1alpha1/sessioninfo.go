@@ -21,6 +21,7 @@ package v1alpha1
 // SessionInfoApplyConfiguration represents a declarative configuration of the SessionInfo type for use
 // with apply.
 type SessionInfoApplyConfiguration struct {
+	ClientIP           *string `json:"clientIP,omitempty"`
 	AESKey             *string `json:"aesKey,omitempty"`
 	AESIV              *string `json:"aesIV,omitempty"`
 	VideoWidth         *int    `json:"videoWidth,omitempty"`
@@ -33,6 +34,14 @@ type SessionInfoApplyConfiguration struct {
 // apply.
 func SessionInfo() *SessionInfoApplyConfiguration {
 	return &SessionInfoApplyConfiguration{}
+}
+
+// WithClientIP sets the ClientIP field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ClientIP field is set to the value of the last call.
+func (b *SessionInfoApplyConfiguration) WithClientIP(value string) *SessionInfoApplyConfiguration {
+	b.ClientIP = &value
+	return b
 }
 
 // WithAESKey sets the AESKey field in the declarative configuration to the given value
