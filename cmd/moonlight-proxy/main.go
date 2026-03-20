@@ -21,8 +21,8 @@ func main() {
 	appContext, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	serverCertPath := flag.String("tls-cert", "server.crt", "Path to server cert")
-	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
+	serverCertPath := flag.String("tls-cert", os.Getenv("SERVER_CERT"), "Path to server cert")
+	serverKeyPath := flag.String("tls-key", os.Getenv("SERVER_KEY"), "Path to server key")
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
@@ -63,24 +63,33 @@ func main() {
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
 
-	// !TODO: Eventually will want to respond to /livez before caches are warm.
 	klog.Info("Waiting for caches to sync")
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
 	klog.Info("Caches synced")
 
+	// --- NEW: Create Listers here so we can share them ---
+	userLister := generic.NewLister[*direwolfv1alpha1.User](userInformer.GetIndexer()).Namespaced(*namespace)
+	pairingLister := generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace)
+	appLister := generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace)
+	sessionLister := generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace)
+	podLister := generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
+
+	// --- UPDATED: Pass userLister to PairingManager ---
 	pairingManager := moonlight.NewPairingManager(
 		tlsCert,
 		direwolfClient.DirewolfV1alpha1().Pairings(*namespace),
+		userLister, // <--- INJECTED HERE
 	)
 
+	// --- UPDATED: Use the pre-created lister variables ---
 	restServer := moonlight.NewRESTServer(
 		pairingManager,
-		generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*direwolfv1alpha1.User](userInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace),
+		pairingLister,
+		userLister,
+		appLister,
+		sessionLister,
+		podLister,
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		moonlight.RESTServerOptions{
 			Port:       *port,

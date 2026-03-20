@@ -19,7 +19,6 @@ limitations under the License.
 package v1alpha1
 
 import (
-	apiv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	types "k8s.io/apimachinery/pkg/types"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -30,8 +29,8 @@ import (
 type UserApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *UserSpecApplyConfiguration `json:"spec,omitempty"`
-	Status                           *apiv1alpha1.UserStatus     `json:"status,omitempty"`
+	Spec                             *UserSpecApplyConfiguration   `json:"spec,omitempty"`
+	Status                           *UserStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // User constructs a declarative configuration of the User type for use with
@@ -214,8 +213,8 @@ func (b *UserApplyConfiguration) WithSpec(value *UserSpecApplyConfiguration) *Us
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithStatus(value apiv1alpha1.UserStatus) *UserApplyConfiguration {
-	b.Status = &value
+func (b *UserApplyConfiguration) WithStatus(value *UserStatusApplyConfiguration) *UserApplyConfiguration {
+	b.Status = value
 	return b
 }
 

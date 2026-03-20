@@ -3235,7 +3235,15 @@ spec:
                 type: array
             type: object
           status:
+            properties:
+              publicPinURL:
+                description: |-
+                  The public Pin URL used to pair the user.
+                  Should be usable with an ip address and/or a url
+                type: string
             type: object
         type: object
     served: true
     storage: true
+    subresources:
+      status: {}

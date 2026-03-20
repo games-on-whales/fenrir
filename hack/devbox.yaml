@@ -22,10 +22,10 @@ spec:
     app: direwolf
     component: moonlight-proxy
   ports:
-    - name: http
+    - name: https
       protocol: TCP
       port: 47984
-    - name: https
+    - name: http
       protocol: TCP
       port: 47989
 ---
@@ -68,6 +68,10 @@ spec:
           #   value: "1111"
           - name: APP_NAME
             value: moonlight-proxy
+          - name: SERVER_CERT
+            value: /etc/certs/server.crt
+          - name: SERVER_KEY
+            value: /etc/certs/server.key
           - name: POD_NAME
             valueFrom:
               fieldRef:

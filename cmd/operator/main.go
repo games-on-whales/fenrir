@@ -14,6 +14,7 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/util"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -32,6 +33,10 @@ func main() {
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
+
+	// service used by moonlight-proxy
+	proxySvcName := flag.String("proxy-service-name", "direwolf", "Name of the proxy service")
+
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -48,14 +53,16 @@ func main() {
 	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
 	direwolfFactory.Start(appContext.Done())
-	defer direwolfFactory.Shutdown()
 
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
 		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
 	deploymentInformer := k8sFactory.Apps().V1().Deployments().Informer()
-	k8sFactory.Start(appContext.Done())
-	defer k8sFactory.Shutdown()
 
+	serviceInformer := k8sFactory.Core().V1().Services().Informer()
+
+	k8sFactory.Start(appContext.Done())
+
+	klog.Info("Waiting for caches to sync")
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
 
@@ -75,6 +82,7 @@ func main() {
 		klog.Fatal("Error creating resource lock", err)
 	}
 
+	// Session Controller
 	sessionController := controllers.NewSessionController(
 		k8sClient,
 		gatewayClient.GatewayV1alpha2().TCPRoutes(*namespace),
@@ -90,6 +98,18 @@ func main() {
 		},
 	)
 
+	// User Controller
+	// will need a lot of debugging
+	userController := controllers.NewUserController(
+		k8sClient,
+		direwolfClient.DirewolfV1alpha1().Users(*namespace),
+		generic.NewInformer[*direwolfv1alpha1.User](userInformer),
+		generic.NewInformer[*corev1.Service](serviceInformer),
+		controllers.UserControllerOptions{
+			ProxyServiceName: *proxySvcName,
+		},
+	)
+
 	leaderelection.RunOrDie(appContext, leaderelection.LeaderElectionConfig{
 		Lock:          lock,
 		LeaseDuration: 15 * time.Second,
@@ -98,17 +118,25 @@ func main() {
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				klog.Info("started leading")
-				err := sessionController.Run(appContext)
-				if err != nil && !errors.Is(err, context.Canceled) {
-					klog.Errorf("error running session controller: %v", err)
-					appCancel()
-				}
+
+				// run User Controller
+				go func() {
+					if err := userController.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+						klog.Errorf("error running user controller: %v", err)
+					}
+				}()
+
+				// run Session Controller
+				go func() {
+					if err := sessionController.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+						klog.Errorf("error running session controller: %v", err)
+					}
+				}()
+
+				<-ctx.Done()
 			},
 			OnStoppedLeading: func() {
 				appCancel()
-			},
-			OnNewLeader: func(identity string) {
-				klog.InfoS("new leader", "holderIdentity", identity)
 			},
 		},
 	})

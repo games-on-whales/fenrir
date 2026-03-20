@@ -12,42 +12,68 @@
             font-family: Roboto, "Helvetica Neue", Arial, sans-serif;
             background: rgb(114, 0, 130);
             background: linear-gradient(132deg, rgba(114, 0, 130, 1) 0%, rgba(63, 0, 195, 1) 50%, rgba(0, 71, 255, 1) 100%);
+            flex-direction: column; /* Stack items vertically */
         }
 
-        form {
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2rem;
+        }
+
+        .username-container input {
+            padding: 1rem;
+            font-size: 1.5rem;
+            border: none;
+            border-radius: 8px;
+            width: 300px;
+            text-align: center;
+            color: #333;
+        }
+
+        form.pin-form {
             display: flex;
             justify-content: center;
             color: white;
         }
 
-        input {
+        .pin-form input {
             margin: 0 0.5rem;
             padding: 0.5rem;
             border: 1px solid white;
+            background: transparent;
+            color: white;
             width: 50px;
             height: 50px;
             text-align: center;
             font-size: 3rem;
+            border-radius: 8px;
         }
 
         /* Chrome, Safari, Edge, Opera */
-        input::-webkit-outer-spin-button,
-        input::-webkit-inner-spin-button {
+        .pin-form input::-webkit-outer-spin-button,
+        .pin-form input::-webkit-inner-spin-button {
             -webkit-appearance: none;
             margin: 0;
         }
 
         /* Firefox */
-        input[type=number] {
+        .pin-form input[type=number] {
             -moz-appearance: textfield;
         }
     </style>
 </head>
 <body>
 
+<div class="container">
+    <!-- User inputs their name here -->
+    <div class="username-container">
+        <input type="text" id="usernameInput" placeholder="Enter Username" autocomplete="off" />
+    </div>
 
-<div>
-    <form class="form">
+    <!-- PIN entry form -->
+    <form class="pin-form">
         <input type="number" min="0" max="9" step="1"/>
         <input type="number" min="0" max="9" step="1"/>
         <input type="number" min="0" max="9" step="1"/>
@@ -55,25 +81,43 @@
     </form>
 </div>
 
-
 </body>
 <script type="application/javascript">
-    const inputs = document.querySelectorAll("input");
-    const form = document.querySelector(".form");
+    const inputs = document.querySelectorAll(".pin-form input");
+    const form = document.querySelector(".pin-form");
+    const usernameInput = document.getElementById("usernameInput");
 
     function send(pin) {
+        const username = usernameInput.value.trim();
+        
+        // Ensure they typed a username before submitting
+        if (!username) {
+            alert("Please enter your username first!");
+            // Reset the PIN inputs so they can try again
+            inputs.forEach(input => input.value = "");
+            usernameInput.focus();
+            return;
+        }
+
         let xhr = new XMLHttpRequest();
-        xhr.open("POST", "/pin/", true);
+        // Post to the current URL path to maintain routing compatibility
+        xhr.open("POST", window.location.pathname, true);
         xhr.setRequestHeader("Content-Type", "application/json");
         xhr.onreadystatechange = function () {
             if (xhr.readyState === 4) {
                 form.textContent = xhr.responseText;
+                // Hide the username box upon completion
+                document.querySelector('.username-container').style.display = 'none';
             }
         };
+
+        // Include the username in the JSON payload!
         const data = JSON.stringify({
             "pin": pin,
-            "secret": window.location.hash.substring(1)
+            "secret": window.location.hash.substring(1),
+            "username": username
         });
+        
         form.textContent = "Sending " + pin + " ...";
         xhr.send(data);
     }
@@ -87,13 +131,14 @@
                 if (key === 3) {
                     const userCode = [...inputs].map((input) => input.value).join("");
                     send(userCode);
-                    [...inputs].forEach((input) => input.remove());
                 } else {
                     inputs[key + 1].focus();
                 }
             }
         });
     });
-    inputs[0].focus();
+
+    // Start by focusing the username input
+    usernameInput.focus();
 </script>
 </html>

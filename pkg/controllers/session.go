@@ -16,6 +16,7 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
+
 	// "github.com/pelletier/go-toml/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -761,7 +762,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
 		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
 		// "WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
-		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock", 
+		"WOLF_SOCKET_PATH": "/etc/wolf/wolf.sock",
 		// "WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml", // no longer needed
 		// "WOLF_PRIVATE_CERT_FILE": "/mnt/data/wolf/cfg/cert.pem",
 		// "WOLF_PRIVATE_KEY_FILE": "/mnt/data/wolf/cfg/key.pem",
@@ -827,8 +828,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	wolfEnvVarsSlice := make([]corev1.EnvVar, 0, len(wolfEnvVars))
 	for k, v := range wolfEnvVars {
 		wolfEnvVarsSlice = append(wolfEnvVarsSlice, corev1.EnvVar{Name: k, Value: v})
- 	}
-
+	}
 
 	// Inject volume mounts into existing containers
 	for i := range podToCreate.Spec.Containers {
@@ -852,7 +852,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			{Name: "WAYLAND_DISPLAY", Value: "wayland-1"},
 			{Name: "TZ", Value: wolfEnvVars["TZ"]},
 			{Name: "UNAME", Value: "retro"},
-			{Name: "XDG_RUNTIME_DIR", Value: "/tmp/.X11-unix"},			// "UID":             "1000",
+			{Name: "XDG_RUNTIME_DIR", Value: "/tmp/.X11-unix"},
+			// "UID":             "1000",
 			// "GID":             "1000",
 			{Name: "PULSE_SERVER", Value: "unix:/tmp/.X11-unix/pulse-socket"},
 			// PULSE_SINK & PULSE_SOURCE set at runtime calculated based off session ID.
@@ -882,54 +883,58 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		podToCreate.Spec.Containers[i].Resources = validatedResources
 	}
-
-	podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
-		corev1.Container{
-			Name:  "init",
-			Image: "ghcr.io/games-on-whales/base:edge",
-			// This will need to be updated / removed since /etc/wolf/cfg is no longer used by wolf
-			// Also, we're no longer injecting the app info into the config.toml
-			Command: []string{
-				"sh", "-c", `
-				mkdir -p /mnt/data/wolf/cfg
-				cp /certs/* /mnt/data/wolf/cfg/
-				chown 1000:1000 /mnt/data/wolf
-				chmod 777 /mnt/data/wolf
-				chown -R 1000:1000 /mnt/data/wolf/cfg
-				chmod 777 /mnt/data/wolf/cfg
-				chown -R ubuntu:ubuntu /tmp/.X11-unix
-				chmod 1777 -R /tmp/.X11-unix
-				mkdir -p /etc/wolf/cfg
-				# cp -LR /cfg/* /etc/wolf/cfg
-				chown -R ubuntu:ubuntu /etc/wolf
-				chmod 777 -R /etc/wolf
-			`,
-			},
-			VolumeMounts: []corev1.VolumeMount{
-				// {
-				// 	Name:      "wolf-tls-secret",
-				// 	MountPath: "/certs",
-				// 	ReadOnly:  true,
-				// },
-				{
-					Name:      "wolf-cfg",
-					MountPath: "/etc/wolf",
-				},
-				{
-					Name:      "wolf-data",
-					MountPath: "/mnt/data/wolf",
-				},
-				{
-					Name:      "wolf-runtime",
-					MountPath: "/tmp/.X11-unix",
-				},
-				// {
-				// 	Name:      "config",
-				// 	MountPath: "/cfg",
-				// },
-			},
-		},
-	)
+	// // No longer Needed
+	// podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
+	// 	corev1.Container{
+	// 		Name:  "init",
+	// 		Image: "ghcr.io/games-on-whales/base:edge",
+	// 		// This will need to be updated / removed since /etc/wolf/cfg is no longer used by wolf
+	// 		// Also, we're no longer injecting the app info into the config.toml
+	// 		Command: []string{
+	// 			"sh", "-c", `
+	// 			echo making /mnt/data/wolf/cfg
+	// 			mkdir -p /mnt/data/wolf/cfg
+	// 			echo changing ownership /mnt/data/wolf
+	// 			chown 1000:1000 /mnt/data/wolf
+	// 			chmod 777 /mnt/data/wolf
+	// 			echo changing ownership /mnt/data/wolf/cfg
+	// 			chown -R 1000:1000 /mnt/data/wolf/cfg
+	// 			chmod 777 /mnt/data/wolf/cfg
+	// 			echo changing ownership of /tmp/.X11-unix
+	// 			chown -R ubuntu:ubuntu /tmp/.X11-unix
+	// 			chmod 1777 -R /tmp/.X11-unix
+	// 			echo making /etc/wolf/cfg
+	// 			mkdir -p /etc/wolf/cfg
+	// 			# cp -LR /cfg/* /etc/wolf/cfg
+	// 			chown -R ubuntu:ubuntu /etc/wolf
+	// 			chmod 777 -R /etc/wolf
+	// 		`,
+	// 		},
+	// 		VolumeMounts: []corev1.VolumeMount{
+	// 			// {
+	// 			// 	Name:      "wolf-tls-secret",
+	// 			// 	MountPath: "/certs",
+	// 			// 	ReadOnly:  true,
+	// 			// },
+	// 			{
+	// 				Name:      "wolf-cfg",
+	// 				MountPath: "/etc/wolf",
+	// 			},
+	// 			{
+	// 				Name:      "wolf-data",
+	// 				MountPath: "/mnt/data/wolf",
+	// 			},
+	// 			{
+	// 				Name:      "wolf-runtime",
+	// 				MountPath: "/tmp/.X11-unix",
+	// 			},
+	// 			// {
+	// 			// 	Name:      "config",
+	// 			// 	MountPath: "/cfg",
+	// 			// },
+	// 		},
+	// 	},
+	// )
 
 	// Define default resources for sidecars
 	wolfAgentDefaultResources := corev1.ResourceRequirements{
@@ -1017,8 +1022,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
-			Name:  "wolf-agent",
-			Image: c.WolfAgentImage,
+			Name:            "wolf-agent",
+			Image:           c.WolfAgentImage,
 			ImagePullPolicy: corev1.PullAlways,
 			// ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
@@ -1032,47 +1037,47 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				},
 			},
 			Env: append([]corev1.EnvVar{
-					{
-						Name:  "XDG_RUNTIME_DIR",
-						Value: "/tmp/.X11-unix",
-					},
-					// {
-					// 	Name:  "PUID",
-					// 	Value: "1000",
-					// },
-					// {
-					// 	Name:  "PGID",
-					// 	Value: "1000",
-					// },
-					{
-						Name:  "WOLF_SOCKET_PATH",
-						Value: "/etc/wolf/wolf.sock",
-					},
-					{
-						Name:  "DIREWOLF_USER",
-						Value: session.Spec.UserReference.Name,
-					},
-					{
-						Name:  "DIREWOLF_APP",
-						Value: session.Spec.GameReference.Name,
-					},
-					{
-						Name: "POD_NAME",
-						ValueFrom: &corev1.EnvVarSource{
-							FieldRef: &corev1.ObjectFieldSelector{
-								FieldPath: "metadata.name",
-							},
+				{
+					Name:  "XDG_RUNTIME_DIR",
+					Value: "/tmp/.X11-unix",
+				},
+				// {
+				// 	Name:  "PUID",
+				// 	Value: "1000",
+				// },
+				// {
+				// 	Name:  "PGID",
+				// 	Value: "1000",
+				// },
+				{
+					Name:  "WOLF_SOCKET_PATH",
+					Value: "/etc/wolf/wolf.sock",
+				},
+				{
+					Name:  "DIREWOLF_USER",
+					Value: session.Spec.UserReference.Name,
+				},
+				{
+					Name:  "DIREWOLF_APP",
+					Value: session.Spec.GameReference.Name,
+				},
+				{
+					Name: "POD_NAME",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.name",
 						},
 					},
-					{
-						Name: "POD_NAMESPACE",
-						ValueFrom: &corev1.EnvVarSource{
-							FieldRef: &corev1.ObjectFieldSelector{
-								FieldPath: "metadata.namespace",
-							},
+				},
+				{
+					Name: "POD_NAMESPACE",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{
+							FieldPath: "metadata.namespace",
 						},
 					},
-				},wolfAgentEnv...
+				},
+			}, wolfAgentEnv...,
 			),
 			ReadinessProbe: &corev1.Probe{
 				ProbeHandler: corev1.ProbeHandler{
@@ -1684,9 +1689,9 @@ func (c *SessionController) reconcileActiveStreams(
 		}
 
 		sessionID, err := wolfclient.AddSession(ctx, wolfapi.Session{
-			VideoWidth:        session.Spec.Config.VideoWidth,
-			VideoHeight:       session.Spec.Config.VideoHeight,
-			VideoRefreshRate:  session.Spec.Config.VideoRefreshRate,
+			VideoWidth:       session.Spec.Config.VideoWidth,
+			VideoHeight:      session.Spec.Config.VideoHeight,
+			VideoRefreshRate: session.Spec.Config.VideoRefreshRate,
 			// AppID:             appID,
 			AudioChannelCount: 2, // !TODO: parse from audio info
 

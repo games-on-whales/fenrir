@@ -7,6 +7,7 @@ import (
 
 // Represents a User CRD
 // +genclient
+// +kubebuilder:subresource:status
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type User struct {
 	metav1.TypeMeta `json:",inline"`
@@ -35,7 +36,8 @@ type UserSpec struct {
 	// +optional
 	SidecarPolicies *SidecarPolicies `json:"sidecarPolicies,omitempty"`
 }
-//TODO
+
+// TODO
 // This will also need rework
 // Since I forgot that we might actually need to inject more than
 // Just the volume mounts and security context
@@ -74,6 +76,11 @@ type SidecarPolicies struct {
 }
 
 type UserStatus struct {
+	// The public Pin URL used to pair the user.
+	// Should be usable with an ip address and/or a url
+	// Until I find a better way to implement this without writing new CRDs
+	// +optional
+	PublicPinURL string `json:"publicPinURL,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

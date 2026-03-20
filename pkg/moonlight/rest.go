@@ -87,6 +87,8 @@ func NewRESTServer(
 	ps.router.HandleFunc("/serverinfo", ps.serverInfoHandler)
 	ps.router.HandleFunc("/pair", ps.pairHandler)
 	ps.router.HandleFunc("/unpair", ps.unpairHandler)
+	// I don't know why I'm keeping this
+	// ps.router.HandleFunc("/{username}/pin/", ps.pinHandler)
 	ps.router.HandleFunc("/pin/", ps.pinHandler)
 
 	ps.router.HandleFunc("/readyz", ps.readyzHandler)
@@ -301,10 +303,11 @@ func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
-	klog.Infof("Handling %v pin request from %s", r.Method, r.RemoteAddr)
-	// Handle GET /pin/<secret>
+	username := r.PathValue("username")
+
+	klog.Infof("Handling %v pin request for user '%s' from %s", r.Method, username, r.RemoteAddr)
+	// Handle GET /<username>/pin/#<secret>
 	if r.Method == "GET" {
-		// Just post the static pin page
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(pinHTML))
@@ -314,8 +317,9 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	// Handle POST /pin
 	if r.Method == "POST" {
 		type PinRequest struct {
-			Pin    string `json:"pin"`
-			Secret string `secret:"secret"`
+			Pin      string `json:"pin"`
+			Secret   string `secret:"secret"`
+			Username string `json:"username"`
 		}
 
 		var req PinRequest
@@ -324,16 +328,18 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Invalid request"))
 			return
 		}
-
-		if req.Pin == "" || req.Secret == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request"))
-			return
+		if req.Username == "" {
+			req.Username = username
 		}
 
+		if req.Pin == "" || req.Secret == "" || req.Username == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("Invalid request: missing pin, secret, or username"))
+			return
+		}
 		// Provide the pin to the pair manager
-		klog.Infof("Received pin %s for secret %s", req.Pin, req.Secret)
-		err := s.manager.PostPin(req.Secret, req.Pin)
+		klog.Infof("Received pin %s for secret %s, user %s", req.Pin, req.Secret, req.Username)
+		err := s.manager.PostPin(req.Secret, req.Pin, req.Username)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -660,9 +666,9 @@ func sendXML(w http.ResponseWriter, resp Responsable) {
 	w.Write(bytes)
 
 	if resp.GetStatusCode() != 200 {
-		klog.Info("Sent response", string(bytes))
+		klog.V(1).Info("Sent response", string(bytes))
 	} else {
-		klog.Info("Sent response", string(bytes))
+		klog.V(1).Info("Sent response", string(bytes))
 	}
 }
 
@@ -674,7 +680,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 
 			klog.Infof("%s %s %s %v %s", r.Proto, r.Method, r.URL.Path, r.URL.Query(), r.RemoteAddr)
 			next.ServeHTTP(w, r)
-			klog.Infof("Completed in %s", time.Since(start))
+			klog.V(1).Infof("Completed in %s", time.Since(start))
 		} else {
 			next.ServeHTTP(w, r)
 		}

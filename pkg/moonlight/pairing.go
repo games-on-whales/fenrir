@@ -19,9 +19,14 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
+	"net/url"
+
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	v1alpha1_apply "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/api/v1alpha1"
 	v1alpha1_client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
+	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/util"
+	"k8s.io/apimachinery/pkg/labels"
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -31,6 +36,12 @@ func hardcodedPin() (string, bool) {
 		return "", false
 	}
 	return val, true
+}
+
+// To replace the hardcoded pin
+type PinSubmission struct {
+	Pin      string
+	Username string
 }
 
 type PairingResponse struct {
@@ -69,15 +80,20 @@ type PairingManager struct {
 	SecureServerCerificate tls.Certificate
 
 	PairingsClient v1alpha1_client.PairingInterface
+	// Url for later integration with the gui
+	PinServiceURL string
+	UserLister    generic.NamespacedLister[*direwolfv1alpha1.User]
 }
 
 func NewPairingManager(
 	cert tls.Certificate,
 	pairingsClient v1alpha1_client.PairingInterface,
+	userLister generic.NamespacedLister[*direwolfv1alpha1.User],
 ) *PairingManager {
 	return &PairingManager{
 		SecureServerCerificate: cert,
 		PairingsClient:         pairingsClient,
+		UserLister:             userLister,
 	}
 }
 
@@ -86,7 +102,7 @@ func failPair(statusMsg string) PairingResponse {
 	return PairingResponse{Paired: 0, Response: Response{StatusCode: 400, StatusMessage: statusMsg}}
 }
 
-func (m *PairingManager) PostPin(secret string, pin string) error {
+func (m *PairingManager) PostPin(secret string, pin string, username string) error {
 	channel, found := m.PendingPins.Load(secret)
 	if !found {
 		err := fmt.Errorf("no pending pin for secret %s", secret)
@@ -94,8 +110,8 @@ func (m *PairingManager) PostPin(secret string, pin string) error {
 	}
 
 	select {
-	case channel.(chan string) <- pin:
-		klog.Infof("Sent pin %s to channel for secret %s", pin, secret)
+	case channel.(chan PinSubmission) <- PinSubmission{Pin: pin, Username: username}:
+		klog.Infof("Sent pin %s and username %s to channel for secret %s", pin, username, secret)
 		return nil
 	default:
 		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)
@@ -121,6 +137,7 @@ func (m *PairingManager) Unpair(cacheKey string) error {
  */
 func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr string) PairingResponse {
 	// Check if pairing session exists
+	klog.Info("Starting Pairing Process")
 	if _, found := m.PairingCache.Load(cacheKey); found {
 		m.PairingCache.Delete(cacheKey)
 		return failPair("Out of order pair request (phase 1)")
@@ -150,21 +167,42 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	pinSecretHex := hex.EncodeToString(pinSecret)
 
 	// Store the pin secret
-	pinChannel := make(chan string, 1)
+	pinChannel := make(chan PinSubmission, 1)
 	defer close(pinChannel)
 	defer m.PendingPins.Delete(pinSecretHex)
 	m.PendingPins.Store(pinSecretHex, pinChannel)
 
-	//!TODO: Get proper hostname
-	klog.Infof("Insert pin at http://%s/pin/#%s", "127.0.0.1:47989", pinSecretHex)
+	baseURL := "<proxy-ip-pending>" // placeholder, need to make it permenant, and not have it depend on a user already existing
+	users, err := m.UserLister.List(labels.Everything())
+	if err == nil && len(users) > 0 {
+		// all the users have the same service, so we get the first user.
+		sampleURL := users[0].Status.PublicPinURL
+		if sampleURL != "" {
+			// get the url and port
+			if parsed, err := url.Parse(sampleURL); err == nil {
+				baseURL = fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
+			}
+		}
+	}
 
-	// Hardcoded pin for testing in debug builds if debugger is attached
-	var pin string
+	if m.PinServiceURL == "" {
+		klog.Errorf("PinServiceURL is not configured! Defaulting to localhost, which may not work.")
+		m.PinServiceURL = "127.0.0.1:47989"
+	}
+	// should have it include https port in the future
+	klog.Infof("\n\n=======================================================\n"+
+		"PENDING PAIR REQUEST!\n"+
+		"To approve, visit: %s/pin/#%s\n"+
+		"=======================================================\n", baseURL, pinSecretHex)
+
+	// dynamically acquired user info, for later use when I hopefully get time to implement that wolf manager / ui app!
+	var submission PinSubmission
 	if hardcoded, ok := hardcodedPin(); ok {
+
 		klog.Infof("Debugger attached, using hardcoded pin")
-		pin = hardcoded
+		submission = PinSubmission{Pin: hardcoded, Username: "debug-user"}
 	} else {
-		pin = <-pinChannel
+		submission = <-pinChannel
 	}
 
 	// Generate server cert and AES key
@@ -172,8 +210,8 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	m.PairingCache.Store(cacheKey, pendingPairCacheEntry{
 		ClientCert: clientCert,
 		LastPhase:  "GETSERVERCERT",
-		Username:   "alex", // TODO: TEMPORARY: We should serve the PIN auth page under authenticated SSL to get username
-		AESKey:     util.Hash(saltData[:16], []byte(pin))[:16],
+		Username:   submission.Username,
+		AESKey:     util.Hash(saltData[:16], []byte(submission.Pin))[:16],
 	})
 
 	// Send hex encoded server cert pem
