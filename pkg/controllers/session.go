@@ -883,11 +883,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		podToCreate.Spec.Containers[i].Resources = validatedResources
 	}
-	// // No longer Needed
+	// // // No longer Needed??
 	// podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
 	// 	corev1.Container{
-	// 		Name:  "init",
-	// 		Image: "ghcr.io/games-on-whales/base:edge",
+	// 		Name: "init",
+	// 		// using a minimal image
+	// 		Image: "docker.io/ubuntu:noble-20260217",
 	// 		// This will need to be updated / removed since /etc/wolf/cfg is no longer used by wolf
 	// 		// Also, we're no longer injecting the app info into the config.toml
 	// 		Command: []string{
@@ -895,6 +896,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// 			echo making /mnt/data/wolf/cfg
 	// 			mkdir -p /mnt/data/wolf/cfg
 	// 			echo changing ownership /mnt/data/wolf
+	// 			ls -alh /mnt/data/wolf
 	// 			chown 1000:1000 /mnt/data/wolf
 	// 			chmod 777 /mnt/data/wolf
 	// 			echo changing ownership /mnt/data/wolf/cfg
@@ -902,12 +904,15 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// 			chmod 777 /mnt/data/wolf/cfg
 	// 			echo changing ownership of /tmp/.X11-unix
 	// 			chown -R ubuntu:ubuntu /tmp/.X11-unix
+	// 			echo changing ownership of /mnt/data/wolf/state
+	// 			chown -R 1000:1000 /mnt/data/wolf/state/*
 	// 			chmod 1777 -R /tmp/.X11-unix
 	// 			echo making /etc/wolf/cfg
 	// 			mkdir -p /etc/wolf/cfg
 	// 			# cp -LR /cfg/* /etc/wolf/cfg
 	// 			chown -R ubuntu:ubuntu /etc/wolf
 	// 			chmod 777 -R /etc/wolf
+	// 			ls -alh /mnt/data/wolf
 	// 		`,
 	// 		},
 	// 		VolumeMounts: []corev1.VolumeMount{

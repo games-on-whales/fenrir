@@ -68,8 +68,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.UserReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("UserSpec"):
 		return &apiv1alpha1.UserSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("UserStatus"):
-		return &apiv1alpha1.UserStatusApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
 		return &apiv1alpha1.WolfConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):

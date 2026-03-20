@@ -19,14 +19,9 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
-	"net/url"
-
-	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	v1alpha1_apply "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/api/v1alpha1"
 	v1alpha1_client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
-	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/util"
-	"k8s.io/apimachinery/pkg/labels"
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -80,20 +75,15 @@ type PairingManager struct {
 	SecureServerCerificate tls.Certificate
 
 	PairingsClient v1alpha1_client.PairingInterface
-	// Url for later integration with the gui
-	PinServiceURL string
-	UserLister    generic.NamespacedLister[*direwolfv1alpha1.User]
 }
 
 func NewPairingManager(
 	cert tls.Certificate,
 	pairingsClient v1alpha1_client.PairingInterface,
-	userLister generic.NamespacedLister[*direwolfv1alpha1.User],
 ) *PairingManager {
 	return &PairingManager{
 		SecureServerCerificate: cert,
 		PairingsClient:         pairingsClient,
-		UserLister:             userLister,
 	}
 }
 
@@ -135,7 +125,7 @@ func (m *PairingManager) Unpair(cacheKey string) error {
  *
  * At this stage we only have to send back our public certificate (`plaincert`).
  */
-func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr string) PairingResponse {
+func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr string, clientReqBaseURL string) PairingResponse {
 	// Check if pairing session exists
 	klog.Info("Starting Pairing Process")
 	if _, found := m.PairingCache.Load(cacheKey); found {
@@ -172,33 +162,18 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	defer m.PendingPins.Delete(pinSecretHex)
 	m.PendingPins.Store(pinSecretHex, pinChannel)
 
-	baseURL := "<proxy-ip-pending>" // placeholder, need to make it permenant, and not have it depend on a user already existing
-	users, err := m.UserLister.List(labels.Everything())
-	if err == nil && len(users) > 0 {
-		// all the users have the same service, so we get the first user.
-		sampleURL := users[0].Status.PublicPinURL
-		if sampleURL != "" {
-			// get the url and port
-			if parsed, err := url.Parse(sampleURL); err == nil {
-				baseURL = fmt.Sprintf("%s://%s", parsed.Scheme, parsed.Host)
-			}
-		}
+	if clientReqBaseURL == "" {
+		clientReqBaseURL = "http://127.0.0.1:47989" // Fallback
 	}
 
-	if m.PinServiceURL == "" {
-		klog.Errorf("PinServiceURL is not configured! Defaulting to localhost, which may not work.")
-		m.PinServiceURL = "127.0.0.1:47989"
-	}
-	// should have it include https port in the future
 	klog.Infof("\n\n=======================================================\n"+
 		"PENDING PAIR REQUEST!\n"+
 		"To approve, visit: %s/pin/#%s\n"+
-		"=======================================================\n", baseURL, pinSecretHex)
+		"=======================================================\n", clientReqBaseURL, pinSecretHex)
 
 	// dynamically acquired user info, for later use when I hopefully get time to implement that wolf manager / ui app!
 	var submission PinSubmission
 	if hardcoded, ok := hardcodedPin(); ok {
-
 		klog.Infof("Debugger attached, using hardcoded pin")
 		submission = PinSubmission{Pin: hardcoded, Username: "debug-user"}
 	} else {

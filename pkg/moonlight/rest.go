@@ -235,6 +235,23 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 	sendXML(w, root)
 }
 
+// getBaseURL extracts the true host and protocol from the incoming HTTP request,
+// this should be the simplest way for any future url / ip changes
+// basically if your moonlight reached this point, it's safe to assume you got the right URI
+func getBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+
+	host := r.Host
+	if forwardedHost := r.Header.Get("X-Forwarded-Host"); forwardedHost != "" {
+		host = forwardedHost
+	}
+
+	return fmt.Sprintf("%s://%s", scheme, host)
+}
+
 // Multiplex the multiple phases of pairing into a single handler
 func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 	klog.Infof("Handling pair request from %s", r.RemoteAddr)
@@ -253,7 +270,9 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 		salt := r.URL.Query().Get("salt")
 		clientCertStr := r.URL.Query().Get("clientcert")
 
-		sendXML(w, s.manager.pairPhase1(cacheKey, salt, clientCertStr))
+		reqHost := getBaseURL(r)
+
+		sendXML(w, s.manager.pairPhase1(cacheKey, salt, clientCertStr, reqHost))
 		return
 	} else if r.URL.Query().Has("clientchallenge") {
 		klog.Infof("Pairing phase 2 with %s\n", cacheKey)
@@ -303,10 +322,9 @@ func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
-	username := r.PathValue("username")
+	klog.Infof("Handling %v pin request from %s", r.Method, r.RemoteAddr)
 
-	klog.Infof("Handling %v pin request for user '%s' from %s", r.Method, username, r.RemoteAddr)
-	// Handle GET /<username>/pin/#<secret>
+	// Handle GET /pin
 	if r.Method == "GET" {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
@@ -318,7 +336,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" {
 		type PinRequest struct {
 			Pin      string `json:"pin"`
-			Secret   string `secret:"secret"`
+			Secret   string `secret:"secret"` // Removed `secret:"secret"` struct tag if it was a typo
 			Username string `json:"username"`
 		}
 
@@ -328,15 +346,13 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Invalid request"))
 			return
 		}
-		if req.Username == "" {
-			req.Username = username
-		}
 
 		if req.Pin == "" || req.Secret == "" || req.Username == "" {
 			w.WriteHeader(http.StatusBadRequest)
 			w.Write([]byte("Invalid request: missing pin, secret, or username"))
 			return
 		}
+
 		// Provide the pin to the pair manager
 		klog.Infof("Received pin %s for secret %s, user %s", req.Pin, req.Secret, req.Username)
 		err := s.manager.PostPin(req.Secret, req.Pin, req.Username)
@@ -345,6 +361,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(err.Error()))
 			return
 		}
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 		return

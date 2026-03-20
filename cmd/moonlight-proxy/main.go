@@ -68,21 +68,17 @@ func main() {
 	direwolfFactory.WaitForCacheSync(appContext.Done())
 	klog.Info("Caches synced")
 
-	// --- NEW: Create Listers here so we can share them ---
 	userLister := generic.NewLister[*direwolfv1alpha1.User](userInformer.GetIndexer()).Namespaced(*namespace)
 	pairingLister := generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace)
 	appLister := generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace)
 	sessionLister := generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace)
 	podLister := generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
 
-	// --- UPDATED: Pass userLister to PairingManager ---
 	pairingManager := moonlight.NewPairingManager(
 		tlsCert,
 		direwolfClient.DirewolfV1alpha1().Pairings(*namespace),
-		userLister, // <--- INJECTED HERE
 	)
 
-	// --- UPDATED: Use the pre-created lister variables ---
 	restServer := moonlight.NewRESTServer(
 		pairingManager,
 		pairingLister,
