@@ -314,3 +314,21 @@ data:
     8LkfhBUj1omA7CKI+ymGOzlXm5BDGToTE9XMKfNCx2Nty5fftNt5iXfyxV5nid21
     7TBnSdib9SiKhZ/8mtBL0E59wD6KEdjjYly6M4tA/raUGJpNrGnBBA==
     -----END RSA PRIVATE KEY-----
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fix-home-perms
+  namespace: direwolf
+data:
+  99-fix-home-perms.sh: |
+    #!/usr/bin/env bash
+    set -e
+
+    # Log helper
+    gow_log() { echo "$(date +"[%Y-%m-%d %H:%M:%S]") $*"; }
+
+    gow_log "Fixing permissions for $HOME recursively at depth 1"
+    find $HOME -mindepth 1 -maxdepth 1 -exec chown ${UNAME}:${UNAME} {} \;
+
+    gow_log "Done fixing home ownership/permissions"

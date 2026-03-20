@@ -6,6 +6,11 @@ metadata:
   name: alex
   namespace: direwolf
 spec:
+  volumes:
+    - name: fix-home-perms
+      configMap:
+        name: fix-home-perms
+        defaultMode: 0755
   resources:
     limits:
       squat.ai/dri: "1"
@@ -23,11 +28,15 @@ spec:
         requests:
           squat.ai/dri: "1"
           squat.ai/uinput: "1"
-          cpu: 1000m
+          cpu: 2
           memory: 2G
         limits:
           squat.ai/dri: "1"
           squat.ai/uinput: "1"
-          cpu: 1000m
+          cpu: 2
           memory: 2G
-    # pulseaudio:
+      volumeMounts:
+        - name: fix-home-perms
+          mountPath: /etc/cont-init.d/99-fix-home-perms.sh
+          subPath: 99-fix-home-perms.sh
+          readOnly: true
