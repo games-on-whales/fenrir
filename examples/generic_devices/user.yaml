@@ -23,6 +23,9 @@ spec:
   sidecarPolicies:
     # We are overriding the default resources for some sidecars for this user.
     wolf:
+      # env:
+      #   - name: RUST_LOG
+      #     value: DEBUG
       # I'm using generic devices to pass along the gpu.
       resources:
         requests:

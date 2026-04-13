@@ -151,8 +151,12 @@ spec:
           ## To specify which image you want to use for wolf and wolf-agent 
           # - name: WOLF_IMAGE
           #   value: ghcr.io/games-on-whales/wolf:session
-          # - name: AGENT_IMAGE
-          #   value: ghcr.io/games-on-whales/fenrir/wolf-agent:main
+          - name: AGENT_IMAGE
+            value: localhost:5001/wolf-agent-dev
+          - name: AGENT_IMAGE_PULL_POLICY
+            value: Always
+          # - name: RUST_LOG
+          #   value: DEBUG
           # resources:
           #   requests:
           #     cpu: 100m
