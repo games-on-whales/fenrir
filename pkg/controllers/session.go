@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"sync"
 	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -55,8 +56,10 @@ type userGame struct {
 }
 
 type SessionControllerOptions struct {
-	WolfAgentImage string
-	LBSharingKey   string
+	WolfAgentImage           string
+	WolfAgentImagePullPolicy string // for debug / local testing / slow internet connections
+	LBSharingKey             string
+	activeCollectors         sync.Map
 }
 
 // Session Controller manages the lifecycle of a streaming session for
@@ -781,9 +784,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// Check if runtime variables are defined in the App spec and override defaults
 	if app.Spec.WolfConfig.RuntimeVariables != nil {
 		runtimeVars := app.Spec.WolfConfig.RuntimeVariables
-		if runtimeVars.LogLevel != "" {
-			wolfEnvVars["WOLF_LOG_LEVEL"] = runtimeVars.LogLevel
-		}
+		// if runtimeVars.LogLevel != "" {
+		// 	wolfEnvVars["WOLF_LOG_LEVEL"] = runtimeVars.LogLevel
+		// }
 		if runtimeVars.TimeZone != "" {
 			wolfEnvVars["TZ"] = runtimeVars.TimeZone
 		}
@@ -1029,7 +1032,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		corev1.Container{
 			Name:            "wolf-agent",
 			Image:           c.WolfAgentImage,
-			ImagePullPolicy: corev1.PullAlways,
+			ImagePullPolicy: corev1.PullPolicy(c.WolfAgentImagePullPolicy),
 			// ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
 				"--socket=/etc/wolf/wolf.sock",
@@ -1596,6 +1599,7 @@ func (c *SessionController) reconcileActiveStreams(
 		// Either scenario is invalid. Delete the session
 		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
 	}
+
 	// Will need this for later
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
