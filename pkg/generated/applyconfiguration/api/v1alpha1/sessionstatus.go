@@ -25,12 +25,14 @@ import (
 // SessionStatusApplyConfiguration represents a declarative configuration of the SessionStatus type for use
 // with apply.
 type SessionStatusApplyConfiguration struct {
-	Conditions     []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Ports          *SessionPortsApplyConfiguration  `json:"ports,omitempty"`
-	WolfSessionID  *string                          `json:"wolfSessionID,omitempty"`
-	StreamURL      *string                          `json:"streamURL,omitempty"`
-	DeploymentName *string                          `json:"deploymentName,omitempty"`
-	ServiceName    *string                          `json:"serviceName,omitempty"`
+	Conditions        []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	Ports             *SessionPortsApplyConfiguration  `json:"ports,omitempty"`
+	WolfSessionID     *string                          `json:"wolfSessionID,omitempty"`
+	StreamURL         *string                          `json:"streamURL,omitempty"`
+	DeploymentName    *string                          `json:"deploymentName,omitempty"`
+	ServiceName       *string                          `json:"serviceName,omitempty"`
+	WaylandSocketName *string                          `json:"waylandSocketName,omitempty"`
+	LobbyName         *string                          `json:"lobbyName,omitempty"`
 }
 
 // SessionStatusApplyConfiguration constructs a declarative configuration of the SessionStatus type for use with
@@ -89,5 +91,21 @@ func (b *SessionStatusApplyConfiguration) WithDeploymentName(value string) *Sess
 // If called multiple times, the ServiceName field is set to the value of the last call.
 func (b *SessionStatusApplyConfiguration) WithServiceName(value string) *SessionStatusApplyConfiguration {
 	b.ServiceName = &value
+	return b
+}
+
+// WithWaylandSocketName sets the WaylandSocketName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WaylandSocketName field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithWaylandSocketName(value string) *SessionStatusApplyConfiguration {
+	b.WaylandSocketName = &value
+	return b
+}
+
+// WithLobbyName sets the LobbyName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LobbyName field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithLobbyName(value string) *SessionStatusApplyConfiguration {
+	b.LobbyName = &value
 	return b
 }

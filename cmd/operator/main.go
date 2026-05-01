@@ -45,7 +45,7 @@ func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
 
-	k8sClient, direwolfClient, gatewayClient, _, err := util.GetKubernetesClients()
+	k8sClient, direwolfClient, _, _, err := util.GetKubernetesClients()
 	if err != nil {
 		klog.Fatal("Error getting Kubernetes clients", err)
 	}
@@ -57,6 +57,7 @@ func main() {
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
 	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
+	lobbyInformer := direwolfFactory.Direwolf().V1alpha1().Lobbies().Informer()
 	direwolfFactory.Start(appContext.Done())
 
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
@@ -88,14 +89,21 @@ func main() {
 	// Session Controller
 	sessionController := controllers.NewSessionController(
 		k8sClient,
-		gatewayClient.GatewayV1alpha2().TCPRoutes(*namespace),
-		gatewayClient.GatewayV1alpha2().UDPRoutes(*namespace),
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
+		direwolfClient.DirewolfV1alpha1().Lobbies(*namespace),
+		generic.NewInformer[*direwolfv1alpha1.Lobby](lobbyInformer),
+	)
+
+	// Lobby Controller
+	lobbyController := controllers.NewLobbyController(
+		k8sClient,
+		direwolfClient.DirewolfV1alpha1().Lobbies(*namespace),
+		generic.NewInformer[*direwolfv1alpha1.Lobby](lobbyInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
 		generic.NewInformer[*direwolfv1alpha1.User](userInformer),
 		generic.NewInformer[*appsv1.Deployment](deploymentInformer),
-		controllers.SessionControllerOptions{
+		controllers.LobbyControllerOptions{
 			WolfAgentImage:           *wolfAgentImage,
 			WolfAgentImagePullPolicy: *wolfAgentImagePullPolicy,
 			LBSharingKey:             *lbSharingKey,
@@ -115,6 +123,13 @@ func main() {
 				go func() {
 					if err := sessionController.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 						klog.Errorf("error running session controller: %v", err)
+					}
+				}()
+
+				// run Lobby Controller
+				go func() {
+					if err := lobbyController.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+						klog.Errorf("error running lobby controller: %v", err)
 					}
 				}()
 

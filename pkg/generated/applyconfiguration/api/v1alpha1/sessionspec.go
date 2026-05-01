@@ -25,6 +25,7 @@ type SessionSpecApplyConfiguration struct {
 	GameReference    *GameReferenceApplyConfiguration    `json:"gameReference,omitempty"`
 	PairingReference *PairingReferenceApplyConfiguration `json:"pairingReference,omitempty"`
 	GatewayReference *GatewayReferenceApplyConfiguration `json:"gateway,omitempty"`
+	LobbyReference   *LobbyReferenceApplyConfiguration   `json:"lobbyReference,omitempty"`
 	Config           *SessionInfoApplyConfiguration      `json:"config,omitempty"`
 }
 
@@ -63,6 +64,14 @@ func (b *SessionSpecApplyConfiguration) WithPairingReference(value *PairingRefer
 // If called multiple times, the GatewayReference field is set to the value of the last call.
 func (b *SessionSpecApplyConfiguration) WithGatewayReference(value *GatewayReferenceApplyConfiguration) *SessionSpecApplyConfiguration {
 	b.GatewayReference = value
+	return b
+}
+
+// WithLobbyReference sets the LobbyReference field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LobbyReference field is set to the value of the last call.
+func (b *SessionSpecApplyConfiguration) WithLobbyReference(value *LobbyReferenceApplyConfiguration) *SessionSpecApplyConfiguration {
+	b.LobbyReference = value
 	return b
 }
 

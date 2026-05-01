@@ -54,8 +54,10 @@ type RESTServer struct {
 	AppLister      generic.NamespacedLister[*v1alpha1types.App]
 	PodLister      generic.NamespacedLister[*v1.Pod]
 	SessionLister  generic.NamespacedLister[*v1alpha1types.Session]
+	LobbyLister    generic.NamespacedLister[*v1alpha1types.Lobby]
 
 	SessionClient v1alpha1client.SessionInterface
+	LobbyClient   v1alpha1client.LobbyInterface
 
 	RESTServerOptions
 }
@@ -66,8 +68,10 @@ func NewRESTServer(
 	userLister generic.NamespacedLister[*v1alpha1types.User],
 	appLister generic.NamespacedLister[*v1alpha1types.App],
 	sessionLister generic.NamespacedLister[*v1alpha1types.Session],
+	lobbyLister generic.NamespacedLister[*v1alpha1types.Lobby],
 	podsLister generic.NamespacedLister[*v1.Pod],
 	sessionClient v1alpha1client.SessionInterface,
+	lobbyClient v1alpha1client.LobbyInterface,
 	opts RESTServerOptions,
 ) *RESTServer {
 	ps := &RESTServer{
@@ -78,8 +82,10 @@ func NewRESTServer(
 		UserLister:        userLister,
 		AppLister:         appLister,
 		SessionLister:     sessionLister,
+		LobbyLister:       lobbyLister,
 		PodLister:         podsLister,
 		SessionClient:     sessionClient,
+		LobbyClient:       lobbyClient,
 		RESTServerOptions: opts,
 	}
 
@@ -87,8 +93,6 @@ func NewRESTServer(
 	ps.router.HandleFunc("/serverinfo", ps.serverInfoHandler)
 	ps.router.HandleFunc("/pair", ps.pairHandler)
 	ps.router.HandleFunc("/unpair", ps.unpairHandler)
-	// I don't know why I'm keeping this
-	// ps.router.HandleFunc("/{username}/pin/", ps.pinHandler)
 	ps.router.HandleFunc("/pin/", ps.pinHandler)
 
 	ps.router.HandleFunc("/readyz", ps.readyzHandler)
@@ -332,7 +336,6 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle POST /pin
 	if r.Method == "POST" {
 		type PinRequest struct {
 			Pin      string `json:"pin"`
@@ -393,71 +396,81 @@ func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
-	clientIP := strings.Split(r.RemoteAddr, ":")[0]
+type launchParams struct {
+	appID             string
+	mode              string
+	rikey             string
+	rikeyID           string
+	surroundAudioInfo string
+	width             int
+	height            int
+	refreshRate       int
+	surroundFlags     int
+	clientIP          string
+}
 
-	// 2025/03/03 11:34:48 HTTP/2.0 GET /launch map[additionalStates:[1] appid:[firefox] localAudioPlayMode:[0] mode:[1920x1080x60] rikey:[773448F67992470C5C62848D361E1025] rikeyid:[1311662065] sops:[0] surroundAudioInfo:[196610] uniqueid:[0123456789ABCDEF]] 127.0.0.1:65314
-	// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
+func parseLaunchRequest(r *http.Request) (*launchParams, error) {
+	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 	appID := r.URL.Query().Get("appid")
-	// additionalStates := r.URL.Query().Get("additionalStates") // ???
 	mode := r.URL.Query().Get("mode")
 	rikey := r.URL.Query().Get("rikey")
 	rikeyID := r.URL.Query().Get("rikeyid")
-	// sops := r.URL.Query().Get("sops") // legacy GFE auto-optimize game settings. i dont think wolf has equivalent
 	surroundAudioInfo := r.URL.Query().Get("surroundAudioInfo")
 
 	if appID == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("appid required"))
-		return
+		return nil, fmt.Errorf("appid required")
 	}
-
 	if rikey == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("rikey required"))
-		return
+		return nil, fmt.Errorf("rikey required")
 	}
-
 	if rikeyID == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("rikeyid required"))
-		return
+		return nil, fmt.Errorf("rikeyid required")
 	}
-
 	if mode == "" {
 		mode = "1920x1080x60"
 	}
 
 	splitMode := strings.Split(mode, "x")
 	if len(splitMode) != 3 {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
-		return
+		return nil, fmt.Errorf("invalid mode: %s", mode)
 	}
 
 	width, err := strconv.Atoi(splitMode[0])
 	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
-		return
+		return nil, fmt.Errorf("invalid mode: %s", mode)
 	}
-
 	height, err := strconv.Atoi(splitMode[1])
 	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
+		return nil, fmt.Errorf("invalid mode: %s", mode)
 	}
-
 	refreshRate, err := strconv.Atoi(splitMode[2])
 	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
+		return nil, fmt.Errorf("invalid mode: %s", mode)
 	}
 
 	if surroundAudioInfo == "" {
 		surroundAudioInfo = "196610"
 	}
-
 	surroundFlags, err := strconv.Atoi(surroundAudioInfo)
 	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid surroundAudioInfo: %s", surroundAudioInfo))
+		return nil, fmt.Errorf("invalid surroundAudioInfo: %s", surroundAudioInfo)
+	}
+
+	return &launchParams{
+		appID: appID, mode: mode, rikey: rikey, rikeyID: rikeyID,
+		surroundAudioInfo: surroundAudioInfo, width: width, height: height,
+		refreshRate: refreshRate, surroundFlags: surroundFlags, clientIP: clientIP,
+	}, nil
+}
+
+func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
+	params, err := parseLaunchRequest(r)
+	if err != nil {
+		writeErrorResponse(w, 400, err)
 		return
 	}
 
-	app, err := s.getAppByID(appID)
+	app, err := s.getAppByID(params.appID)
 	if err != nil {
 		writeErrorResponse(w, 404, fmt.Errorf("app not found: %s", err))
 		return
@@ -466,10 +479,45 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
 	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
 
-	//!TOOD: May want to wait here, since we need the Service to stop pointing
-	// at the old pod. It is very likely to happen before operator syncs and
-	// can create session, but perhaps should still check after operator returns
-	// the session URL.
+	// I should probably introduce randomization? should a user have more than one lobby for each application?
+	lobbyName := fmt.Sprintf("%s-%s", user.Name, app.Name)
+
+	// application lobby creation
+	_, err = s.LobbyClient.Get(r.Context(), lobbyName, metav1.GetOptions{})
+	if k8serrors.IsNotFound(err) {
+		klog.Infof("Lobby %s not found, creating it for launch", lobbyName)
+		newLobby := &v1alpha1types.Lobby{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      lobbyName,
+				Namespace: pairing.Namespace,
+			},
+			Spec: v1alpha1types.LobbySpec{
+				AppReference:           v1.LocalObjectReference{Name: app.Name},
+				ProfileReference:       v1.LocalObjectReference{Name: user.Name},
+				MultiUser:              true,             // first join attempt fails, and then the lobby is full, keeping this here for now
+				StopWhenEveryoneLeaves: false,            // should make this a parameter
+				RunnerOverride:         "sleep infinity", // we just need it to create the wayland socket, the application will  then attach to it, so sleep infinity works fine for now.
+				VideoSettings: v1alpha1types.LobbyVideoSettings{
+					Width:       params.width,
+					Height:      params.height,
+					RefreshRate: params.refreshRate,
+				},
+				AudioSettings: v1alpha1types.LobbyAudioSettings{
+					ChannelCount: 2,
+				},
+			},
+		}
+		_, err = s.LobbyClient.Create(r.Context(), newLobby, metav1.CreateOptions{})
+		if err != nil {
+			writeErrorResponse(w, 500, fmt.Errorf("failed to create lobby: %s", err))
+			return
+		}
+	} else if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to get lobby: %s", err))
+		return
+	}
+
+	// Best-effort cleanup of any stale sessions for this user
 	if err := s.stopSessionsForUser(user, false); err != nil && !k8serrors.IsNotFound(err) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %s", err))
 		return
@@ -501,19 +549,21 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 				UserReference: v1alpha1types.UserReference{
 					Name: user.ObjectMeta.Name,
 				},
-				//!TODO: Unused. v1alpha2 Gateway types are not widely supported
+				LobbyReference: v1alpha1types.LobbyReference{
+					Name: lobbyName,
+				},
 				GatewayReference: v1alpha1types.GatewayReference{
 					Name:      "unused",
 					Namespace: "unused",
 				},
 				Config: v1alpha1types.SessionInfo{
-					ClientIP:           clientIP,
-					AESIV:              rikeyID,
-					AESKey:             rikey,
-					SurroundAudioFlags: surroundFlags,
-					VideoWidth:         width,
-					VideoHeight:        height,
-					VideoRefreshRate:   refreshRate,
+					ClientIP:           params.clientIP,
+					AESIV:              params.rikeyID,
+					AESKey:             params.rikey,
+					SurroundAudioFlags: params.surroundFlags,
+					VideoWidth:         params.width,
+					VideoHeight:        params.height,
+					VideoRefreshRate:   params.refreshRate,
 				},
 			},
 		},
@@ -526,14 +576,13 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wait for session to be created by the direwolf controller
+	// Wait for the session controller to provision the stream then join the lobby
 	var streamURL string
 	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
 		session, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
 		}
-
 		if session.Status.StreamURL == "" {
 			return false, nil
 		}
@@ -554,17 +603,132 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// resuming with a changed display restarts the pod
 func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: Wolf API current cannot support a "resume" to reuse the existing
-	// display/controllers. So we relaunch instead :(
-	s.launchHandler(w, r)
+	params, err := parseLaunchRequest(r)
+	if err != nil {
+		writeErrorResponse(w, 400, err)
+		return
+	}
+
+	app, err := s.getAppByID(params.appID)
+	if err != nil {
+		writeErrorResponse(w, 404, fmt.Errorf("app not found: %s", err))
+		return
+	}
+
+	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
+	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
+
+	lobbyName := fmt.Sprintf("%s-%s", user.Name, app.Name)
+
+	lobby, err := s.LobbyClient.Get(r.Context(), lobbyName, metav1.GetOptions{})
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			klog.Errorf("Resume failed: lobby %s does not exist", lobbyName)
+			writeErrorResponse(w, 404, fmt.Errorf("lobby %s not found, cannot resume without prior launch", lobbyName))
+		} else {
+			writeErrorResponse(w, 500, fmt.Errorf("failed to get lobby: %s", err))
+		}
+		return
+	}
+
+	// clean up stale sessions so the user doesn't end up with multiple session objects
+	if err := s.stopSessionsForUser(user, false); err != nil && !k8serrors.IsNotFound(err) {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %s", err))
+		return
+	}
+
+	klog.Infof("Resuming app %s for user %s (lobby %s)", app.ObjectMeta.Name, user.ObjectMeta.Name, lobby.Name)
+	session, err := s.SessionClient.Create(
+		r.Context(),
+		&v1alpha1types.Session{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: fmt.Sprintf("%s-%s-", user.Name, app.Name),
+				Namespace:    pairing.Namespace,
+				Labels: map[string]string{
+					"direwolf":      "true",
+					"direwolf/app":  app.ObjectMeta.Name,
+					"direwolf/user": user.ObjectMeta.Name,
+				},
+				Annotations: map[string]string{
+					"direwolf/pairing": pairing.ObjectMeta.Name,
+				},
+			},
+			Spec: v1alpha1types.SessionSpec{
+				GameReference: v1alpha1types.GameReference{
+					Name: app.ObjectMeta.Name,
+				},
+				PairingReference: v1alpha1types.PairingReference{
+					Name: pairing.ObjectMeta.Name,
+				},
+				UserReference: v1alpha1types.UserReference{
+					Name: user.ObjectMeta.Name,
+				},
+				LobbyReference: v1alpha1types.LobbyReference{
+					Name: lobbyName,
+				},
+				GatewayReference: v1alpha1types.GatewayReference{
+					Name:      "unused",
+					Namespace: "unused",
+				},
+				Config: v1alpha1types.SessionInfo{
+					ClientIP:           params.clientIP,
+					AESIV:              params.rikeyID,
+					AESKey:             params.rikey,
+					SurroundAudioFlags: params.surroundFlags,
+					VideoWidth:         params.width,
+					VideoHeight:        params.height,
+					VideoRefreshRate:   params.refreshRate,
+				},
+			},
+		},
+		metav1.CreateOptions{
+			FieldManager: "direwolf-resume",
+		},
+	)
+	if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to create session: %s", err))
+		return
+	}
+
+	var streamURL string
+	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
+		session, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		if session.Status.StreamURL == "" {
+			return false, nil
+		}
+		streamURL = session.Status.StreamURL
+		return true, nil
+	})
+	if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to resume app: %s", err))
+		return
+	}
+
+	sendXML(w, LaunchResponse{
+		Response: Response{
+			StatusCode: 200,
+		},
+		RTSPSessionURL: streamURL,
+		GameSession:    1,
+	})
 }
 
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
 
-	err := s.stopSessionsForUser(user, true)
-	if err != nil && !k8serrors.IsNotFound(err) {
+	// Delete sessions first so the session controller stops reconciling
+	if err := s.stopSessionsForUser(user, false); err != nil && !k8serrors.IsNotFound(err) {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to stop sessions: %s", err))
+		return
+	}
+
+	// Delete lobbies and wait for pods to be cleaned up
+	if err := s.stopLobbiesForUser(user, true); err != nil && !k8serrors.IsNotFound(err) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to cancel session: %s", err))
 		return
 	}
@@ -593,7 +757,46 @@ func (s *RESTServer) stopSessionsForUser(user *v1alpha1types.User, shouldWait bo
 	}
 
 	if shouldWait {
-		// Wait for pods to be cleaned up
+		err = wait.PollUntilContextTimeout(context.Background(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
+			pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
+				"direwolf/user": user.Name,
+			}))
+			if err != nil {
+				return false, err
+			}
+			return len(pods) == 0, nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to wait for pods to be cleaned up: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (s *RESTServer) stopLobbiesForUser(user *v1alpha1types.User, shouldWait bool) error {
+	lobbies, err := s.LobbyLister.List(nil)
+	if err != nil {
+		return fmt.Errorf("failed to list lobbies: %w", err)
+	}
+
+	didDelete := false
+	for _, lobby := range lobbies {
+		if lobby.Spec.ProfileReference.Name != user.Name {
+			continue
+		}
+		if err := s.LobbyClient.Delete(context.Background(), lobby.Name, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete lobby: %w", err)
+		}
+		didDelete = true
+	}
+
+	if !didDelete {
+		klog.Warningf("Not stopping any lobbies. No lobbies found for user %s", user.Name)
+		return k8serrors.NewNotFound(v1alpha1types.Resource("lobby"), user.Name)
+	}
+
+	if shouldWait {
 		err = wait.PollUntilContextTimeout(context.Background(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
 			pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
 				"direwolf/user": user.Name,

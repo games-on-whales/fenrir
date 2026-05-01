@@ -26,6 +26,8 @@ import (
 type Interface interface {
 	// Apps returns a AppInformer.
 	Apps() AppInformer
+	// Lobbies returns a LobbyInformer.
+	Lobbies() LobbyInformer
 	// Pairings returns a PairingInformer.
 	Pairings() PairingInformer
 	// Sessions returns a SessionInformer.
@@ -48,6 +50,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // Apps returns a AppInformer.
 func (v *version) Apps() AppInformer {
 	return &appInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Lobbies returns a LobbyInformer.
+func (v *version) Lobbies() LobbyInformer {
+	return &lobbyInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // Pairings returns a PairingInformer.

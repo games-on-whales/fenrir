@@ -238,7 +238,7 @@ rules:
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["direwolf.games-on-whales.github.io"]
-  resources: ["pairings", "sessions"]
+  resources: ["pairings", "sessions", "lobbies"]
   verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

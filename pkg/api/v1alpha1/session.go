@@ -49,8 +49,13 @@ type SessionSpec struct {
 	// protocol restrictions.
 	GatewayReference GatewayReference `json:"gateway"`
 
+	// Reference to the lobby name created
+	LobbyReference LobbyReference `json:"lobbyReference"`
 	// Wolf-specific config for the session
 	Config SessionInfo `json:"config"`
+}
+type LobbyReference struct {
+	Name string `json:"name"`
 }
 
 // Session State machine
@@ -72,6 +77,12 @@ type SessionStatus struct {
 
 	DeploymentName string `json:"deploymentName,omitempty"`
 	ServiceName    string `json:"serviceName,omitempty"`
+	// WaylandSocketName is the name of the Wayland socket file that this session's
+	// stream should be attached to.
+	WaylandSocketName string `json:"waylandSocketName,omitempty"`
+
+	// The name of the Lobby CRD this session is currently attached to.
+	LobbyName string `json:"lobbyName,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

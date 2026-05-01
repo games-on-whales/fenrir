@@ -40,6 +40,18 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.GameReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GatewayReference"):
 		return &apiv1alpha1.GatewayReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Lobby"):
+		return &apiv1alpha1.LobbyApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyAudioSettings"):
+		return &apiv1alpha1.LobbyAudioSettingsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyReference"):
+		return &apiv1alpha1.LobbyReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbySpec"):
+		return &apiv1alpha1.LobbySpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyStatus"):
+		return &apiv1alpha1.LobbyStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyVideoSettings"):
+		return &apiv1alpha1.LobbyVideoSettingsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Pairing"):
 		return &apiv1alpha1.PairingApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PairingReference"):

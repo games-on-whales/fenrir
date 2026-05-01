@@ -24,7 +24,7 @@ type Session struct {
 	AESKey string `json:"aes_key"`
 	AESIV  string `json:"aes_iv"`
 
-	RTSPFakeIP string `json:"rtsp_fake_ip,omitempty"` 
+	RTSPFakeIP string `json:"rtsp_fake_ip,omitempty"`
 
 	// overrides
 	H264GSTPipeline string `json:"h264_gst_pipeline,omitempty"`
@@ -36,6 +36,63 @@ type Session struct {
 type Runner struct {
 	Type   string `json:"type"`
 	RunCmd string `json:"run_cmd,omitempty"`
+}
+type LobbyVideoSettings struct {
+	Width                   int    `json:"width"`
+	Height                  int    `json:"height"`
+	RefreshRate             int    `json:"refresh_rate"`
+	WaylandRenderNode       string `json:"wayland_render_node"`
+	RunnerRenderNode        string `json:"runner_render_node"`
+	VideoProducerBufferCaps string `json:"video_producer_buffer_caps"`
+}
+
+type LobbyAudioSettings struct {
+	ChannelCount int `json:"channel_count"`
+}
+
+type LobbyClientSettings struct {
+	ControllersOverride []string `json:"controllers_override"`
+	HScrollAcceleration float64  `json:"h_scroll_acceleration"`
+	MouseAcceleration   float64  `json:"mouse_acceleration"`
+	RunGID              int      `json:"run_gid"`
+	RunUID              int      `json:"run_uid"`
+	VScrollAcceleration float64  `json:"v_scroll_acceleration"`
+}
+
+type LobbyCreateRequest struct {
+	ProfileID              string              `json:"profile_id"`
+	Name                   string              `json:"name"`
+	IconPNGPath            string              `json:"icon_png_path,omitempty"`
+	PinRequired            *bool               `json:"pin_required"`
+	Pin                    []int               `json:"pin"`
+	MultiUser              bool                `json:"multi_user"`
+	StopWhenEveryoneLeaves bool                `json:"stop_when_everyone_leaves"`
+	RunnerStateFolder      string              `json:"runner_state_folder"`
+	Runner                 Runner              `json:"runner"`
+	ClientSettings         LobbyClientSettings `json:"client_settings"`
+	VideoSettings          LobbyVideoSettings  `json:"video_settings"`
+	AudioSettings          LobbyAudioSettings  `json:"audio_settings"`
+	ConnectedSessions      []string            `json:"connected_sessions"`
+}
+type LobbyCreateResponse struct {
+	Response
+	LobbyID string `json:"lobby_id"`
+}
+
+type JoinLobbyRequest struct {
+	LobbyID            string `json:"lobby_id"`
+	MoonlightSessionID string `json:"moonlight_session_id"`
+	Pin                []int  `json:"pin,omitempty"`
+}
+
+type LeaveLobbyRequest struct {
+	LobbyID            string `json:"lobby_id"`
+	MoonlightSessionID string `json:"moonlight_session_id"`
+}
+
+type StopLobbyRequest struct {
+	LobbyID string `json:"lobby_id"`
+	Pin     []int  `json:"pin,omitempty"`
 }
 
 type ClientSettings struct {
@@ -54,6 +111,11 @@ type Client interface {
 	ListSessions(ctx context.Context) ([]Session, error)
 	ListApps(ctx context.Context) ([]App, error)
 	SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error)
+	ListLobbies(ctx context.Context) ([]Lobby, error)
+	CreateLobby(ctx context.Context, req LobbyCreateRequest) (*LobbyCreateResponse, error)
+	JoinLobby(ctx context.Context, req JoinLobbyRequest) error
+	LeaveLobby(ctx context.Context, req LeaveLobbyRequest) error
+	StopLobby(ctx context.Context, req StopLobbyRequest) error
 }
 
 type client struct {
@@ -174,6 +236,7 @@ func (c *client) ListApps(ctx context.Context) ([]App, error) {
 	}
 	return appsResp.Apps, nil
 }
+
 // This is no longer used, I will probably remove it in the future
 // POST /api/v1/apps/add
 func (c *client) AddApp(ctx context.Context, app App) error {
@@ -302,10 +365,220 @@ type AppsResponse struct {
 }
 
 type WolfEventType string
+
 const (
-	PauseStreamEventType WolfEventType = "wolf::core::events::PauseStreamEvent"
+	PauseStreamEventType   WolfEventType = "wolf::core::events::PauseStreamEvent"
+	ResumeStreamEventType  WolfEventType = "wolf::core::events::ResumeStreamEvent"
+	StreamSessionEventType WolfEventType = "wolf::core::events::StreamSession"
+	VideoSessionEventType  WolfEventType = "wolf::core::events::VideoSession"
+	AudioSessionEventType  WolfEventType = "wolf::core::events::AudioSession"
 )
 
 type PauseStreamEvent struct {
 	SessionID string `json:"session_id"`
+}
+type ResumeStreamEvent struct {
+	SessionID string `json:"session_id"`
+}
+type StreamSessionEvent struct {
+	ClientID string `json:"client_id"`
+	AppID    string `json:"app_id"`
+}
+
+type VideoSessionEvent struct {
+	SessionID string `json:"session_id"`
+}
+
+type AudioSessionEvent struct {
+	SessionID string `json:"session_id"`
+}
+
+type Lobby struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type LobbiesResponse struct {
+	Response `json:",inline"`
+	Lobbies  []Lobby `json:"lobbies"`
+}
+
+func (c *client) CreateLobby(ctx context.Context, req LobbyCreateRequest) (*LobbyCreateResponse, error) {
+	u, err := url.JoinPath(c.apiURL, "/api/v1/lobbies/create")
+	if err != nil {
+		return nil, err
+	}
+
+	encodedReq, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewBuffer(encodedReq))
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var createLobbyResp LobbyCreateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&createLobbyResp); err != nil {
+		return nil, err
+	}
+
+	if !createLobbyResp.Success {
+		return nil, fmt.Errorf("failed to create lobby: %s", createLobbyResp.Error)
+	}
+
+	return &createLobbyResp, nil
+}
+
+func (c *client) JoinLobby(ctx context.Context, req JoinLobbyRequest) error {
+	u, err := url.JoinPath(c.apiURL, "/api/v1/lobbies/join")
+	if err != nil {
+		return err
+	}
+
+	encodedReq, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewBuffer(encodedReq))
+	if err != nil {
+		return err
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var response Response
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return err
+	}
+
+	if !response.Success {
+		return fmt.Errorf("failed to join lobby: %s", response.Error)
+	}
+
+	return nil
+}
+
+func (c *client) LeaveLobby(ctx context.Context, req LeaveLobbyRequest) error {
+	u, err := url.JoinPath(c.apiURL, "/api/v1/lobbies/leave")
+	if err != nil {
+		return err
+	}
+
+	encodedReq, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewBuffer(encodedReq))
+	if err != nil {
+		return err
+	}
+
+	httpReq.Proto = "HTTP/1.0"
+	httpReq.ProtoMajor = 1
+	httpReq.ProtoMinor = 0
+	httpReq.TransferEncoding = []string{"identity"}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var response Response
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return err
+	}
+
+	if !response.Success {
+		return fmt.Errorf("failed to leave lobby: %s", response.Error)
+	}
+
+	return nil
+}
+
+func (c *client) StopLobby(ctx context.Context, req StopLobbyRequest) error {
+	u, err := url.JoinPath(c.apiURL, "/api/v1/lobbies/stop")
+	if err != nil {
+		return err
+	}
+
+	encodedReq, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", u, bytes.NewBuffer(encodedReq))
+	if err != nil {
+		return err
+	}
+
+	httpReq.Proto = "HTTP/1.0"
+	httpReq.ProtoMajor = 1
+	httpReq.ProtoMinor = 0
+	httpReq.TransferEncoding = []string{"identity"}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var response Response
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		return err
+	}
+
+	if !response.Success {
+		return fmt.Errorf("failed to stop lobby: %s", response.Error)
+	}
+
+	return nil
+}
+func (c *client) ListLobbies(ctx context.Context) ([]Lobby, error) {
+	u, err := url.JoinPath(c.apiURL, "/api/v1/lobbies")
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var lobbiesResp LobbiesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&lobbiesResp); err != nil {
+		return nil, err
+	}
+
+	if !lobbiesResp.Success {
+		return nil, fmt.Errorf("failed to list lobbies: %s", lobbiesResp.Error)
+	}
+
+	return lobbiesResp.Lobbies, nil
 }

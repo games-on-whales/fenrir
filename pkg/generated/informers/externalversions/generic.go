@@ -55,6 +55,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=direwolf.games-on-whales.github.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("apps"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Apps().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("lobbies"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Lobbies().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("pairings"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Pairings().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("sessions"):

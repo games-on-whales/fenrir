@@ -16,7 +16,7 @@ WORKDIR /app
 # Alpine sh uses busybox which doesnt expand $@
 # We need to use a shell for entrypoint in order to expand the envar for app
 # Bash properly expands $@ to forwards args, so use that.
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash curl jq
 
 # Set the APP_NAME explicitly as an ENV var so it's available in runtime
 ARG APP_NAME

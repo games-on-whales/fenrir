@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: sessions.direwolf.games-on-whales.github.io
+  name: lobbies.direwolf.games-on-whales.github.io
 spec:
   group: direwolf.games-on-whales.github.io
   names:
-    kind: Session
-    listKind: SessionList
-    plural: sessions
-    singular: session
+    kind: Lobby
+    listKind: LobbyList
+    plural: lobbies
+    singular: lobby
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Represents a Session CRD.
+        description: Represents a Lobby CRD.
         properties:
           apiVersion:
             description: |-
@@ -37,104 +37,74 @@ spec:
           metadata:
             type: object
           spec:
-            description: |-
-              A session refers to a certain user playing a specific game with a specific
-              client. This object is meant to live for the duration of the user's session.
-
-              A session is created in response to a user's /launch request.
-
-              It is meant to be deleted by the session controller once the agent has reported
-              that it is ended.
-
-              A user can have multiple sessions active at a time, and even multiple copies
-              of the same "game" if the underlying persistentVolumeClass supports it multiple
-              binding.
-
-              A session is created when moonlight calls /launch to launch a game.
             properties:
-              config:
-                description: Wolf-specific config for the session
+              appReference:
+                description: Reference to the App being run
                 properties:
-                  aesIV:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
                     type: string
-                  aesKey:
-                    type: string
-                  clientIP:
-                    type: string
-                  surroundAudioFlags:
+                type: object
+                x-kubernetes-map-type: atomic
+              audioSettings:
+                properties:
+                  channelCount:
                     type: integer
-                  videoHeight:
+                required:
+                - channelCount
+                type: object
+              multiUser:
+                type: boolean
+              profileReference:
+                description: Reference to the User who owns the lobby
+                properties:
+                  name:
+                    default: ""
+                    description: |-
+                      Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
+                      More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                    type: string
+                type: object
+                x-kubernetes-map-type: atomic
+              runnerOverride:
+                description: If provided, overrides the default runner command (which
+                  is "sleep infinity")
+                type: string
+              stopWhenEveryoneLeaves:
+                type: boolean
+              videoSettings:
+                properties:
+                  height:
                     type: integer
-                  videoRefreshRate:
+                  refreshRate:
                     type: integer
-                  videoWidth:
+                  width:
                     type: integer
                 required:
-                - aesIV
-                - aesKey
-                - surroundAudioFlags
-                - videoHeight
-                - videoRefreshRate
-                - videoWidth
-                type: object
-              gameReference:
-                properties:
-                  name:
-                    type: string
-                required:
-                - name
-                type: object
-              gateway:
-                description: |-
-                  The name of the Gateway used to access the moonlight server.
-                  The gateway IP used for the stream session must be the same as the IP of
-                  the moonlight server used to initiate the connection due to moonlight
-                  protocol restrictions.
-                properties:
-                  name:
-                    type: string
-                  namespace:
-                    type: string
-                required:
-                - name
-                type: object
-              lobbyReference:
-                description: Reference to the lobby name created
-                properties:
-                  name:
-                    type: string
-                required:
-                - name
-                type: object
-              pairingReference:
-                properties:
-                  name:
-                    type: string
-                required:
-                - name
-                type: object
-              userReference:
-                properties:
-                  name:
-                    type: string
-                required:
-                - name
+                - height
+                - refreshRate
+                - width
                 type: object
             required:
-            - config
-            - gameReference
-            - gateway
-            - lobbyReference
-            - pairingReference
-            - userReference
+            - appReference
+            - audioSettings
+            - multiUser
+            - profileReference
+            - stopWhenEveryoneLeaves
+            - videoSettings
             type: object
           status:
-            description: |-
-              Session State machine
-              Pending -> Initializing -> WaitForPing -> Streaming -> Ended
             properties:
               conditions:
-                description: Represents the observations of a session's state.
                 items:
                   description: Condition contains details for one aspect of the current
                     state of this API Resource.
@@ -190,17 +160,13 @@ spec:
                   - type
                   type: object
                 type: array
-                x-kubernetes-list-map-keys:
-                - type
-                x-kubernetes-list-type: map
               deploymentName:
                 type: string
-              lobbyName:
-                description: The name of the Lobby CRD this session is currently attached
-                  to.
+              lobbyID:
+                description: The ID returned by the Wolf API when the lobby is created
                 type: string
               ports:
-                description: The ports allocated to the session on the shared gateway.
+                description: The ports allocated to the lobby on the shared gateway.
                 properties:
                   audioRTP:
                     format: int32
@@ -217,18 +183,10 @@ spec:
                 type: object
               serviceName:
                 type: string
-              streamURL:
-                type: string
               waylandSocketName:
-                description: |-
-                  WaylandSocketName is the name of the Wayland socket file that this session's
-                  stream should be attached to.
+                description: WaylandSocketName is the name of the Wayland socket file
+                  generated for this Lobby
                 type: string
-              wolfSessionID:
-                description: The RTSP url to access the stream.
-                type: string
-            required:
-            - ports
             type: object
         required:
         - spec

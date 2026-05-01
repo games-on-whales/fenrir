@@ -55,6 +55,8 @@ func main() {
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
 	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
+	lobbyInformer := direwolfFactory.Direwolf().V1alpha1().Lobbies().Informer()
+
 	direwolfFactory.Start(appContext.Done())
 	defer direwolfFactory.Shutdown()
 
@@ -72,8 +74,10 @@ func main() {
 	pairingLister := generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace)
 	appLister := generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace)
 	sessionLister := generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace)
+	lobbyLister := generic.NewLister[*direwolfv1alpha1.Lobby](lobbyInformer.GetIndexer()).Namespaced(*namespace)
 	podLister := generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
-
+	lobbyClient := direwolfClient.DirewolfV1alpha1().Lobbies(*namespace)
+	sessionClient := direwolfClient.DirewolfV1alpha1().Sessions(*namespace)
 	pairingManager := moonlight.NewPairingManager(
 		tlsCert,
 		direwolfClient.DirewolfV1alpha1().Pairings(*namespace),
@@ -85,8 +89,10 @@ func main() {
 		userLister,
 		appLister,
 		sessionLister,
+		lobbyLister,
 		podLister,
-		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
+		sessionClient,
+		lobbyClient,
 		moonlight.RESTServerOptions{
 			Port:       *port,
 			SecurePort: *securePort,
