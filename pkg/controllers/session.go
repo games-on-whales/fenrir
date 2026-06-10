@@ -256,6 +256,12 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	} else {
 		c.trackedSessions[ug] = sets.New(newObj.Name)
 	}
+	// Record the reverse mapping too: the deletion branch above relies on
+	// trackedGames to clean trackedSessions up. Without this, sessions created
+	// after startup are never removed from trackedSessions and every later
+	// reconcile of the same user/game spams "Failed to get session ... not
+	// found" while iterating the stale names.
+	c.trackedGames[newObj.Name] = ug
 
 	oldStatus := newObj.Status.DeepCopy()
 	portsError := c.allocatePorts(context.TODO(), newObj)
@@ -358,7 +364,8 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	// 	})
 	// }
 
-	if streamError := c.reconcileActiveStreams(context.TODO(), newObj); streamError != nil {
+	streamError := c.reconcileActiveStreams(context.TODO(), newObj)
+	if streamError != nil {
 		klog.Errorf("Failed to reconcile active streams: %s", streamError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
 			Type:    "StreamStarted",
@@ -392,8 +399,15 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		}
 	}
 
-	//!TODO: figure our retry logic. Some of these errors surely are retriable
-	return nil
+	// Stream setup is inherently retriable: while the pod is starting up the
+	// deployment isn't ready and wolf-agent isn't listening yet ("connection
+	// refused"), and no informer event is guaranteed to arrive once it
+	// becomes ready. Returning nil here used to stall the session as soon as
+	// the status stopped changing, until the 1-minute dead-session reaper
+	// deleted it and Moonlight timed out. Return the error so the workqueue
+	// requeues with backoff and the stream is started as soon as the agent
+	// is reachable.
+	return streamError
 }
 
 // // !TODO: Unused. Part of testing gateway implementation. The final idea is for
@@ -708,6 +722,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		for name := range sessions {
 			sess, err := c.SessionInformer.Namespaced(session.Namespace).Get(name)
 			if err != nil {
+				if errors.IsNotFound(err) {
+					// Stale entry left behind by an earlier missed cleanup:
+					// the Session object is gone, so drop it from tracking
+					// instead of logging an error forever.
+					sessions.Delete(name)
+					delete(c.trackedGames, name)
+					continue
+				}
 				klog.Errorf("Failed to get session %s/%s: %s", session.Namespace, name, err)
 				continue
 			}

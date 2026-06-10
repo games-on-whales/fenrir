@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/time/rate"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -106,8 +107,15 @@ func (c *controller[T]) Run(ctx context.Context) error {
 	klog.Infof("starting %s", c.options.Name)
 	defer klog.Infof("stopping %s", c.options.Name)
 
+	// Same shape as workqueue.DefaultTypedControllerRateLimiter, but with the
+	// per-item exponential backoff capped at 5s instead of 1000s. Sessions
+	// only live for ~1 minute before the dead-session reaper collects them,
+	// so retries (e.g. waiting for wolf-agent to come up) must stay frequent.
 	c.queue = workqueue.NewTypedRateLimitingQueueWithConfig(
-		workqueue.DefaultTypedControllerRateLimiter[string](),
+		workqueue.NewTypedMaxOfRateLimiter(
+			workqueue.NewTypedItemExponentialFailureRateLimiter[string](5*time.Millisecond, 5*time.Second),
+			&workqueue.TypedBucketRateLimiter[string]{Limiter: rate.NewLimiter(rate.Limit(10), 100)},
+		),
 		workqueue.TypedRateLimitingQueueConfig[string]{Name: c.options.Name},
 	)
 
