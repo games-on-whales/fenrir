@@ -503,9 +503,16 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Wait for session to be created by the direwolf controller
+	// Wait for session to be created by the direwolf controller.
+	//
+	// The budget must absorb a cold start of the session pod: image pulls
+	// (multi-GB app images), wolf boot and wolf-agent readiness easily take
+	// 30-60s, while 25s aborted every first launch (the client then cancels
+	// and the half-started session is torn down). The poll is bound to
+	// r.Context(), so if the Moonlight client gives up and disconnects the
+	// wait is cancelled early regardless of this timeout.
 	var streamURL string
-	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 120*time.Second, true, func(ctx context.Context) (bool, error) {
 		session, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
