@@ -64,7 +64,7 @@ type RuntimeWolfVariables struct {
 	// Wolf defaults to: "/dev/dri/renderD128"
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="/dev/dri/renderD128"
-	RenderNode string `json:"renderNode,omitempty""`
+	RenderNode string `json:"renderNode,omitempty"`
 	
 	// Time zone for the wolf container
 	// +kubebuilder:validation:Optional
