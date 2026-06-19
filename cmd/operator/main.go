@@ -58,12 +58,13 @@ func main() {
 	profileInformer := direwolfFactory.Direwolf().V1alpha1().Profiles().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
 	direwolfFactory.Start(appContext.Done())
-
+	defer direwolfFactory.Shutdown()
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
 		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
 	deploymentInformer := k8sFactory.Apps().V1().Deployments().Informer()
 
 	k8sFactory.Start(appContext.Done())
+	defer k8sFactory.Shutdown()
 
 	klog.Info("Waiting for caches to sync")
 	k8sFactory.WaitForCacheSync(appContext.Done())
@@ -110,18 +111,17 @@ func main() {
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				klog.Info("started leading")
-
-				// run Session Controller
-				go func() {
-					if err := sessionController.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-						klog.Errorf("error running session controller: %v", err)
-					}
-				}()
-
-				<-ctx.Done()
+				err := sessionController.Run(appContext)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					klog.Errorf("error running session controller: %v", err)
+					appCancel()
+				}
 			},
 			OnStoppedLeading: func() {
 				appCancel()
+			},
+			OnNewLeader: func(identity string) {
+				klog.InfoS("new leader", "holderIdentity", identity)
 			},
 		},
 	})
