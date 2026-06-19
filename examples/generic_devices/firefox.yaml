@@ -28,11 +28,11 @@ spec:
           readOnly: true
         resources:
           limits:
-            squat.ai/dri: "1"
+            devic.es/dri: "1"
             cpu: 2
             memory: 4G
           requests:
-            squat.ai/dri: "1"
+            devic.es/dri: "1"
             cpu: 2
             memory: 4G
         command:
