@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"strings"
 	"time"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -26,8 +27,19 @@ func main() {
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
+	allowedHostsStr := flag.String("allowed-hosts", os.Getenv("ALLOWED_HOSTS"), "Comma-separated list of allowed external hostnames for pairing URLs (e.g., moonlight.example.com)")
 	klog.InitFlags(nil)
 	flag.Parse()
+
+	var allowedHosts []string
+	if *allowedHostsStr != "" {
+		for _, h := range strings.Split(*allowedHostsStr, ",") {
+			h = strings.TrimSpace(h)
+			if h != "" {
+				allowedHosts = append(allowedHosts, h)
+			}
+		}
+	}
 
 	klog.Info("Starting moonlight-proxy")
 	klog.Info("TLS Cert: ", *serverCertPath)
@@ -35,7 +47,7 @@ func main() {
 	klog.Info("Port: ", *port)
 	klog.Info("Secure Port: ", *securePort)
 	klog.Info("Namespace: ", *namespace)
-
+	klog.Infof("URL Allowed List: %v", allowedHosts)
 	tlsCert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
 	if err != nil {
 		klog.Fatal("Failed to load certificates:", err)
@@ -88,9 +100,10 @@ func main() {
 		podLister,
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		moonlight.RESTServerOptions{
-			Port:       *port,
-			SecurePort: *securePort,
-			Cert:       tlsCert,
+			Port:         *port,
+			SecurePort:   *securePort,
+			Cert:         tlsCert,
+			AllowedHosts: allowedHosts,
 		},
 	)
 

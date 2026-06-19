@@ -72,6 +72,8 @@ spec:
             value: /etc/certs/server.crt
           - name: SERVER_KEY
             value: /etc/certs/server.key
+          - name: ALLOWED_HOSTS
+            value: ""
           - name: POD_NAME
             valueFrom:
               fieldRef:

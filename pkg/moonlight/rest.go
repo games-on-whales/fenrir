@@ -38,9 +38,10 @@ import (
 var pinHTML string
 
 type RESTServerOptions struct {
-	Port       int
-	SecurePort int
-	Cert       tls.Certificate
+	Port         int
+	SecurePort   int
+	Cert         tls.Certificate
+	AllowedHosts []string
 }
 
 type RESTServer struct {
@@ -241,18 +242,41 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 	sendXML(w, root)
 }
 
-// getBaseURL extracts the true host and protocol from the incoming HTTP request,
-// this should be the simplest way for any future url / ip changes
-// basically if your moonlight reached this point, it's safe to assume you got the right URI
-func getBaseURL(r *http.Request) string {
+// getBaseURL extracts the true host and protocol from the incoming HTTP request.
+// This will most likely be abandoned once we get a frontend ready, users will likely just authenticate from the frontened
+// It sanitizes the host string to prevent log injection (CRLF characters).
+// If an allow-list is configured, it only trusts X-Forwarded-Host if it matches.
+// however, if it's an IP Address, it'll forward it directly
+func (s *RESTServer) getBaseURL(r *http.Request) string {
+	host := r.Host
+	forwardedHost := r.Header.Get("X-Forwarded-Host")
+
+	if forwardedHost != "" {
+		// If no allow-list is configured, fallback to forwarded host (local dev).
+		// Otherwise, strictly enforce the allow-list.
+		if len(s.AllowedHosts) == 0 {
+			host = forwardedHost
+		} else {
+			for _, allowed := range s.AllowedHosts {
+				if strings.EqualFold(allowed, forwardedHost) {
+					host = forwardedHost
+					break
+				}
+			}
+		}
+	}
+
+	// Strip CR/LF to prevent log injection
+	host = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return -1
+		}
+		return r
+	}, host)
+
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
-	}
-
-	host := r.Host
-	if forwardedHost := r.Header.Get("X-Forwarded-Host"); forwardedHost != "" {
-		host = forwardedHost
 	}
 
 	return fmt.Sprintf("%s://%s", scheme, host)
@@ -276,7 +300,7 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 		salt := r.URL.Query().Get("salt")
 		clientCertStr := r.URL.Query().Get("clientcert")
 
-		reqHost := getBaseURL(r)
+		reqHost := s.getBaseURL(r)
 
 		sendXML(w, s.manager.pairPhase1(cacheKey, salt, clientCertStr, reqHost))
 		return
