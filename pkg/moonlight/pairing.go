@@ -35,8 +35,8 @@ func hardcodedPin() (string, bool) {
 
 // To replace the hardcoded pin
 type PinSubmission struct {
-	Pin      string
-	Username string
+	Pin string
+	// Username string
 }
 
 type PairingResponse struct {
@@ -55,7 +55,7 @@ type pendingPairCacheEntry struct {
 	ServerSecret    []byte
 	ServerChallenge []byte
 	ClientHash      []byte
-	Username        string
+	// Username        string
 }
 
 type PairingManager struct {
@@ -92,7 +92,7 @@ func failPair(statusMsg string) PairingResponse {
 	return PairingResponse{Paired: 0, Response: Response{StatusCode: 400, StatusMessage: statusMsg}}
 }
 
-func (m *PairingManager) PostPin(secret string, pin string, username string) error {
+func (m *PairingManager) PostPin(secret string, pin string) error {
 	channel, found := m.PendingPins.Load(secret)
 	if !found {
 		err := fmt.Errorf("no pending pin for secret %s", secret)
@@ -100,8 +100,8 @@ func (m *PairingManager) PostPin(secret string, pin string, username string) err
 	}
 
 	select {
-	case channel.(chan PinSubmission) <- PinSubmission{Pin: pin, Username: username}:
-		klog.Infof("Sent pin %s and username %s to channel for secret %s", pin, username, secret)
+	case channel.(chan PinSubmission) <- PinSubmission{Pin: pin}:
+		klog.Infof("Sent pin %s and username %s to channel for secret %s", pin, secret)
 		return nil
 	default:
 		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)
@@ -175,7 +175,7 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	var submission PinSubmission
 	if hardcoded, ok := hardcodedPin(); ok {
 		klog.Infof("Debugger attached, using hardcoded pin")
-		submission = PinSubmission{Pin: hardcoded, Username: "debug-user"}
+		submission = PinSubmission{Pin: hardcoded}
 	} else {
 		submission = <-pinChannel
 	}
@@ -185,8 +185,8 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	m.PairingCache.Store(cacheKey, pendingPairCacheEntry{
 		ClientCert: clientCert,
 		LastPhase:  "GETSERVERCERT",
-		Username:   submission.Username,
-		AESKey:     util.Hash(saltData[:16], []byte(submission.Pin))[:16],
+		// Username:   submission.Username,
+		AESKey: util.Hash(saltData[:16], []byte(submission.Pin))[:16],
 	})
 
 	// Send hex encoded server cert pem
@@ -385,9 +385,9 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 				Type:  "CERTIFICATE",
 				Bytes: clientCache.ClientCert.Raw,
 			}))),
-			UserReference: &v1alpha1_apply.UserReferenceApplyConfiguration{
-				Name: ptr.To(clientCache.Username),
-			},
+			// UserReference: &v1alpha1_apply.UserReferenceApplyConfiguration{
+			// 	Name: ptr.To(clientCache.Username),
+			// },
 		},
 	}, metav1.ApplyOptions{
 		FieldManager: "moonlight-proxy",

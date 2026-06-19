@@ -23,14 +23,6 @@ type Pairing struct {
 type PairingSpec struct {
 	//+kubebuilder:validation:Required
 	ClientCertPEM string `json:"clientCertPEM,omitempty"`
-
-	//+kubebuilder:validation:Required
-	UserReference UserReference `json:"userReference,omitempty"`
-}
-
-type UserReference struct {
-	//+kubebuilder:validation:Required
-	Name string `json:"name,omitempty"`
 }
 
 type GameReference struct {

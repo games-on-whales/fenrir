@@ -105,7 +105,7 @@ spec:
                 required:
                 - name
                 type: object
-              userReference:
+              profileReference:
                 properties:
                   name:
                     type: string
@@ -117,7 +117,7 @@ spec:
             - gameReference
             - gateway
             - pairingReference
-            - userReference
+            - profileReference
             type: object
           status:
             description: |-

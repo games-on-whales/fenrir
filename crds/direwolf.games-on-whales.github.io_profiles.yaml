@@ -4,20 +4,20 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: users.direwolf.games-on-whales.github.io
+  name: profiles.direwolf.games-on-whales.github.io
 spec:
   group: direwolf.games-on-whales.github.io
   names:
-    kind: User
-    listKind: UserList
-    plural: users
-    singular: user
+    kind: Profile
+    listKind: ProfileList
+    plural: profiles
+    singular: profile
   scope: Namespaced
   versions:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Represents a User CRD
+        description: Represents a Profile CRD
         properties:
           apiVersion:
             description: |-
@@ -38,6 +38,28 @@ spec:
             type: object
           spec:
             properties:
+              apps:
+                description: Apps defines the list of apps available to this profile.
+                items:
+                  properties:
+                    name:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              pairings:
+                description: |-
+                  Pairings defines the list of paired moonlight clients that can access this profile.
+                  Admins manually add Pairing IDs here to grant access.
+                items:
+                  properties:
+                    name:
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
               resources:
                 description: |-
                   Resources defines the maximum resource requests and limits that the app
@@ -106,7 +128,7 @@ spec:
                   sidecar containers. If a policy for a sidecar is not defined here, the
                   operator will use its own built-in default values.
                 properties:
-                  pulseaudio:
+                  pulseAudio:
                     description: Policy for the 'pulseaudio' audio control container
                     properties:
                       env:

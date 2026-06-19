@@ -25,24 +25,26 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// fakeUsers implements UserInterface
-type fakeUsers struct {
-	*gentype.FakeClientWithListAndApply[*v1alpha1.User, *v1alpha1.UserList, *apiv1alpha1.UserApplyConfiguration]
+// fakeProfiles implements ProfileInterface
+type fakeProfiles struct {
+	*gentype.FakeClientWithListAndApply[*v1alpha1.Profile, *v1alpha1.ProfileList, *apiv1alpha1.ProfileApplyConfiguration]
 	Fake *FakeDirewolfV1alpha1
 }
 
-func newFakeUsers(fake *FakeDirewolfV1alpha1, namespace string) typedapiv1alpha1.UserInterface {
-	return &fakeUsers{
-		gentype.NewFakeClientWithListAndApply[*v1alpha1.User, *v1alpha1.UserList, *apiv1alpha1.UserApplyConfiguration](
+func newFakeProfiles(fake *FakeDirewolfV1alpha1, namespace string) typedapiv1alpha1.ProfileInterface {
+	return &fakeProfiles{
+		gentype.NewFakeClientWithListAndApply[*v1alpha1.Profile, *v1alpha1.ProfileList, *apiv1alpha1.ProfileApplyConfiguration](
 			fake.Fake,
 			namespace,
-			v1alpha1.SchemeGroupVersion.WithResource("users"),
-			v1alpha1.SchemeGroupVersion.WithKind("User"),
-			func() *v1alpha1.User { return &v1alpha1.User{} },
-			func() *v1alpha1.UserList { return &v1alpha1.UserList{} },
-			func(dst, src *v1alpha1.UserList) { dst.ListMeta = src.ListMeta },
-			func(list *v1alpha1.UserList) []*v1alpha1.User { return gentype.ToPointerSlice(list.Items) },
-			func(list *v1alpha1.UserList, items []*v1alpha1.User) { list.Items = gentype.FromPointerSlice(items) },
+			v1alpha1.SchemeGroupVersion.WithResource("profiles"),
+			v1alpha1.SchemeGroupVersion.WithKind("Profile"),
+			func() *v1alpha1.Profile { return &v1alpha1.Profile{} },
+			func() *v1alpha1.ProfileList { return &v1alpha1.ProfileList{} },
+			func(dst, src *v1alpha1.ProfileList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.ProfileList) []*v1alpha1.Profile { return gentype.ToPointerSlice(list.Items) },
+			func(list *v1alpha1.ProfileList, items []*v1alpha1.Profile) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
 		),
 		fake,
 	}

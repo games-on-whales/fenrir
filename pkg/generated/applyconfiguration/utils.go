@@ -46,6 +46,12 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.PairingReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PairingSpec"):
 		return &apiv1alpha1.PairingSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Profile"):
+		return &apiv1alpha1.ProfileApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ProfileReference"):
+		return &apiv1alpha1.ProfileReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ProfileSpec"):
+		return &apiv1alpha1.ProfileSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("RuntimeWolfVariables"):
 		return &apiv1alpha1.RuntimeWolfVariablesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Session"):
@@ -62,12 +68,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SidecarPoliciesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicy"):
 		return &apiv1alpha1.SidecarPolicyApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("User"):
-		return &apiv1alpha1.UserApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("UserReference"):
-		return &apiv1alpha1.UserReferenceApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("UserSpec"):
-		return &apiv1alpha1.UserSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
 		return &apiv1alpha1.WolfConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):

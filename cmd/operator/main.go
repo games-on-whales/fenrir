@@ -55,7 +55,7 @@ func main() {
 	direwolfFactory := externalversions.NewSharedInformerFactoryWithOptions(
 		direwolfClient, 15*time.Minute, externalversions.WithNamespace(*namespace))
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
-	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
+	profileInformer := direwolfFactory.Direwolf().V1alpha1().Profiles().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
 	direwolfFactory.Start(appContext.Done())
 
@@ -93,7 +93,7 @@ func main() {
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
-		generic.NewInformer[*direwolfv1alpha1.User](userInformer),
+		generic.NewInformer[*direwolfv1alpha1.Profile](profileInformer),
 		generic.NewInformer[*appsv1.Deployment](deploymentInformer),
 		controllers.SessionControllerOptions{
 			WolfAgentImage:           *wolfAgentImage,

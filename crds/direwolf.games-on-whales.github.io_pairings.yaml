@@ -43,16 +43,8 @@ spec:
             properties:
               clientCertPEM:
                 type: string
-              userReference:
-                properties:
-                  name:
-                    type: string
-                required:
-                - name
-                type: object
             required:
             - clientCertPEM
-            - userReference
             type: object
         type: object
     served: true

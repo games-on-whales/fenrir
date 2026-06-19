@@ -21,7 +21,7 @@ package v1alpha1
 // SessionSpecApplyConfiguration represents a declarative configuration of the SessionSpec type for use
 // with apply.
 type SessionSpecApplyConfiguration struct {
-	UserReference    *UserReferenceApplyConfiguration    `json:"userReference,omitempty"`
+	ProfileReference *ProfileReferenceApplyConfiguration `json:"profileReference,omitempty"`
 	GameReference    *GameReferenceApplyConfiguration    `json:"gameReference,omitempty"`
 	PairingReference *PairingReferenceApplyConfiguration `json:"pairingReference,omitempty"`
 	GatewayReference *GatewayReferenceApplyConfiguration `json:"gateway,omitempty"`
@@ -34,11 +34,11 @@ func SessionSpec() *SessionSpecApplyConfiguration {
 	return &SessionSpecApplyConfiguration{}
 }
 
-// WithUserReference sets the UserReference field in the declarative configuration to the given value
+// WithProfileReference sets the ProfileReference field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the UserReference field is set to the value of the last call.
-func (b *SessionSpecApplyConfiguration) WithUserReference(value *UserReferenceApplyConfiguration) *SessionSpecApplyConfiguration {
-	b.UserReference = value
+// If called multiple times, the ProfileReference field is set to the value of the last call.
+func (b *SessionSpecApplyConfiguration) WithProfileReference(value *ProfileReferenceApplyConfiguration) *SessionSpecApplyConfiguration {
+	b.ProfileReference = value
 	return b
 }
 

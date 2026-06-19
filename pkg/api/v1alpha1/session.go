@@ -35,7 +35,7 @@ type Session struct {
 // A session is created when moonlight calls /launch to launch a game.
 type SessionSpec struct {
 	//+kubebuilder:validation:Required
-	UserReference UserReference `json:"userReference"`
+	ProfileReference ProfileReference `json:"profileReference"`
 
 	//+kubebuilder:validation:Required
 	GameReference GameReference `json:"gameReference"`

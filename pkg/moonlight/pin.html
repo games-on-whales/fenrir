@@ -93,8 +93,6 @@
         // Ensure they typed a username before submitting
         if (!username) {
             alert("Please enter your username first!");
-            // Reset the PIN inputs so they can try again
-            inputs.forEach(input => input.value = "");
             usernameInput.focus();
             return;
         }

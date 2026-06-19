@@ -50,7 +50,7 @@ type RESTServer struct {
 	manager *PairingManager
 
 	PairingsLister generic.NamespacedLister[*v1alpha1types.Pairing]
-	UserLister     generic.NamespacedLister[*v1alpha1types.User]
+	ProfileLister  generic.NamespacedLister[*v1alpha1types.Profile]
 	AppLister      generic.NamespacedLister[*v1alpha1types.App]
 	PodLister      generic.NamespacedLister[*v1.Pod]
 	SessionLister  generic.NamespacedLister[*v1alpha1types.Session]
@@ -63,7 +63,7 @@ type RESTServer struct {
 func NewRESTServer(
 	manager *PairingManager,
 	pairingsLister generic.NamespacedLister[*v1alpha1types.Pairing],
-	userLister generic.NamespacedLister[*v1alpha1types.User],
+	profileLister generic.NamespacedLister[*v1alpha1types.Profile],
 	appLister generic.NamespacedLister[*v1alpha1types.App],
 	sessionLister generic.NamespacedLister[*v1alpha1types.Session],
 	podsLister generic.NamespacedLister[*v1.Pod],
@@ -75,7 +75,7 @@ func NewRESTServer(
 		secureRouter:      http.NewServeMux(),
 		manager:           manager,
 		PairingsLister:    pairingsLister,
-		UserLister:        userLister,
+		ProfileLister:     profileLister,
 		AppLister:         appLister,
 		SessionLister:     sessionLister,
 		PodLister:         podsLister,
@@ -176,30 +176,36 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 	serverStatus := "SUNSHINE_SERVER_FREE"
 	currentGame := ""
 
-	if user := r.Context().Value(userContextKey{}); user != nil {
-		user := user.(*v1alpha1types.User)
-
-		// Return SERVER_BUSY if there exists any pod with direwolf/user = <user>
-		pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
-			"direwolf/user": user.Name,
-		}))
-		if err != nil {
-			writeErrorResponse(w, 500, fmt.Errorf("failed to list pods: %s", err))
-			return
-		}
-
-		if len(pods) > 0 {
-			serverStatus = "SUNSHINE_SERVER_BUSY"
-
-			currentApp, err := s.AppLister.Get(pods[0].Labels["direwolf/app"])
-			if err != nil {
-				writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %s", err))
-				return
-			}
-
-			currentGame = fmt.Sprint(currentApp.Spec.ID)
-		}
+	// If the pairing is in the context, the client is successfully paired.
+	// We set pairStatus = 1 even if they have no profiles assigned yet.
+	if pairing := r.Context().Value(pairingContextKey{}); pairing != nil {
 		pairStatus = 1
+
+		if profiles := r.Context().Value(profilesContextKey{}); profiles != nil {
+			profiles := profiles.([]*v1alpha1types.Profile)
+
+			// Check pods for any of the available profiles
+			for _, profile := range profiles {
+				pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
+					"direwolf/profile": profile.Name,
+				}))
+				if err != nil {
+					writeErrorResponse(w, 500, fmt.Errorf("failed to list pods: %s", err))
+					return
+				}
+
+				if len(pods) > 0 {
+					serverStatus = "SUNSHINE_SERVER_BUSY"
+					currentApp, err := s.AppLister.Get(pods[0].Labels["direwolf/app"])
+					if err != nil {
+						writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %s", err))
+						return
+					}
+					currentGame = fmt.Sprint(currentApp.Spec.ID)
+					break
+				}
+			}
+		}
 	}
 
 	root := ServerInfoResponse{
@@ -335,9 +341,8 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	// Handle POST /pin
 	if r.Method == "POST" {
 		type PinRequest struct {
-			Pin      string `json:"pin"`
-			Secret   string `secret:"secret"` // Removed `secret:"secret"` struct tag if it was a typo
-			Username string `json:"username"`
+			Pin    string `json:"pin"`
+			Secret string `json:"secret"`
 		}
 
 		var req PinRequest
@@ -347,15 +352,15 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if req.Pin == "" || req.Secret == "" || req.Username == "" {
+		if req.Pin == "" || req.Secret == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request: missing pin, secret, or username"))
+			w.Write([]byte("Invalid request: missing pin or secret"))
 			return
 		}
 
 		// Provide the pin to the pair manager
-		klog.Infof("Received pin %s for secret %s, user %s", req.Pin, req.Secret, req.Username)
-		err := s.manager.PostPin(req.Secret, req.Pin, req.Username)
+		klog.Infof("Received pin %s for secret %s", req.Pin, req.Secret)
+		err := s.manager.PostPin(req.Secret, req.Pin)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))
@@ -372,17 +377,20 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
-	apps, err := s.AppLister.List(nil)
-	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to list apps: %s", err))
-		return
-	}
+	profiles := r.Context().Value(profilesContextKey{}).([]*v1alpha1types.Profile)
 
-	appsList := make([]App, 0, len(apps))
-	for _, app := range apps {
-		appsList = append(appsList, App{
-			AppSpec: app.Spec,
-		})
+	appsList := make([]App, 0)
+	for _, profile := range profiles {
+		for _, appRef := range profile.Spec.Apps {
+			app, err := s.AppLister.Get(appRef.Name)
+			if err != nil {
+				klog.Errorf("Failed to get app %s for profile %s: %s", appRef.Name, profile.Name, err)
+				continue
+			}
+			appsList = append(appsList, App{
+				AppSpec: app.Spec,
+			})
+		}
 	}
 
 	sendXML(w, AppListResponse{
@@ -463,29 +471,48 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
+	profiles := r.Context().Value(profilesContextKey{}).([]*v1alpha1types.Profile)
 	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
+
+	// Find a profile that contains the requested app
+	var targetProfile *v1alpha1types.Profile
+	for _, p := range profiles {
+		for _, appRef := range p.Spec.Apps {
+			if appRef.Name == app.ObjectMeta.Name {
+				targetProfile = p
+				break
+			}
+		}
+		if targetProfile != nil {
+			break
+		}
+	}
+
+	if targetProfile == nil {
+		writeErrorResponse(w, 403, fmt.Errorf("no available profile contains app %s", app.ObjectMeta.Name))
+		return
+	}
 
 	//!TOOD: May want to wait here, since we need the Service to stop pointing
 	// at the old pod. It is very likely to happen before operator syncs and
 	// can create session, but perhaps should still check after operator returns
 	// the session URL.
-	if err := s.stopSessionsForUser(user, false); err != nil && !k8serrors.IsNotFound(err) {
+	if err := s.stopSessionsForProfile(targetProfile, false); err != nil && !k8serrors.IsNotFound(err) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %s", err))
 		return
 	}
 
-	klog.Infof("Launching app %s for user %s", app.ObjectMeta.Name, user.ObjectMeta.Name)
+	klog.Infof("Launching app %s for profile %s", app.ObjectMeta.Name, targetProfile.ObjectMeta.Name)
 	session, err := s.SessionClient.Create(
 		r.Context(),
 		&v1alpha1types.Session{
 			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: fmt.Sprintf("%s-%s-", user.Name, app.Name),
+				GenerateName: fmt.Sprintf("%s-%s-", targetProfile.Name, app.Name),
 				Namespace:    pairing.Namespace,
 				Labels: map[string]string{
-					"direwolf":      "true",
-					"direwolf/app":  app.ObjectMeta.Name,
-					"direwolf/user": user.ObjectMeta.Name,
+					"direwolf":         "true",
+					"direwolf/app":     app.ObjectMeta.Name,
+					"direwolf/profile": targetProfile.ObjectMeta.Name,
 				},
 				Annotations: map[string]string{
 					"direwolf/pairing": pairing.ObjectMeta.Name,
@@ -498,8 +525,8 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 				PairingReference: v1alpha1types.PairingReference{
 					Name: pairing.ObjectMeta.Name,
 				},
-				UserReference: v1alpha1types.UserReference{
-					Name: user.ObjectMeta.Name,
+				ProfileReference: v1alpha1types.ProfileReference{
+					Name: targetProfile.ObjectMeta.Name,
 				},
 				//!TODO: Unused. v1alpha2 Gateway types are not widely supported
 				GatewayReference: v1alpha1types.GatewayReference{
@@ -559,21 +586,26 @@ func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 	// display/controllers. So we relaunch instead :(
 	s.launchHandler(w, r)
 }
-
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
-	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
+	profiles := r.Context().Value(profilesContextKey{}).([]*v1alpha1types.Profile)
 
-	err := s.stopSessionsForUser(user, true)
-	if err != nil && !k8serrors.IsNotFound(err) {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to cancel session: %s", err))
+	anyErr := false
+	for _, profile := range profiles {
+		if err := s.stopSessionsForProfile(profile, true); err != nil && !k8serrors.IsNotFound(err) {
+			anyErr = true
+		}
+	}
+
+	if anyErr {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to cancel one or more sessions"))
 		return
 	}
 	sendXML(w, Response{StatusCode: 200})
 }
 
-func (s *RESTServer) stopSessionsForUser(user *v1alpha1types.User, shouldWait bool) error {
+func (s *RESTServer) stopSessionsForProfile(profile *v1alpha1types.Profile, shouldWait bool) error {
 	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
-		"direwolf/user": user.Name,
+		"direwolf/profile": profile.Name,
 	}))
 	if err != nil {
 		return fmt.Errorf("failed to list sessions: %w", err)
@@ -588,15 +620,15 @@ func (s *RESTServer) stopSessionsForUser(user *v1alpha1types.User, shouldWait bo
 	}
 
 	if !didDelete {
-		klog.Warningf("Not stopping any sessions. No sessions found for user %s", user.Name)
-		return k8serrors.NewNotFound(v1alpha1types.Resource("session"), user.Name)
+		klog.Warningf("Not stopping any sessions. No sessions found for profile %s", profile.Name)
+		return k8serrors.NewNotFound(v1alpha1types.Resource("session"), profile.Name)
 	}
 
 	if shouldWait {
 		// Wait for pods to be cleaned up
 		err = wait.PollUntilContextTimeout(context.Background(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
 			pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
-				"direwolf/user": user.Name,
+				"direwolf/profile": profile.Name,
 			}))
 			if err != nil {
 				return false, err
@@ -704,11 +736,11 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-type userContextKey struct{}
+type profilesContextKey struct{}
 type pairingContextKey struct{}
 
-// Grabs fingerprint of client cert, finds associated user in backend and attaches
-// it to the request context.
+// Grabs fingerprint of client cert, finds associated profiles in backend and attaches
+// them to the request context.
 func (s *RESTServer) authenticatedMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
@@ -723,13 +755,24 @@ func (s *RESTServer) authenticatedMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := s.UserLister.Get(pairing.Spec.UserReference.Name)
+		// List all profiles and filter those that include this pairing
+		allProfiles, err := s.ProfileLister.List(labels.Everything())
 		if err != nil {
-			writeErrorResponse(w, 401, fmt.Errorf("user not found"))
+			writeErrorResponse(w, 500, fmt.Errorf("failed to list profiles: %s", err))
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), userContextKey{}, user)
+		var availableProfiles []*v1alpha1types.Profile
+		for _, p := range allProfiles {
+			for _, pRef := range p.Spec.Pairings {
+				if pRef.Name == pairing.Name {
+					availableProfiles = append(availableProfiles, p)
+					break
+				}
+			}
+		}
+
+		ctx := context.WithValue(r.Context(), profilesContextKey{}, availableProfiles)
 		ctx = context.WithValue(ctx, pairingContextKey{}, pairing)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

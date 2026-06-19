@@ -53,7 +53,7 @@ func main() {
 	)
 	pairingInformer := direwolfFactory.Direwolf().V1alpha1().Pairings().Informer()
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
-	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
+	profileInformer := direwolfFactory.Direwolf().V1alpha1().Profiles().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
 	direwolfFactory.Start(appContext.Done())
 	defer direwolfFactory.Shutdown()
@@ -68,7 +68,7 @@ func main() {
 	direwolfFactory.WaitForCacheSync(appContext.Done())
 	klog.Info("Caches synced")
 
-	userLister := generic.NewLister[*direwolfv1alpha1.User](userInformer.GetIndexer()).Namespaced(*namespace)
+	profileLister := generic.NewLister[*direwolfv1alpha1.Profile](profileInformer.GetIndexer()).Namespaced(*namespace)
 	pairingLister := generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace)
 	appLister := generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace)
 	sessionLister := generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace)
@@ -82,7 +82,7 @@ func main() {
 	restServer := moonlight.NewRESTServer(
 		pairingManager,
 		pairingLister,
-		userLister,
+		profileLister,
 		appLister,
 		sessionLister,
 		podLister,

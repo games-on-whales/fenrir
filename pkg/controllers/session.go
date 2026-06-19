@@ -50,9 +50,9 @@ var (
 	}()
 )
 
-type userGame struct {
-	User string
-	Game string
+type profileGame struct {
+	Profile string
+	Game    string
 }
 
 type SessionControllerOptions struct {
@@ -77,16 +77,16 @@ type SessionController struct {
 	SessionClient   v1alpha1client.SessionInterface
 	SessionInformer generic.Informer[*v1alpha1types.Session]
 
-	AppInformer  generic.Informer[*v1alpha1types.App]
-	UserInformer generic.Informer[*v1alpha1types.User]
+	AppInformer     generic.Informer[*v1alpha1types.App]
+	ProfileInformer generic.Informer[*v1alpha1types.Profile]
 
 	TCPRouteClient gatewayv1alpha2.TCPRouteInterface
 	UDPRouteClient gatewayv1alpha2.UDPRouteInterface
 
 	K8sClient kubernetes.Interface
 
-	trackedSessions map[userGame]sets.Set[string]
-	trackedGames    map[string]userGame
+	trackedSessions map[profileGame]sets.Set[string]
+	trackedGames    map[string]profileGame
 
 	controller           generic.Controller[*v1alpha1types.Session]
 	deploymentController generic.Controller[*appsv1.Deployment]
@@ -101,7 +101,7 @@ func NewSessionController(
 	sessionClient v1alpha1client.SessionInterface,
 	sessionInformer generic.Informer[*v1alpha1types.Session],
 	appInformer generic.Informer[*v1alpha1types.App],
-	userInformer generic.Informer[*v1alpha1types.User],
+	profileInformer generic.Informer[*v1alpha1types.Profile],
 	deploymentInformer generic.Informer[*appsv1.Deployment],
 	options SessionControllerOptions,
 ) *SessionController {
@@ -112,9 +112,9 @@ func NewSessionController(
 		SessionClient:            sessionClient,
 		SessionInformer:          sessionInformer,
 		AppInformer:              appInformer,
-		UserInformer:             userInformer,
-		trackedSessions:          make(map[userGame]sets.Set[string]),
-		trackedGames:             make(map[string]userGame),
+		ProfileInformer:          profileInformer,
+		trackedSessions:          make(map[profileGame]sets.Set[string]),
+		trackedGames:             make(map[string]profileGame),
 		SessionControllerOptions: options,
 	}
 
@@ -163,17 +163,17 @@ func (c *SessionController) Run(ctx context.Context) error {
 	}
 
 	for _, session := range sessions {
-		ug := userGame{
-			Game: session.Spec.GameReference.Name,
-			User: session.Spec.UserReference.Name,
+		pg := profileGame{
+			Game:    session.Spec.GameReference.Name,
+			Profile: session.Spec.ProfileReference.Name,
 		}
-		if existing, ok := c.trackedSessions[ug]; ok {
+		if existing, ok := c.trackedSessions[pg]; ok {
 			existing.Insert(session.Name)
 		} else {
-			c.trackedSessions[ug] = sets.New(session.Name)
+			c.trackedSessions[pg] = sets.New(session.Name)
 		}
 
-		c.trackedGames[session.Name] = ug
+		c.trackedGames[session.Name] = pg
 	}
 
 	go func() {
@@ -202,7 +202,7 @@ func (c *SessionController) reconcileDependant(obj K8sObject) error {
 		return nil
 	}
 
-	if _, ok := obj.GetLabels()["direwolf/user"]; !ok {
+	if _, ok := obj.GetLabels()["direwolf/profile"]; !ok {
 		return nil
 	}
 
@@ -250,15 +250,15 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		}
 		return nil
 	}
-	ug := userGame{
-		Game: newObj.Spec.GameReference.Name,
-		User: newObj.Spec.UserReference.Name,
+	pg := profileGame{
+		Game:    newObj.Spec.GameReference.Name,
+		Profile: newObj.Spec.ProfileReference.Name,
 	}
 
-	if existing, ok := c.trackedSessions[ug]; ok {
+	if existing, ok := c.trackedSessions[pg]; ok {
 		existing.Insert(newObj.Name)
 	} else {
-		c.trackedSessions[ug] = sets.New(newObj.Name)
+		c.trackedSessions[pg] = sets.New(newObj.Name)
 	}
 
 	oldStatus := newObj.Status.DeepCopy()
@@ -558,9 +558,9 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 				}).
 				WithLabels(
 					map[string]string{
-						"app":           "direwolf-worker",
-						"direwolf/app":  session.Spec.GameReference.Name,
-						"direwolf/user": session.Spec.UserReference.Name,
+						"app":              "direwolf-worker",
+						"direwolf/app":     session.Spec.GameReference.Name,
+						"direwolf/profile": session.Spec.ProfileReference.Name,
 					},
 				).
 				WithOwnerReferences(metav1ac.OwnerReference().
@@ -574,8 +574,8 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 						WithType(corev1.ServiceTypeLoadBalancer).
 						WithSelector(
 							map[string]string{
-								"direwolf/app":  session.Spec.GameReference.Name,
-								"direwolf/user": session.Spec.UserReference.Name,
+								"direwolf/app":     session.Spec.GameReference.Name,
+								"direwolf/profile": session.Spec.ProfileReference.Name,
 							}).
 						WithPorts(
 							v1ac.ServicePort().
@@ -695,20 +695,20 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		return fmt.Errorf("waiting for PortsAllocated")
 	}
 
-	// Get the user object to access resource policies
-	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+	// Get the profile object to access resource policies
+	profile, err := c.ProfileInformer.Namespaced(session.Namespace).Get(session.Spec.ProfileReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get user %s: %w", session.Spec.UserReference.Name, err)
+		return fmt.Errorf("failed to get profile %s: %w", session.Spec.ProfileReference.Name, err)
 	}
 
-	ug := userGame{
-		Game: session.Spec.GameReference.Name,
-		User: session.Spec.UserReference.Name,
+	pg := profileGame{
+		Game:    session.Spec.GameReference.Name,
+		Profile: session.Spec.ProfileReference.Name,
 	}
 
 	var owners []metav1.OwnerReference
 	var ownerApply []*metav1ac.OwnerReferenceApplyConfiguration
-	if sessions, ok := c.trackedSessions[ug]; ok {
+	if sessions, ok := c.trackedSessions[pg]; ok {
 		for name := range sessions {
 			sess, err := c.SessionInformer.Namespaced(session.Namespace).Get(name)
 			if err != nil {
@@ -810,7 +810,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 
 	podToCreate.Labels["app"] = "direwolf-worker"
 	podToCreate.Labels["direwolf/app"] = session.Spec.GameReference.Name
-	podToCreate.Labels["direwolf/user"] = session.Spec.UserReference.Name
+	podToCreate.Labels["direwolf/profile"] = session.Spec.ProfileReference.Name
 
 	// if podToCreate.Spec.SecurityContext == nil {
 	// 	podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
@@ -878,8 +878,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			{Name: "GAMESCOPE_REFRESH", Value: fmt.Sprint(session.Spec.Config.VideoRefreshRate)},
 		}...)
 
-		// Validate the main app container's resources against the user's policy.
-		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, user.Spec.Resources)
+		// Validate the main app container's resources against the profile's policy.
+		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, profile.Spec.Resources)
 		if err != nil {
 			// The error will be handled by the main Reconcile loop to update the session status.
 			return fmt.Errorf("resource validation for main app container failed: %w", err)
@@ -978,12 +978,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 
 	// Create a set of valid volume names for quick lookup
 	validVolumes := make(map[string]struct{})
-	for _, volume := range user.Spec.Volumes {
+	for _, volume := range profile.Spec.Volumes {
 		validVolumes[volume.Name] = struct{}{}
 	}
 
-	if user.Spec.SidecarPolicies != nil {
-		policies := user.Spec.SidecarPolicies
+	if profile.Spec.SidecarPolicies != nil {
+		policies := profile.Spec.SidecarPolicies
 		if policies.WolfAgent != nil {
 			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
 				return err
@@ -1062,8 +1062,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 					Value: "/etc/wolf/wolf.sock",
 				},
 				{
-					Name:  "DIREWOLF_USER",
-					Value: session.Spec.UserReference.Name,
+					// I don't know what purpose does this serve
+					// but since this is in the wolf-agent image, it'll eventually go alongside most of these env vars.
+					Name:  "DIREWOLF_PROFILE",
+					Value: session.Spec.ProfileReference.Name,
 				},
 				{
 					Name:  "DIREWOLF_APP",
@@ -1280,9 +1282,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		// },
 	)
 
-	// Add volumes from the user spec
-	if len(user.Spec.Volumes) > 0 {
-		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, user.Spec.Volumes...)
+	// Add volumes from the profile spec
+	if len(profile.Spec.Volumes) > 0 {
+		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, profile.Spec.Volumes...)
 	}
 
 	// Create deployment scaled to 1 for this pod
@@ -1296,9 +1298,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:      c.deploymentName(session),
 			Namespace: session.Namespace,
 			Labels: map[string]string{
-				"app":           "direwolf-worker",
-				"direwolf/app":  session.Spec.GameReference.Name,
-				"direwolf/user": session.Spec.UserReference.Name,
+				"app":              "direwolf-worker",
+				"direwolf/app":     session.Spec.GameReference.Name,
+				"direwolf/profile": session.Spec.ProfileReference.Name,
 			},
 			OwnerReferences: owners,
 		},
@@ -1306,8 +1308,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Replicas: ptr.To[int32](1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"direwolf/app":  session.Spec.GameReference.Name,
-					"direwolf/user": session.Spec.UserReference.Name,
+					"direwolf/app":     session.Spec.GameReference.Name,
+					"direwolf/profile": session.Spec.ProfileReference.Name,
 				},
 			},
 			Strategy: appsv1.DeploymentStrategy{
@@ -1403,13 +1405,13 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 // }
 
 func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1types.Session) error {
-	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
+	profile, err := c.ProfileInformer.Namespaced(session.Namespace).Get(session.Spec.ProfileReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get user: %s", err)
+		return fmt.Errorf("failed to get profile: %s", err)
 	}
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get user: %s", err)
+		return fmt.Errorf("failed to get profile: %s", err)
 	}
 
 	// Check if the user defined a volume claim template. If not, return nil.
@@ -1491,15 +1493,15 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 		ctx,
 		v1ac.PersistentVolumeClaim(pvcName, session.Namespace).
 			WithLabels(map[string]string{
-				"app":           "direwolf-worker",
-				"direwolf/app":  session.Spec.GameReference.Name,
-				"direwolf/user": session.Spec.UserReference.Name,
+				"app":              "direwolf-worker",
+				"direwolf/app":     session.Spec.GameReference.Name,
+				"direwolf/profile": session.Spec.ProfileReference.Name,
 			}).
 			WithOwnerReferences(metav1ac.OwnerReference().
-				WithName(user.Name).
+				WithName(profile.Name).
 				WithAPIVersion(v1alpha1.GroupVersion.String()).
-				WithKind("User").
-				WithUID(user.UID).
+				WithKind("Profile").
+				WithUID(profile.UID).
 				WithController(true)).
 			WithSpec(pvcSpec),
 		metav1.ApplyOptions{
@@ -1514,7 +1516,7 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 	return nil
 }
 func (c *SessionController) deploymentName(session *v1alpha1types.Session) string {
-	return fmt.Sprintf("%s-%s", session.Spec.UserReference.Name, session.Spec.GameReference.Name)
+	return fmt.Sprintf("%s-%s", session.Spec.ProfileReference.Name, session.Spec.GameReference.Name)
 }
 
 func (c *SessionController) allocatePorts(
