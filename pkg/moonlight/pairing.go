@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -125,7 +126,7 @@ func (m *PairingManager) Unpair(cacheKey string) error {
  *
  * At this stage we only have to send back our public certificate (`plaincert`).
  */
-func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr string, clientReqBaseURL string) PairingResponse {
+func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt string, clientCertStr string, clientReqBaseURL string) PairingResponse {
 	// Check if pairing session exists
 	klog.Info("Starting Pairing Process")
 	if _, found := m.PairingCache.Load(cacheKey); found {
@@ -171,13 +172,19 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 		"To approve, visit: %s/pin/#%s\n"+
 		"=======================================================\n", clientReqBaseURL, pinSecretHex)
 
-	// dynamically acquired user info, for later use when I hopefully get time to implement that wolf manager / ui app!
 	var submission PinSubmission
 	if hardcoded, ok := hardcodedPin(); ok {
 		klog.Infof("Debugger attached, using hardcoded pin")
 		submission = PinSubmission{Pin: hardcoded}
 	} else {
-		submission = <-pinChannel
+		select {
+		case submission = <-pinChannel:
+			// Successfully received pin
+		case <-ctx.Done():
+			return failPair("Pairing request cancelled or timed out waiting for PIN")
+		case <-time.After(30 * time.Second):
+			return failPair("Pairing request timed out waiting for PIN (30 seconds)")
+		}
 	}
 
 	// Generate server cert and AES key

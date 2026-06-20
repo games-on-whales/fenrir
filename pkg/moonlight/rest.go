@@ -109,13 +109,22 @@ func NewRESTServer(
 
 func (s *RESTServer) Run(ctx context.Context) error {
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.Port),
-		Handler: loggingMiddleware(s.router),
+		Addr:              fmt.Sprintf(":%d", s.Port),
+		Handler:           loggingMiddleware(s.router),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	secureServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.SecurePort),
-		Handler: loggingMiddleware(s.authenticatedMiddleware(s.secureRouter)),
+		Addr:              fmt.Sprintf(":%d", s.SecurePort),
+		Handler:           loggingMiddleware(s.authenticatedMiddleware(s.secureRouter)),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// WriteTimeout needs to be generous to accommodate the time an admin takes
+		// to input the PIN, but bounded to prevent indefinite leaks.
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  1 * time.Minute,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{s.Cert},
 			ClientAuth:   tls.RequestClientCert,
@@ -302,7 +311,7 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 
 		reqHost := s.getBaseURL(r)
 
-		sendXML(w, s.manager.pairPhase1(cacheKey, salt, clientCertStr, reqHost))
+		sendXML(w, s.manager.pairPhase1(r.Context(), cacheKey, salt, clientCertStr, reqHost))
 		return
 	} else if r.URL.Query().Has("clientchallenge") {
 		klog.Infof("Pairing phase 2 with %s\n", cacheKey)
