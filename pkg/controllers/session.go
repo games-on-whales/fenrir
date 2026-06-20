@@ -764,13 +764,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
 		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
 		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
-		// "WOLF_STREAM_CLIENT_IP":  "10.128.1.0", //Need to find the correct streaming id / ingress, later.
-		"WOLF_SOCKET_PATH": "/etc/wolf/wolf.sock",
-		// "WOLF_CFG_FILE":          "/etc/wolf/cfg/config.toml", // no longer needed
-		// "WOLF_PRIVATE_CERT_FILE": "/mnt/data/wolf/cfg/cert.pem",
-		// "WOLF_PRIVATE_KEY_FILE": "/mnt/data/wolf/cfg/key.pem",
-		// "WOLF_PULSE_IMAGE":       "ghcr.io/games-on-whales/pulseaudio:master",
-		// "WOLF_CFG_FOLDER":        "/etc/wolf/cfg",
+		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
 		// Keeping those for later
 		// "GST_VAAPI_ALL_DRIVERS":      "1",
 		// "GST_DEBUG":                  "2",
@@ -886,63 +880,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		podToCreate.Spec.Containers[i].Resources = validatedResources
 	}
-	// // // No longer Needed??
-	// podToCreate.Spec.InitContainers = append(podToCreate.Spec.InitContainers,
-	// 	corev1.Container{
-	// 		Name: "init",
-	// 		// using a minimal image
-	// 		Image: "docker.io/ubuntu:noble-20260217",
-	// 		// This will need to be updated / removed since /etc/wolf/cfg is no longer used by wolf
-	// 		// Also, we're no longer injecting the app info into the config.toml
-	// 		Command: []string{
-	// 			"sh", "-c", `
-	// 			echo making /mnt/data/wolf/cfg
-	// 			mkdir -p /mnt/data/wolf/cfg
-	// 			echo changing ownership /mnt/data/wolf
-	// 			ls -alh /mnt/data/wolf
-	// 			chown 1000:1000 /mnt/data/wolf
-	// 			chmod 777 /mnt/data/wolf
-	// 			echo changing ownership /mnt/data/wolf/cfg
-	// 			chown -R 1000:1000 /mnt/data/wolf/cfg
-	// 			chmod 777 /mnt/data/wolf/cfg
-	// 			echo changing ownership of /tmp/.X11-unix
-	// 			chown -R ubuntu:ubuntu /tmp/.X11-unix
-	// 			echo changing ownership of /mnt/data/wolf/state
-	// 			chown -R 1000:1000 /mnt/data/wolf/state/*
-	// 			chmod 1777 -R /tmp/.X11-unix
-	// 			echo making /etc/wolf/cfg
-	// 			mkdir -p /etc/wolf/cfg
-	// 			# cp -LR /cfg/* /etc/wolf/cfg
-	// 			chown -R ubuntu:ubuntu /etc/wolf
-	// 			chmod 777 -R /etc/wolf
-	// 			ls -alh /mnt/data/wolf
-	// 		`,
-	// 		},
-	// 		VolumeMounts: []corev1.VolumeMount{
-	// 			// {
-	// 			// 	Name:      "wolf-tls-secret",
-	// 			// 	MountPath: "/certs",
-	// 			// 	ReadOnly:  true,
-	// 			// },
-	// 			{
-	// 				Name:      "wolf-cfg",
-	// 				MountPath: "/etc/wolf",
-	// 			},
-	// 			{
-	// 				Name:      "wolf-data",
-	// 				MountPath: "/mnt/data/wolf",
-	// 			},
-	// 			{
-	// 				Name:      "wolf-runtime",
-	// 				MountPath: "/tmp/.X11-unix",
-	// 			},
-	// 			// {
-	// 			// 	Name:      "config",
-	// 			// 	MountPath: "/cfg",
-	// 			// },
-	// 		},
-	// 	},
-	// )
 
 	// Define default resources for sidecars
 	wolfAgentDefaultResources := corev1.ResourceRequirements{
