@@ -8,6 +8,7 @@ global:
 # The user can modify the contents under `data:`
 configMaps:
   direwolf-config:
+    forceRename: "fix-home-perms"
     enabled: true
     data:
       99-fix-home-perms.sh: |
