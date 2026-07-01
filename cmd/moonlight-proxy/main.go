@@ -25,6 +25,7 @@ func main() {
 	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
+	launchTimeout := flag.Duration("launch-timeout", 60*time.Second, "How long to wait for a session to become ready when launching an app (cold starts may need more time)")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	klog.InitFlags(nil)
 	flag.Parse()
@@ -34,6 +35,7 @@ func main() {
 	klog.Info("TLS Key: ", *serverKeyPath)
 	klog.Info("Port: ", *port)
 	klog.Info("Secure Port: ", *securePort)
+	klog.Info("Launch timeout: ", *launchTimeout)
 	klog.Info("Namespace: ", *namespace)
 
 	tlsCert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
@@ -83,9 +85,10 @@ func main() {
 		generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace),
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		moonlight.RESTServerOptions{
-			Port:       *port,
-			SecurePort: *securePort,
-			Cert:       tlsCert,
+			Port:          *port,
+			SecurePort:    *securePort,
+			Cert:          tlsCert,
+			LaunchTimeout: *launchTimeout,
 		},
 	)
 

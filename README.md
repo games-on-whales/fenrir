@@ -51,6 +51,19 @@ In response to `/launch` or `/resume` from Moonlight client launching an app,
 and `Pairing` for the specific client used. It then waits for the `Session`
 to have an `rtsp` URL added to its status by the `operator` to hand back to the uses.
 
+### Configuration
+
+`moonlight-proxy` is configured via command-line flags:
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--port` | `47989` | HTTP port to listen on. |
+| `--secure-port` | `47984` | HTTPS port to listen on. |
+| `--tls-cert` | `server.crt` | Path to the server TLS certificate. |
+| `--tls-key` | `server.key` | Path to the server TLS key. |
+| `--namespace` | `$POD_NAMESPACE` | Namespace to watch for CRDs. |
+| `--launch-timeout` | `60s` | How long `/launch` waits for the operator to create a session and expose its stream URL before giving up. The wait is still bounded by the client connection, so a disconnecting Moonlight client cancels it early. Raise this if cold starts (image pull + wolf boot + `wolf-agent` readiness) are getting cancelled with an HTTP 500; lower it to fail faster. |
+
 ## wolf-agent
 
 Wolf-Agent is a sidecar container with Wolf's HTTP API socket mounted locally.
@@ -181,5 +194,4 @@ open moonlight to pair with the acquired ip
 then get the moonlight-proxy pairing url through the logs:  
 `kubectl logs -n direwolf deployments/direwolf-moonlight-proxy`
 
-use it to pair and then connect with the app, it'll take a moment to pull the image, so the first pairing might fail.  
-
+use it to pair and then connect with the app, it'll take a moment to pull the image, so the first pairing might fail.
