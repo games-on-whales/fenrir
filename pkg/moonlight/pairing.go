@@ -102,7 +102,7 @@ func (m *PairingManager) PostPin(secret string, pin string) error {
 
 	select {
 	case channel.(chan PinSubmission) <- PinSubmission{Pin: pin}:
-		klog.V(5).Infof("Sent pin %s to channel for secret %s", pin, secret)
+		klog.V(2).Infof("Sent pin %s to channel for secret %s", pin, secret)
 		return nil
 	default:
 		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)

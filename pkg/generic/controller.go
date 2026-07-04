@@ -247,7 +247,7 @@ func (c *controller[T]) runWorker() {
 			// Finally, if no error occurs we Forget this item so it is allowed
 			// to be re-enqueued without a long rate limit
 			c.queue.Forget(obj)
-			klog.V(4).Infof("sync(%q)", key)
+			klog.V(2).Infof("sync(%q)", key)
 			return nil
 		}(key)
 

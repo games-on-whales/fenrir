@@ -32,7 +32,7 @@ func main() {
 	switch wImagePullPolicy {
 	case "Always", "IfNotPresent", "Never":
 		// TODO, increase log level
-		klog.V(4).Infof("Wolf-Agent Image Pull policy %s", wImagePullPolicy)
+		klog.V(1).Infof("Wolf-Agent Image Pull policy %s", wImagePullPolicy)
 	default:
 		klog.Infof("Wolf-Agent Image Pull policy not valid %s: defaulting to %q", wImagePullPolicy, "IfNotPresent")
 	}
