@@ -392,7 +392,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Provide the pin to the pair manager
-		klog.Infof("Received pin %s for secret %s", req.Pin, req.Secret)
+		klog.V(5).Infof("Received pin %s for secret %s", req.Pin, req.Secret)
 		err := s.manager.PostPin(req.Secret, req.Pin)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -759,8 +759,11 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 
 		if r.URL.Path != "/serverinfo" {
-
-			klog.Infof("%s %s %s %v %s", r.Proto, r.Method, r.URL.Path, r.URL.Query(), r.RemoteAddr)
+			if klog.V(5).Enabled() {
+				klog.V(5).Infof("%s %s %s %v %s", r.Proto, r.Method, r.URL.Path, r.URL.Query(), r.RemoteAddr)
+			} else {
+				klog.Infof("%s %s %s %s", r.Proto, r.Method, r.URL.Path, r.RemoteAddr)
+			}
 			next.ServeHTTP(w, r)
 			klog.V(1).Infof("Completed in %s", time.Since(start))
 		} else {
