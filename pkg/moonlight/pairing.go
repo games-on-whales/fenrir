@@ -140,6 +140,9 @@ func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt s
 	}
 
 	clientCertDER, _ := pem.Decode(clientCertData)
+	if clientCertDER == nil {
+		return failPair("Failed to decode client cert: invalid PEM block")
+	}
 	clientCert, err := x509.ParseCertificate(clientCertDER.Bytes)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to parse client cert: %s", err))
