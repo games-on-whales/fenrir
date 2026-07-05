@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"reflect"
-	"sync"
 	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -59,7 +58,6 @@ type SessionControllerOptions struct {
 	WolfAgentImage           string
 	WolfAgentImagePullPolicy string // for debug / local testing / slow internet connections
 	LBSharingKey             string
-	activeCollectors         sync.Map
 }
 
 // Session Controller manages the lifecycle of a streaming session for
