@@ -1,5 +1,5 @@
 {
-  "description": "Represents a User CRD",
+  "description": "Represents a Profile CRD",
   "properties": {
     "apiVersion": {
       "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
@@ -14,6 +14,38 @@
     },
     "spec": {
       "properties": {
+        "apps": {
+          "description": "Apps defines the list of apps available to this profile.",
+          "items": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object",
+            "additionalProperties": false
+          },
+          "type": "array"
+        },
+        "pairings": {
+          "description": "Pairings defines the list of paired moonlight clients that can access this profile.\nAdmins manually add Pairing IDs here to grant access.",
+          "items": {
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object",
+            "additionalProperties": false
+          },
+          "type": "array"
+        },
         "resources": {
           "description": "Resources defines the maximum resource requests and limits that the app\ncontainer can have. If an app requests exceeds these values,\nthe app will fail to start.",
           "properties": {
@@ -82,7 +114,7 @@
         "sidecarPolicies": {
           "description": "SidecarPolicies defines the resource requests and limits for the injected\nsidecar containers. If a policy for a sidecar is not defined here, the\noperator will use its own built-in default values.",
           "properties": {
-            "pulseaudio": {
+            "pulseAudio": {
               "description": "Policy for the 'pulseaudio' audio control container",
               "properties": {
                 "env": {

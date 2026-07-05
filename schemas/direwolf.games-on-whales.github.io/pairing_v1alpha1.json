@@ -16,23 +16,10 @@
       "properties": {
         "clientCertPEM": {
           "type": "string"
-        },
-        "userReference": {
-          "properties": {
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "name"
-          ],
-          "type": "object",
-          "additionalProperties": false
         }
       },
       "required": [
-        "clientCertPEM",
-        "userReference"
+        "clientCertPEM"
       ],
       "type": "object",
       "additionalProperties": false

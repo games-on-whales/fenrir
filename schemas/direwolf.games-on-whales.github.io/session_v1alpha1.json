@@ -91,7 +91,7 @@
           "type": "object",
           "additionalProperties": false
         },
-        "userReference": {
+        "profileReference": {
           "properties": {
             "name": {
               "type": "string"
@@ -109,7 +109,7 @@
         "gameReference",
         "gateway",
         "pairingReference",
-        "userReference"
+        "profileReference"
       ],
       "type": "object",
       "additionalProperties": false
