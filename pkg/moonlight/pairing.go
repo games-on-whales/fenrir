@@ -77,7 +77,35 @@ type PairingManager struct {
 
 	PairingsClient v1alpha1_client.PairingInterface
 }
+type pendingPin struct {
+	ch     chan PinSubmission
+	closed bool
+	mu     sync.Mutex
+}
 
+func (p *pendingPin) Send(sub PinSubmission) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return errors.New("channel closed")
+	}
+	select {
+	case p.ch <- sub:
+		return nil
+	default:
+		return errors.New("channel full")
+	}
+}
+
+func (p *pendingPin) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return
+	}
+	p.closed = true
+	close(p.ch)
+}
 func NewPairingManager(
 	cert tls.Certificate,
 	pairingsClient v1alpha1_client.PairingInterface,
@@ -94,20 +122,18 @@ func failPair(statusMsg string) PairingResponse {
 }
 
 func (m *PairingManager) PostPin(secret string, pin string) error {
-	channel, found := m.PendingPins.Load(secret)
+	val, found := m.PendingPins.Load(secret)
 	if !found {
-		err := fmt.Errorf("no pending pin for secret %s", secret)
-		return err
+		return fmt.Errorf("no pending pin for secret %s", secret)
 	}
 
-	select {
-	case channel.(chan PinSubmission) <- PinSubmission{Pin: pin}:
-		klog.V(2).Infof("Sent pin %s to channel for secret %s", pin, secret)
-		return nil
-	default:
-		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)
-		return err
+	pp := val.(*pendingPin)
+	if err := pp.Send(PinSubmission{Pin: pin}); err != nil {
+		return fmt.Errorf("failed to send pin %s to channel for secret %s: %w", pin, secret, err)
 	}
+
+	klog.V(2).Infof("Sent pin %s to channel for secret %s", pin, secret)
+	return nil
 }
 
 func (m *PairingManager) Unpair(cacheKey string) error {
@@ -161,10 +187,12 @@ func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt s
 	pinSecretHex := hex.EncodeToString(pinSecret)
 
 	// Store the pin secret
-	pinChannel := make(chan PinSubmission, 1)
-	defer close(pinChannel)
+	// not sure if commenting this out is enough, so I'll add a sync guard
+	// defer close(pinChannel)
+	pp := &pendingPin{ch: make(chan PinSubmission, 1)}
 	defer m.PendingPins.Delete(pinSecretHex)
-	m.PendingPins.Store(pinSecretHex, pinChannel)
+	defer pp.Close()
+	m.PendingPins.Store(pinSecretHex, pp)
 
 	if clientReqBaseURL == "" {
 		clientReqBaseURL = "http://127.0.0.1:47989" // Fallback
@@ -181,7 +209,7 @@ func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt s
 		submission = PinSubmission{Pin: hardcoded}
 	} else {
 		select {
-		case submission = <-pinChannel:
+		case submission = <-pp.ch:
 			// Successfully received pin
 		case <-ctx.Done():
 			return failPair("Pairing request cancelled or timed out waiting for PIN")
