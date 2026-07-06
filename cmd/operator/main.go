@@ -31,13 +31,13 @@ func main() {
 	wImagePullPolicy := os.Getenv("AGENT_IMAGE_PULL_POLICY")
 	switch wImagePullPolicy {
 	case "Always", "IfNotPresent", "Never":
-		// TODO, increase log level
-		klog.V(1).Infof("Wolf-Agent Image Pull policy %s", wImagePullPolicy)
+		klog.Infof("Wolf-Agent Image Pull policy %s", wImagePullPolicy)
 	default:
-		klog.Infof("Wolf-Agent Image Pull policy not valid %s: defaulting to %q", wImagePullPolicy, "IfNotPresent")
+		klog.Infof("Wolf-Agent Image Pull policy %q is not valid: defaulting to %q", wImagePullPolicy, "IfNotPresent")
+		wImagePullPolicy = "IfNotPresent"
 	}
 	wolfAgentImage := flag.String("wolf-agent-image", im, "Wolf Agent image")
-	wolfAgentImagePullPolicy := flag.String("wolf-agent-image-pull-policy", wImagePullPolicy, "wolf agent image pull policy")
+	wolfAgentImagePullPolicy := flag.String("wolf-agent-image-pull-policy", wImagePullPolicy, "wolf agent image pull policy (Always, IfNotPresent, Never)")
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
