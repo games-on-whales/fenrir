@@ -12,7 +12,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -26,15 +25,6 @@ import (
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-func hardcodedPin() (string, bool) {
-	val, ok := os.LookupEnv("HARDCODED_PIN")
-	if !ok {
-		return "", false
-	}
-	return val, true
-}
-
-// To replace the hardcoded pin
 type PinSubmission struct {
 	Pin string
 	// Username string
@@ -204,18 +194,13 @@ func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt s
 		"=======================================================\n", clientReqBaseURL, pinSecretHex)
 
 	var submission PinSubmission
-	if hardcoded, ok := hardcodedPin(); ok {
-		klog.Infof("Debugger attached, using hardcoded pin")
-		submission = PinSubmission{Pin: hardcoded}
-	} else {
-		select {
-		case submission = <-pp.ch:
-			// Successfully received pin
-		case <-ctx.Done():
-			return failPair("Pairing request cancelled or timed out waiting for PIN")
-		case <-time.After(30 * time.Second):
-			return failPair("Pairing request timed out waiting for PIN (30 seconds)")
-		}
+	select {
+	case submission = <-pp.ch:
+		// Successfully received pin
+	case <-ctx.Done():
+		return failPair("Pairing request cancelled or timed out waiting for PIN")
+	case <-time.After(30 * time.Second):
+		return failPair("Pairing request timed out waiting for PIN (30 seconds)")
 	}
 
 	// Generate server cert and AES key
