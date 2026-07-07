@@ -61,10 +61,6 @@ spec:
           - containerPort: 47984
           - containerPort: 47989
           env:
-          # Useful for debugging pairing to skip constant PIN screens.
-          # Requires modified moonlight client.
-          # - name: HARDCODED_PIN
-          #   value: "1111"
           - name: POD_NAME
             valueFrom:
               fieldRef:
