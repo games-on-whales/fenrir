@@ -16,10 +16,14 @@
       "properties": {
         "clientCertPEM": {
           "type": "string"
+        },
+        "username": {
+          "type": "string"
         }
       },
       "required": [
-        "clientCertPEM"
+        "clientCertPEM",
+        "username"
       ],
       "type": "object",
       "additionalProperties": false

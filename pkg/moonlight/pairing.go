@@ -26,8 +26,8 @@ import (
 )
 
 type PinSubmission struct {
-	Pin string
-	// Username string
+	Pin      string
+	Username string
 }
 
 type PairingResponse struct {
@@ -46,7 +46,7 @@ type pendingPairCacheEntry struct {
 	ServerSecret    []byte
 	ServerChallenge []byte
 	ClientHash      []byte
-	// Username        string
+	Username        string
 }
 
 type PairingManager struct {
@@ -111,15 +111,15 @@ func failPair(statusMsg string) PairingResponse {
 	return PairingResponse{Paired: 0, Response: Response{StatusCode: 400, StatusMessage: statusMsg}}
 }
 
-func (m *PairingManager) PostPin(secret string, pin string) error {
+func (m *PairingManager) PostPin(secret string, pin string, username string) error {
 	val, found := m.PendingPins.Load(secret)
 	if !found {
 		return fmt.Errorf("no pending pin for secret %s", secret)
 	}
 
 	pp := val.(*pendingPin)
-	if err := pp.Send(PinSubmission{Pin: pin}); err != nil {
-		return fmt.Errorf("failed to send pin %s to channel for secret %s: %w", pin, secret, err)
+	if err := pp.Send(PinSubmission{Pin: pin, Username: username}); err != nil {
+		klog.Errorf("failed to send pin %s and username %s to channel for secret %s: %w", pin, secret, username, err)
 	}
 
 	klog.V(2).Infof("Sent pin %s to channel for secret %s", pin, secret)
@@ -208,8 +208,8 @@ func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt s
 	m.PairingCache.Store(cacheKey, pendingPairCacheEntry{
 		ClientCert: clientCert,
 		LastPhase:  "GETSERVERCERT",
-		// Username:   submission.Username,
-		AESKey: util.Hash(saltData[:16], []byte(submission.Pin))[:16],
+		Username:   submission.Username,
+		AESKey:     util.Hash(saltData[:16], []byte(submission.Pin))[:16],
 	})
 
 	// Send hex encoded server cert pem
@@ -402,15 +402,17 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 		},
 		ObjectMetaApplyConfiguration: &metav1apply.ObjectMetaApplyConfiguration{
 			Name: ptr.To(fingerprint),
+			// to allow the user to search for all pairing belonging to a user through selectors
+			Labels: map[string]string{
+				"direwolf/username": clientCache.Username,
+			},
 		},
 		Spec: &v1alpha1_apply.PairingSpecApplyConfiguration{
 			ClientCertPEM: ptr.To(string(pem.EncodeToMemory(&pem.Block{
 				Type:  "CERTIFICATE",
 				Bytes: clientCache.ClientCert.Raw,
 			}))),
-			// UserReference: &v1alpha1_apply.UserReferenceApplyConfiguration{
-			// 	Name: ptr.To(clientCache.Username),
-			// },
+			Username: ptr.To(clientCache.Username),
 		},
 	}, metav1.ApplyOptions{
 		FieldManager: "moonlight-proxy",

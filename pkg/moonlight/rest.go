@@ -88,8 +88,6 @@ func NewRESTServer(
 	ps.router.HandleFunc("/serverinfo", ps.serverInfoHandler)
 	ps.router.HandleFunc("/pair", ps.pairHandler)
 	ps.router.HandleFunc("/unpair", ps.unpairHandler)
-	// I don't know why I'm keeping this
-	// ps.router.HandleFunc("/{username}/pin/", ps.pinHandler)
 	ps.router.HandleFunc("/pin/", ps.pinHandler)
 
 	ps.router.HandleFunc("/readyz", ps.readyzHandler)
@@ -361,7 +359,8 @@ func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
-	klog.Infof("Handling %v pin request from %s", r.Method, r.RemoteAddr)
+	username := r.PathValue("username")
+	klog.Infof("Handling %v pin request from %s, with user defined username %q", r.Method, r.RemoteAddr, username)
 
 	// Handle GET /pin
 	if r.Method == "GET" {
@@ -374,8 +373,9 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	// Handle POST /pin
 	if r.Method == "POST" {
 		type PinRequest struct {
-			Pin    string `json:"pin"`
-			Secret string `json:"secret"`
+			Pin      string `json:"pin"`
+			Secret   string `json:"secret"`
+			Username string `json:"username"`
 		}
 
 		var req PinRequest
@@ -384,16 +384,18 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Invalid request"))
 			return
 		}
-
-		if req.Pin == "" || req.Secret == "" {
+		if req.Username == "" {
+			req.Username = username
+		}
+		if req.Pin == "" || req.Secret == "" || req.Username == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request: missing pin or secret"))
+			w.Write([]byte("Invalid request: missing pin, secret, or username"))
 			return
 		}
 
 		// Provide the pin to the pair manager
 		klog.V(2).Infof("Received pin %s for secret %s", req.Pin, req.Secret)
-		err := s.manager.PostPin(req.Secret, req.Pin)
+		err := s.manager.PostPin(req.Secret, req.Pin, req.Username)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(err.Error()))

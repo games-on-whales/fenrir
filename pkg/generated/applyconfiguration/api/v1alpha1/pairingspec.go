@@ -22,6 +22,7 @@ package v1alpha1
 // with apply.
 type PairingSpecApplyConfiguration struct {
 	ClientCertPEM *string `json:"clientCertPEM,omitempty"`
+	Username      *string `json:"username,omitempty"`
 }
 
 // PairingSpecApplyConfiguration constructs a declarative configuration of the PairingSpec type for use with
@@ -35,5 +36,13 @@ func PairingSpec() *PairingSpecApplyConfiguration {
 // If called multiple times, the ClientCertPEM field is set to the value of the last call.
 func (b *PairingSpecApplyConfiguration) WithClientCertPEM(value string) *PairingSpecApplyConfiguration {
 	b.ClientCertPEM = &value
+	return b
+}
+
+// WithUsername sets the Username field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Username field is set to the value of the last call.
+func (b *PairingSpecApplyConfiguration) WithUsername(value string) *PairingSpecApplyConfiguration {
+	b.Username = &value
 	return b
 }

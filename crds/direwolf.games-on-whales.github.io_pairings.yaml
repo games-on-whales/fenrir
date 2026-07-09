@@ -43,8 +43,11 @@ spec:
             properties:
               clientCertPEM:
                 type: string
+              username:
+                type: string
             required:
             - clientCertPEM
+            - username
             type: object
         type: object
     served: true
