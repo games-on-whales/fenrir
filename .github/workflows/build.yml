@@ -32,6 +32,6 @@ jobs:
           platforms: linux/amd64
           push: false
           cache-from: type=gha
-          tags: ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}:${{ github.ref_name }}
+          tags: ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}
           build-args: |
             APP_NAME=${{ matrix.app }}
