@@ -11,6 +11,7 @@ jobs:
   verify_build:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         app:
           - wolf-agent
