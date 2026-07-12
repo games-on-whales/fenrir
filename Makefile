@@ -19,3 +19,7 @@ fmt-diff:
 ## Run go test
 test:
 	@go test -race -shuffle=on -timeout 5m ./...
+
+## Run go vet
+vet:
+	@go vet ./...
