@@ -194,7 +194,7 @@ formatters:
       sections:
         - standard
         - default
-        - prefix(github.com/games-on-whales/direwolf)
+        - prefix(games-on-whales.github.io/direwolf)
         - blank
         - dot
       custom-order: true
@@ -202,7 +202,7 @@ formatters:
       extra-rules: true
     goimports:
       local-prefixes:
-        - github.com/games-on-whales/direwolf
+        - games-on-whales.github.io/direwolf
   exclusions:
     generated: lax
     paths:
