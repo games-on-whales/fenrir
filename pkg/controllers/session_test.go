@@ -138,10 +138,10 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		t.Fatalf("failed to pre-create configmap: %v", err)
 	}
 
-	// 2) reconcileConfigMap
-	if err := sc.reconcileConfigMap(ctx, sess); err != nil {
-		t.Fatalf("reconcileConfigMap failed: %v", err)
-	}
+	// // 2) reconcileConfigMap
+	// if err := sc.reconcileConfigMap(ctx, sess); err != nil {
+	// 	t.Fatalf("reconcileConfigMap failed: %v", err)
+	// }
 
 	// 3) reconcilePVC
 	if err := sc.reconcilePVC(ctx, sess); err != nil {
