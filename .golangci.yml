@@ -69,6 +69,8 @@ linters:
               desc: "Deprecated since Go 1.16; use io or os"
             - pkg: "k8s.io/kubernetes/pkg"
               desc: "Do not import internal k8s packages directly"
+    dupl:
+      threshold: 100
     goconst:
       ignore-tests: true
       min-occurrences: 3
