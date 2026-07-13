@@ -94,7 +94,7 @@ jobs:
 
       - name: Get chart version
         id: get_version
-        uses: mikefarah/yq@master
+        uses: mikefarah/yq@e2f1d5ccf73239195bf92280cd47596751492449 # master
         with:
           cmd: |
             set -euo pipefail
@@ -153,7 +153,7 @@ jobs:
           path: agent-artifact
 
       - name: Update Helm chart image tags
-        uses: mikefarah/yq@master
+        uses: mikefarah/yq@e2f1d5ccf73239195bf92280cd47596751492449 # master
         with:
           cmd: |   
             VALUES_FILE=charts/direwolf-operator/values.yaml
