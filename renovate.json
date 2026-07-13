@@ -3,7 +3,6 @@
   "extends": [
     "config:recommended",
     "docker:enableMajor",
-    "helpers:pinGitHubActionDigestsToSemver",
-    ":disableRateLimiting"
+    "helpers:pinGitHubActionDigestsToSemver"
   ]
 }
