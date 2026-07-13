@@ -135,19 +135,19 @@ jobs:
           fi
 
       - name: Download image digest artifact (operator)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: image-digest-operator
           path: operator-artifact
 
       - name: Download image digest artifact (moonlight-proxy)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: image-digest-moonlight-proxy
           path: proxy-artifact
 
       - name: Download image digest artifact (wolf-agent)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: image-digest-wolf-agent
           path: agent-artifact
