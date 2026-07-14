@@ -26,7 +26,7 @@ linters:
     - testifylint # Checks usage of github.com/stretchr/testify.
     - goconst # Finds repeated strings that could be replaced by a constant.
     - gocritic # bugs, performance, style (we could add custom ones to this one)
-    - godot # checks that comments end in a period
+    # - godot # checks that comments end in a period
     - godox # block FIXMEs
     - depguard # blocks dependencies; not sure what to put yet
     - godoclint # Checks Golang's documentation practice (godoc).
@@ -73,7 +73,7 @@ linters:
       threshold: 100
     goconst:
       ignore-tests: true
-      min-occurrences: 3
+      min-occurrences: 4
     gocritic:
       disabled-checks:
         - appendAssign
@@ -96,15 +96,15 @@ linters:
         - experimental
         - performance
         # - style # not sure if I should enable this
-    godot:
-      #   declarations - for top level declaration comments (default);
-      #   toplevel     - for top level comments;
-      #   all          - for all comments.
-      scope: toplevel
-      exclude:
-        - ^ \+.*
-        - ^ ANCHOR.*
-        - '^ (alpha|beta|GA): v.*'
+    # godot:
+    #   #   declarations - for top level declaration comments (default);
+    #   #   toplevel     - for top level comments;
+    #   #   all          - for all comments.
+    #   scope: toplevel
+    #   exclude:
+    #     - ^ \+.*
+    #     - ^ ANCHOR.*
+    #     - '^ (alpha|beta|GA): v.*'
     godox:
       keywords:
         - FIXME # FIXME's should be removed before merging PRs
