@@ -1,0 +1,37 @@
+name: Verify Docker Build
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify_build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - wolf-agent
+          - moonlight-proxy
+          - operator
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3.10.0
+
+      - name: Build image (no push)
+        uses: docker/build-push-action@v6.15.0
+        with:
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          tags: ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}
+          build-args: |
+            APP_NAME=${{ matrix.app }}
