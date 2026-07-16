@@ -303,9 +303,47 @@ type AppsResponse struct {
 
 type WolfEventType string
 const (
-	PauseStreamEventType WolfEventType = "wolf::core::events::PauseStreamEvent"
+	PauseStreamEventType  WolfEventType = "wolf::core::events::PauseStreamEvent"
+	PlugDeviceEventType   WolfEventType = "wolf::core::events::PlugDeviceEvent"
+	UnplugDeviceEventType WolfEventType = "wolf::core::events::UnplugDeviceEvent"
 )
 
 type PauseStreamEvent struct {
 	SessionID string `json:"session_id"`
+}
+
+// PlugDeviceEvent is fired by wolf when it hotplugs a virtual input device
+// (joypad, mouse, keyboard, ...) for a session. It carries the raw udev
+// event properties and hardware database entries that would normally be
+// delivered by udevd; in the Docker runner wolf injects them into the app
+// container via the fake-udev binary. In Kubernetes the wolf-agent performs
+// the equivalent work (see pkg/fakeudev).
+type PlugDeviceEvent struct {
+	SessionID string `json:"session_id"`
+	// One map of KEY=VALUE udev properties per emitted event.
+	UdevEvents []map[string]string `json:"udev_events"`
+	// Pairs of [filename, lines] to write under /run/udev/data.
+	UdevHwDbEntries []UdevHwDbEntry `json:"udev_hw_db_entries"`
+}
+
+type UnplugDeviceEvent PlugDeviceEvent
+
+// UdevHwDbEntry decodes wolf's [name, [lines...]] JSON tuples.
+type UdevHwDbEntry struct {
+	Filename string
+	Content  []string
+}
+
+func (e *UdevHwDbEntry) UnmarshalJSON(data []byte) error {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if len(raw) != 2 {
+		return fmt.Errorf("expected [filename, lines] tuple, got %d elements", len(raw))
+	}
+	if err := json.Unmarshal(raw[0], &e.Filename); err != nil {
+		return err
+	}
+	return json.Unmarshal(raw[1], &e.Content)
 }
