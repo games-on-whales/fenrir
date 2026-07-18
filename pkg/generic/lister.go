@@ -17,7 +17,6 @@ limitations under the License.
 package generic
 
 import (
-	"fmt"
 	"net/http"
 
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
@@ -38,7 +37,7 @@ func (w namespacedLister[T]) List(selector labels.Selector) (ret []T, err error)
 	if selector == nil {
 		selector = labels.Everything()
 	}
-	err = cache.ListAllByNamespace(w.indexer, w.namespace, selector, func(m interface{}) {
+	err = cache.ListAllByNamespace(w.indexer, w.namespace, selector, func(m any) {
 		ret = append(ret, m.(T))
 	})
 	return ret, err
@@ -56,7 +55,7 @@ func (w namespacedLister[T]) Get(name string) (T, error) {
 			Status:  metav1.StatusFailure,
 			Code:    http.StatusNotFound,
 			Reason:  metav1.StatusReasonNotFound,
-			Message: fmt.Sprintf("%s not found", name),
+			Message: name + " not found",
 		}}
 	}
 	result = obj.(T)
@@ -68,7 +67,7 @@ type lister[T runtime.Object] struct {
 }
 
 func (w lister[T]) List(selector labels.Selector) (ret []T, err error) {
-	err = cache.ListAll(w.indexer, selector, func(m interface{}) {
+	err = cache.ListAll(w.indexer, selector, func(m any) {
 		ret = append(ret, m.(T))
 	})
 	return ret, err
@@ -87,7 +86,7 @@ func (w lister[T]) Get(name string) (T, error) {
 			Status:  metav1.StatusFailure,
 			Code:    http.StatusNotFound,
 			Reason:  metav1.StatusReasonNotFound,
-			Message: fmt.Sprintf("%s not found", name),
+			Message: name + " not found",
 		}}
 	}
 	result = obj.(T)

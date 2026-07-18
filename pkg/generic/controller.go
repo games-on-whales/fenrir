@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/cache/synctrack"
@@ -117,7 +116,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 	// would never shut down the workqueue
 	defer c.queue.ShutDown()
 
-	enqueue := func(obj interface{}, isInInitialList bool) {
+	enqueue := func(obj any, isInInitialList bool) {
 		var key string
 		var err error
 		if key, err = cache.DeletionHandlingMetaNamespaceKeyFunc(obj); err != nil {
@@ -133,7 +132,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	registration, err := c.informer.AddEventHandler(cache.ResourceEventHandlerDetailedFuncs{
 		AddFunc: enqueue,
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			oldMeta, err1 := meta.Accessor(oldObj)
 			newMeta, err2 := meta.Accessor(newObj)
 
@@ -155,7 +154,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 			enqueue(newObj, false)
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			// Enqueue
 			enqueue(obj, false)
 		},
@@ -193,7 +192,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	waitGroup := sync.WaitGroup{}
 
-	for i := uint(0); i < c.options.Workers; i++ {
+	for range uint(c.options.Workers) {
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()

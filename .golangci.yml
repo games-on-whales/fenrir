@@ -127,8 +127,14 @@ linters:
           alias: corev1
         - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
           alias: metav1
+        - pkg: k8s.io/api/apps/v1
+          alias: appsv1
         - pkg: k8s.io/client-go/kubernetes
           alias: kubernetes
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: kerrors
+        - pkg: games-on-whales.github.io/direwolf/pkg/api/v1alpha1
+          alias: direwolfv1alpha1
     misspell:
       mode: default
     # modernize:

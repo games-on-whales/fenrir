@@ -3,10 +3,10 @@ package moonlight
 import (
 	"encoding/xml"
 
-	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 )
 
-type Responsable interface {
+type Responsible interface {
 	GetStatusCode() int
 }
 
@@ -61,8 +61,8 @@ type AppListResponse struct {
 }
 
 type App struct {
-	XMLName          xml.Name `xml:"App"`
-	v1alpha1.AppSpec `xml:",inline"`
+	XMLName                  xml.Name `xml:"App"`
+	direwolfv1alpha1.AppSpec `xml:",inline"`
 }
 
 type LaunchResponse struct {

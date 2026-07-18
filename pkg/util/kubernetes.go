@@ -8,9 +8,9 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+	gateway "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 
 	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
-	gateway "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
 func GetKubernetesClients() (

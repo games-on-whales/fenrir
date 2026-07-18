@@ -18,18 +18,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
-	"games-on-whales.github.io/direwolf/pkg/generic"
-	"games-on-whales.github.io/direwolf/pkg/util"
 	"golang.org/x/image/webp"
-
-	v1 "k8s.io/api/core/v1"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	corev1 "k8s.io/api/core/v1"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
+	"games-on-whales.github.io/direwolf/pkg/generic"
+	"games-on-whales.github.io/direwolf/pkg/util"
 
 	_ "embed"
 )
@@ -50,11 +50,11 @@ type RESTServer struct {
 
 	manager *PairingManager
 
-	PairingsLister generic.NamespacedLister[*v1alpha1types.Pairing]
-	ProfileLister  generic.NamespacedLister[*v1alpha1types.Profile]
-	AppLister      generic.NamespacedLister[*v1alpha1types.App]
-	PodLister      generic.NamespacedLister[*v1.Pod]
-	SessionLister  generic.NamespacedLister[*v1alpha1types.Session]
+	PairingsLister generic.NamespacedLister[*direwolfv1alpha1.Pairing]
+	ProfileLister  generic.NamespacedLister[*direwolfv1alpha1.Profile]
+	AppLister      generic.NamespacedLister[*direwolfv1alpha1.App]
+	PodLister      generic.NamespacedLister[*corev1.Pod]
+	SessionLister  generic.NamespacedLister[*direwolfv1alpha1.Session]
 
 	SessionClient v1alpha1client.SessionInterface
 
@@ -63,11 +63,11 @@ type RESTServer struct {
 
 func NewRESTServer(
 	manager *PairingManager,
-	pairingsLister generic.NamespacedLister[*v1alpha1types.Pairing],
-	profileLister generic.NamespacedLister[*v1alpha1types.Profile],
-	appLister generic.NamespacedLister[*v1alpha1types.App],
-	sessionLister generic.NamespacedLister[*v1alpha1types.Session],
-	podsLister generic.NamespacedLister[*v1.Pod],
+	pairingsLister generic.NamespacedLister[*direwolfv1alpha1.Pairing],
+	profileLister generic.NamespacedLister[*direwolfv1alpha1.Profile],
+	appLister generic.NamespacedLister[*direwolfv1alpha1.App],
+	sessionLister generic.NamespacedLister[*direwolfv1alpha1.Session],
+	podsLister generic.NamespacedLister[*corev1.Pod],
 	sessionClient v1alpha1client.SessionInterface,
 	opts RESTServerOptions,
 ) *RESTServer {
@@ -190,7 +190,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 		pairStatus = 1
 
 		if profiles := r.Context().Value(profilesContextKey{}); profiles != nil {
-			profiles := profiles.([]*v1alpha1types.Profile)
+			profiles := profiles.([]*direwolfv1alpha1.Profile)
 
 			// Check pods for any of the available profiles
 			for _, profile := range profiles {
@@ -198,7 +198,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 					"direwolf/profile": profile.Name,
 				}))
 				if err != nil {
-					writeErrorResponse(w, 500, fmt.Errorf("failed to list pods: %s", err))
+					writeErrorResponse(w, 500, fmt.Errorf("failed to list pods: %w", err))
 					return
 				}
 
@@ -206,10 +206,10 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 					serverStatus = "SUNSHINE_SERVER_BUSY"
 					currentApp, err := s.AppLister.Get(pods[0].Labels["direwolf/app"])
 					if err != nil {
-						writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %s", err))
+						writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %w", err))
 						return
 					}
-					currentGame = fmt.Sprint(currentApp.Spec.ID)
+					currentGame = strconv.Itoa(currentApp.Spec.ID)
 					break
 				}
 			}
@@ -344,7 +344,7 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
 	klog.Infof("Handling unpair request from %s", r.RemoteAddr)
-	if r.Method == "GET" {
+	if r.Method == http.MethodGet {
 		clientIP := strings.Split(r.RemoteAddr, ":")[0]
 		clientID := r.URL.Query().Get("uniqueid")
 		cacheKey := fmt.Sprintf("%s@%s", clientID, clientIP)
@@ -363,7 +363,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	klog.Infof("Handling %v pin request from %s, with user defined username %q", r.Method, r.RemoteAddr, username)
 
 	// Handle GET /pin
-	if r.Method == "GET" {
+	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(pinHTML))
@@ -371,7 +371,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Handle POST /pin
-	if r.Method == "POST" {
+	if r.Method == http.MethodPost {
 		type PinRequest struct {
 			Pin      string `json:"pin"`
 			Secret   string `json:"secret"`
@@ -412,7 +412,7 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
-	profiles := r.Context().Value(profilesContextKey{}).([]*v1alpha1types.Profile)
+	profiles := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
 
 	appsList := make([]App, 0)
 	for _, profile := range profiles {
@@ -440,7 +440,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	clientIP := strings.Split(r.RemoteAddr, ":")[0]
 
 	// 2025/03/03 11:34:48 HTTP/2.0 GET /launch map[additionalStates:[1] appid:[firefox] localAudioPlayMode:[0] mode:[1920x1080x60] rikey:[773448F67992470C5C62848D361E1025] rikeyid:[1311662065] sops:[0] surroundAudioInfo:[196610] uniqueid:[0123456789ABCDEF]] 127.0.0.1:65314
-	// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
+	// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
 	appID := r.URL.Query().Get("appid")
 	// additionalStates := r.URL.Query().Get("additionalStates") // ???
 	mode := r.URL.Query().Get("mode")
@@ -450,17 +450,17 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	surroundAudioInfo := r.URL.Query().Get("surroundAudioInfo")
 
 	if appID == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("appid required"))
+		writeErrorResponse(w, 400, errors.New("appid required"))
 		return
 	}
 
 	if rikey == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("rikey required"))
+		writeErrorResponse(w, 400, errors.New("rikey required"))
 		return
 	}
 
 	if rikeyID == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("rikeyid required"))
+		writeErrorResponse(w, 400, errors.New("rikeyid required"))
 		return
 	}
 
@@ -502,18 +502,18 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 
 	app, err := s.getAppByID(appID)
 	if err != nil {
-		writeErrorResponse(w, 404, fmt.Errorf("app not found: %s", err))
+		writeErrorResponse(w, 404, fmt.Errorf("app not found: %w", err))
 		return
 	}
 
-	profiles := r.Context().Value(profilesContextKey{}).([]*v1alpha1types.Profile)
-	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
+	profiles := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
+	pairing := r.Context().Value(pairingContextKey{}).(*direwolfv1alpha1.Pairing)
 
 	// Find a profile that contains the requested app
-	var targetProfile *v1alpha1types.Profile
+	var targetProfile *direwolfv1alpha1.Profile
 	for _, p := range profiles {
 		for _, appRef := range p.Spec.Apps {
-			if appRef.Name == app.ObjectMeta.Name {
+			if appRef.Name == app.Name {
 				targetProfile = p
 				break
 			}
@@ -524,7 +524,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if targetProfile == nil {
-		writeErrorResponse(w, 403, fmt.Errorf("no available profile contains app %s", app.ObjectMeta.Name))
+		writeErrorResponse(w, 403, fmt.Errorf("no available profile contains app %s", app.Name))
 		return
 	}
 
@@ -532,43 +532,43 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	// at the old pod. It is very likely to happen before operator syncs and
 	// can create session, but perhaps should still check after operator returns
 	// the session URL.
-	if err := s.stopSessionsForProfile(targetProfile, false); err != nil && !k8serrors.IsNotFound(err) {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %s", err))
+	if err := s.stopSessionsForProfile(targetProfile, false); err != nil && !kerrors.IsNotFound(err) {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %w", err))
 		return
 	}
 
-	klog.Infof("Launching app %s for profile %s", app.ObjectMeta.Name, targetProfile.ObjectMeta.Name)
+	klog.Infof("Launching app %s for profile %s", app.Name, targetProfile.Name)
 	session, err := s.SessionClient.Create(
 		r.Context(),
-		&v1alpha1types.Session{
+		&direwolfv1alpha1.Session{
 			ObjectMeta: metav1.ObjectMeta{
 				GenerateName: fmt.Sprintf("%s-%s-", targetProfile.Name, app.Name),
 				Namespace:    pairing.Namespace,
 				Labels: map[string]string{
 					"direwolf":         "true",
-					"direwolf/app":     app.ObjectMeta.Name,
-					"direwolf/profile": targetProfile.ObjectMeta.Name,
+					"direwolf/app":     app.Name,
+					"direwolf/profile": targetProfile.Name,
 				},
 				Annotations: map[string]string{
-					"direwolf/pairing": pairing.ObjectMeta.Name,
+					"direwolf/pairing": pairing.Name,
 				},
 			},
-			Spec: v1alpha1types.SessionSpec{
-				GameReference: v1alpha1types.GameReference{
-					Name: app.ObjectMeta.Name,
+			Spec: direwolfv1alpha1.SessionSpec{
+				GameReference: direwolfv1alpha1.GameReference{
+					Name: app.Name,
 				},
-				PairingReference: v1alpha1types.PairingReference{
-					Name: pairing.ObjectMeta.Name,
+				PairingReference: direwolfv1alpha1.PairingReference{
+					Name: pairing.Name,
 				},
-				ProfileReference: v1alpha1types.ProfileReference{
-					Name: targetProfile.ObjectMeta.Name,
+				ProfileReference: direwolfv1alpha1.ProfileReference{
+					Name: targetProfile.Name,
 				},
 				//!TODO: Unused. v1alpha2 Gateway types are not widely supported
-				GatewayReference: v1alpha1types.GatewayReference{
+				GatewayReference: direwolfv1alpha1.GatewayReference{
 					Name:      "unused",
 					Namespace: "unused",
 				},
-				Config: v1alpha1types.SessionInfo{
+				Config: direwolfv1alpha1.SessionInfo{
 					ClientIP:           clientIP,
 					AESIV:              rikeyID,
 					AESKey:             rikey,
@@ -584,7 +584,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		},
 	)
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to create session: %s", err))
+		writeErrorResponse(w, 500, fmt.Errorf("failed to create session: %w", err))
 		return
 	}
 
@@ -603,7 +603,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return true, nil
 	})
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %s", err))
+		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %w", err))
 		return
 	}
 
@@ -622,23 +622,23 @@ func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 	s.launchHandler(w, r)
 }
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
-	profiles := r.Context().Value(profilesContextKey{}).([]*v1alpha1types.Profile)
+	profiles := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
 
 	anyErr := false
 	for _, profile := range profiles {
-		if err := s.stopSessionsForProfile(profile, true); err != nil && !k8serrors.IsNotFound(err) {
+		if err := s.stopSessionsForProfile(profile, true); err != nil && !kerrors.IsNotFound(err) {
 			anyErr = true
 		}
 	}
 
 	if anyErr {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to cancel one or more sessions"))
+		writeErrorResponse(w, 500, errors.New("failed to cancel one or more sessions"))
 		return
 	}
 	sendXML(w, Response{StatusCode: 200})
 }
 
-func (s *RESTServer) stopSessionsForProfile(profile *v1alpha1types.Profile, shouldWait bool) error {
+func (s *RESTServer) stopSessionsForProfile(profile *direwolfv1alpha1.Profile, shouldWait bool) error {
 	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
 		"direwolf/profile": profile.Name,
 	}))
@@ -656,7 +656,7 @@ func (s *RESTServer) stopSessionsForProfile(profile *v1alpha1types.Profile, shou
 
 	if !didDelete {
 		klog.Warningf("Not stopping any sessions. No sessions found for profile %s", profile.Name)
-		return k8serrors.NewNotFound(v1alpha1types.Resource("session"), profile.Name)
+		return kerrors.NewNotFound(direwolfv1alpha1.Resource("session"), profile.Name)
 	}
 
 	if shouldWait {
@@ -681,18 +681,18 @@ func (s *RESTServer) stopSessionsForProfile(profile *v1alpha1types.Profile, shou
 func (s *RESTServer) appAssetHandler(w http.ResponseWriter, r *http.Request) {
 	appID := r.URL.Query().Get("appid")
 	if appID == "" {
-		writeErrorResponse(w, 400, fmt.Errorf("appid required"))
+		writeErrorResponse(w, 400, errors.New("appid required"))
 		return
 	}
 
 	app, err := s.getAppByID(appID)
 	if err != nil {
-		writeErrorResponse(w, 404, fmt.Errorf("app not found: %s", err))
+		writeErrorResponse(w, 404, fmt.Errorf("app not found: %w", err))
 		return
 	}
 
 	w.Header().Set("Content-Type", "image/png")
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusOK)
 
 	img, err := webp.Decode(bytes.NewReader(app.Spec.AppAssetWebP))
 	if err != nil {
@@ -737,10 +737,10 @@ func writeErrorResponse(w http.ResponseWriter, status int, err error) {
 	klog.ErrorS(err, "Sent error response", "status", status)
 }
 
-func sendXML(w http.ResponseWriter, resp Responsable) {
+func sendXML(w http.ResponseWriter, resp Responsible) {
 	bytes, err := xml.Marshal(resp)
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to marshal XML: %s", err))
+		writeErrorResponse(w, 500, fmt.Errorf("failed to marshal XML: %w", err))
 		return
 	}
 
@@ -782,7 +782,7 @@ type pairingContextKey struct{}
 func (s *RESTServer) authenticatedMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
-			writeErrorResponse(w, 401, fmt.Errorf("client cert required"))
+			writeErrorResponse(w, 401, errors.New("client cert required"))
 			return
 		}
 
@@ -796,11 +796,11 @@ func (s *RESTServer) authenticatedMiddleware(next http.Handler) http.Handler {
 		// List all profiles and filter those that include this pairing
 		allProfiles, err := s.ProfileLister.List(labels.Everything())
 		if err != nil {
-			writeErrorResponse(w, 500, fmt.Errorf("failed to list profiles: %s", err))
+			writeErrorResponse(w, 500, fmt.Errorf("failed to list profiles: %w", err))
 			return
 		}
 
-		var availableProfiles []*v1alpha1types.Profile
+		var availableProfiles []*direwolfv1alpha1.Profile
 		for _, p := range allProfiles {
 			for _, pRef := range p.Spec.Pairings {
 				if pRef.Name == pairing.Name {
@@ -816,10 +816,10 @@ func (s *RESTServer) authenticatedMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func (s *RESTServer) getAppByID(appID string) (*v1alpha1types.App, error) {
+func (s *RESTServer) getAppByID(appID string) (*direwolfv1alpha1.App, error) {
 	intParsedAppID, err := strconv.Atoi(appID)
 	if err != nil {
-		return nil, fmt.Errorf("app id must be an integer")
+		return nil, errors.New("app id must be an integer")
 	}
 
 	apps, err := s.AppLister.List(nil)
@@ -833,5 +833,5 @@ func (s *RESTServer) getAppByID(appID string) (*v1alpha1types.App, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("app not found")
+	return nil, errors.New("app not found")
 }

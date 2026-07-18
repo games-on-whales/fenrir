@@ -4,23 +4,19 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"time"
-
-	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
-	"games-on-whales.github.io/direwolf/pkg/generic"
-	"games-on-whales.github.io/direwolf/pkg/util"
-	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 
 	// "github.com/pelletier/go-toml/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,8 +31,13 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
+
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
+	"games-on-whales.github.io/direwolf/pkg/generic"
+	"games-on-whales.github.io/direwolf/pkg/util"
+	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 var (
@@ -73,10 +74,10 @@ type SessionControllerOptions struct {
 //   - 1. Delete sessions for games that were deleted
 type SessionController struct {
 	SessionClient   v1alpha1client.SessionInterface
-	SessionInformer generic.Informer[*v1alpha1types.Session]
+	SessionInformer generic.Informer[*direwolfv1alpha1.Session]
 
-	AppInformer     generic.Informer[*v1alpha1types.App]
-	ProfileInformer generic.Informer[*v1alpha1types.Profile]
+	AppInformer     generic.Informer[*direwolfv1alpha1.App]
+	ProfileInformer generic.Informer[*direwolfv1alpha1.Profile]
 
 	TCPRouteClient gatewayv1alpha2.TCPRouteInterface
 	UDPRouteClient gatewayv1alpha2.UDPRouteInterface
@@ -86,7 +87,7 @@ type SessionController struct {
 	trackedSessions map[profileGame]sets.Set[string]
 	trackedGames    map[string]profileGame
 
-	controller           generic.Controller[*v1alpha1types.Session]
+	controller           generic.Controller[*direwolfv1alpha1.Session]
 	deploymentController generic.Controller[*appsv1.Deployment]
 	SessionControllerOptions
 }
@@ -97,9 +98,9 @@ func NewSessionController(
 	tcpRouteClient gatewayv1alpha2.TCPRouteInterface,
 	udpRouteClient gatewayv1alpha2.UDPRouteInterface,
 	sessionClient v1alpha1client.SessionInterface,
-	sessionInformer generic.Informer[*v1alpha1types.Session],
-	appInformer generic.Informer[*v1alpha1types.App],
-	profileInformer generic.Informer[*v1alpha1types.Profile],
+	sessionInformer generic.Informer[*direwolfv1alpha1.Session],
+	appInformer generic.Informer[*direwolfv1alpha1.App],
+	profileInformer generic.Informer[*direwolfv1alpha1.Profile],
 	deploymentInformer generic.Informer[*appsv1.Deployment],
 	options SessionControllerOptions,
 ) *SessionController {
@@ -151,13 +152,13 @@ func (c *SessionController) Run(ctx context.Context) error {
 	defer cancel()
 
 	if !cache.WaitForCacheSync(sessionCtx.Done(), c.SessionInformer.HasSynced) {
-		return fmt.Errorf("failed to sync session informer")
+		return errors.New("failed to sync session informer")
 	}
 
 	// Build initial listing of sessions
 	sessions, err := c.SessionInformer.List(labels.Everything())
 	if err != nil {
-		return fmt.Errorf("failed to list sessions: %v", err)
+		return fmt.Errorf("failed to list sessions: %w", err)
 	}
 
 	for _, session := range sessions {
@@ -221,7 +222,7 @@ func (c *SessionController) reconcileDependant(obj K8sObject) error {
 	return nil
 }
 
-func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1types.Session) error {
+func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1alpha1.Session) error {
 	klog.Infof("Reconciling session %s/%s", namespace, name)
 	defer klog.Infof("Finished Reconciling session %s/%s", namespace, name)
 
@@ -242,7 +243,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	} else if newObj.Status.WolfSessionID == "" && newObj.CreationTimestamp.Add(1*time.Minute).Before(time.Now()) {
 		klog.Infof("Session %s/%s is older than 1 minute and has no wolf session ID, deleting", newObj.Namespace, newObj.Name)
 		err := c.SessionClient.Delete(context.TODO(), newObj.Name, metav1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !kerrors.IsNotFound(err) {
 			klog.Errorf("Failed to delete session %s/%s: %v", newObj.Namespace, newObj.Name, err)
 			return err
 		}
@@ -389,7 +390,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		// Failed to update status....nothing to do but try again with
 		// exponential backoff. Could be API server issue. Depends on response
 		// code?
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !kerrors.IsNotFound(err) {
 			return err
 		}
 	}
@@ -507,9 +508,9 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 // 	return nil
 // }
 
-func (c *SessionController) reconcileService(ctx context.Context, session *v1alpha1types.Session) error {
+func (c *SessionController) reconcileService(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
-		return fmt.Errorf("waiting for PortsAllocated")
+		return errors.New("waiting for PortsAllocated")
 	}
 
 	clampString := func(s string, max int) string {
@@ -519,7 +520,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 		return s
 	}
 
-	session.Status.ServiceName = fmt.Sprintf("%s-rtp", clampString(session.Name, 56))
+	session.Status.ServiceName = clampString(session.Name, 56) + "-rtp"
 
 	// HACK: Delete all direwolf-worker services that dont match the service name
 	// This is until we can control the ports in wolf
@@ -528,7 +529,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to list services: %s", err)
+		return fmt.Errorf("failed to list services: %w", err)
 	}
 
 	for _, svc := range allServices.Items {
@@ -537,7 +538,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 			err := c.K8sClient.CoreV1().Services(svc.Namespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
 			if err != nil {
 				klog.Errorf("Failed to delete service %s/%s: %s", svc.Namespace, svc.Name, err)
-				return fmt.Errorf("failed to delete service %s/%s: %s", svc.Namespace, svc.Name, err)
+				return fmt.Errorf("failed to delete service %s/%s: %w", svc.Namespace, svc.Name, err)
 			}
 		}
 	}
@@ -563,7 +564,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 				).
 				WithOwnerReferences(metav1ac.OwnerReference().
 					WithName(session.Name).
-					WithAPIVersion(v1alpha1.GroupVersion.String()).
+					WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
 					WithKind("Session").
 					WithUID(session.UID).
 					WithController(true)).
@@ -600,7 +601,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 				FieldManager: "direwolf-session-controller-svc",
 			})
 	if err != nil {
-		return fmt.Errorf("failed to apply service: %s", err)
+		return fmt.Errorf("failed to apply service: %w", err)
 	}
 	return nil
 }
@@ -624,14 +625,10 @@ func mergeResourceRequirements(defaults corev1.ResourceRequirements, overrides *
 	}
 
 	// Override limits
-	for resourceName, quantity := range overrides.Limits {
-		merged.Limits[resourceName] = quantity
-	}
+	maps.Copy(merged.Limits, overrides.Limits)
 
 	// Override requests
-	for resourceName, quantity := range overrides.Requests {
-		merged.Requests[resourceName] = quantity
-	}
+	maps.Copy(merged.Requests, overrides.Requests)
 
 	return *merged
 }
@@ -686,11 +683,11 @@ func validateVolumeMounts(mounts []corev1.VolumeMount, validVolumes map[string]s
 	return nil
 }
 
-func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) error {
+func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	//!TODO: Just allocate a ton of ports on the container, we wont be able to
 	// change them while its running if another user connects
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
-		return fmt.Errorf("waiting for PortsAllocated")
+		return errors.New("waiting for PortsAllocated")
 	}
 
 	// Get the profile object to access resource policies
@@ -714,7 +711,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				continue
 			}
 			owner := metav1.OwnerReference{
-				APIVersion: v1alpha1.GroupVersion.String(),
+				APIVersion: direwolfv1alpha1.GroupVersion.String(),
 				Kind:       "Session",
 				Name:       name,
 				UID:        sess.UID,
@@ -723,7 +720,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			owners = append(owners, owner)
 			ownerApply = append(ownerApply, metav1ac.OwnerReference().
 				WithName(name).
-				WithAPIVersion(v1alpha1.GroupVersion.String()).
+				WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
 				WithKind("Session").
 				WithUID(session.UID).
 				WithController(true))
@@ -748,7 +745,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	// Create pod from pod template
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get app: %s", err)
+		return fmt.Errorf("failed to get app: %w", err)
 	}
 	// Prepare environment variables for the wolf container
 	// commenting these out was the main reason nvidia stuff wasn't working.
@@ -835,7 +832,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			corev1.VolumeMount{
 				Name:      "wolf-data",
 				MountPath: "/home/retro",
-				SubPath:   fmt.Sprintf("state/%s", app.Name),
+				SubPath:   "state/" + app.Name,
 			},
 		)
 
@@ -865,9 +862,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			{Name: "GST_DEBUG", Value: "2"},
 
 			// Gamescape envar injection. Ham-handed. Why not.
-			{Name: "GAMESCOPE_WIDTH", Value: fmt.Sprint(session.Spec.Config.VideoWidth)},
-			{Name: "GAMESCOPE_HEIGHT", Value: fmt.Sprint(session.Spec.Config.VideoHeight)},
-			{Name: "GAMESCOPE_REFRESH", Value: fmt.Sprint(session.Spec.Config.VideoRefreshRate)},
+			{Name: "GAMESCOPE_WIDTH", Value: strconv.Itoa(session.Spec.Config.VideoWidth)},
+			{Name: "GAMESCOPE_HEIGHT", Value: strconv.Itoa(session.Spec.Config.VideoHeight)},
+			{Name: "GAMESCOPE_REFRESH", Value: strconv.Itoa(session.Spec.Config.VideoRefreshRate)},
 		}...)
 
 		// Validate the main app container's resources against the profile's policy.
@@ -1258,7 +1255,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 
 	unstructuredDeployment, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&deployment)
 	if err != nil {
-		return fmt.Errorf("failed to convert deployment to unstructured: %s", err)
+		return fmt.Errorf("failed to convert deployment to unstructured: %w", err)
 	}
 
 	// NOTE: Kinda dumb cuz its just gona get serialized again....
@@ -1266,7 +1263,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	var deploymentApplyConfig appsv1ac.DeploymentApplyConfiguration
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredDeployment, &deploymentApplyConfig)
 	if err != nil {
-		return fmt.Errorf("failed to convert unstructured to deployment: %s", err)
+		return fmt.Errorf("failed to convert unstructured to deployment: %w", err)
 	}
 
 	_, err = c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
@@ -1277,7 +1274,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		})
 
 	if err != nil {
-		return fmt.Errorf("failed to apply deployment: %s", err)
+		return fmt.Errorf("failed to apply deployment: %w", err)
 	}
 
 	return nil
@@ -1339,14 +1336,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 // 	return nil
 // }
 
-func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1types.Session) error {
+func (c *SessionController) reconcilePVC(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	profile, err := c.ProfileInformer.Namespaced(session.Namespace).Get(session.Spec.ProfileReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get profile: %s", err)
+		return fmt.Errorf("failed to get profile: %w", err)
 	}
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get profile: %s", err)
+		return fmt.Errorf("failed to get profile: %w", err)
 	}
 
 	// Check if the user defined a volume claim template. If not, return nil.
@@ -1434,7 +1431,7 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 			}).
 			WithOwnerReferences(metav1ac.OwnerReference().
 				WithName(profile.Name).
-				WithAPIVersion(v1alpha1.GroupVersion.String()).
+				WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
 				WithKind("Profile").
 				WithUID(profile.UID).
 				WithController(true)).
@@ -1450,13 +1447,13 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 
 	return nil
 }
-func (c *SessionController) deploymentName(session *v1alpha1types.Session) string {
+func (c *SessionController) deploymentName(session *direwolfv1alpha1.Session) string {
 	return fmt.Sprintf("%s-%s", session.Spec.ProfileReference.Name, session.Spec.GameReference.Name)
 }
 
 func (c *SessionController) allocatePorts(
 	ctx context.Context,
-	session *v1alpha1types.Session,
+	session *direwolfv1alpha1.Session,
 ) error {
 	//!TODO: Take lock if multiple workers are running
 
@@ -1468,7 +1465,7 @@ func (c *SessionController) allocatePorts(
 
 	//!TODO: Implement this properly once wolf lets us assign ports. For now, just
 	// hardcode some ports.
-	session.Status.Ports = v1alpha1types.SessionPorts{
+	session.Status.Ports = direwolfv1alpha1.SessionPorts{
 		RTSP:     48010,
 		Control:  47999,
 		VideoRTP: 48100,
@@ -1483,14 +1480,14 @@ func (c *SessionController) allocatePorts(
 // correct ports for each session trying to connect to the Pod.
 func (c *SessionController) reconcileActiveStreams(
 	ctx context.Context,
-	session *v1alpha1types.Session,
+	session *direwolfv1alpha1.Session,
 ) error {
 	deploymentName := c.deploymentName(session)
 
 	// !TODO: Use informer for cache reads instead?
 	deployment, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get deployment: %s", err)
+		return fmt.Errorf("failed to get deployment: %w", err)
 	}
 
 	if deployment.Status.ObservedGeneration != deployment.Generation ||
@@ -1501,7 +1498,7 @@ func (c *SessionController) reconcileActiveStreams(
 	// Get service for the deployment
 	service, err := c.K8sClient.CoreV1().Services(session.Namespace).Get(ctx, session.Status.ServiceName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get service: %s", err)
+		return fmt.Errorf("failed to get service: %w", err)
 	}
 
 	// List all the "sessions".
@@ -1515,7 +1512,7 @@ func (c *SessionController) reconcileActiveStreams(
 	})
 	sessions, err := wolfclient.ListSessions(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to list sessions: %s", err)
+		return fmt.Errorf("failed to list sessions: %w", err)
 	}
 
 	keyIVHash := util.Hash([]byte(session.Spec.Config.AESKey), []byte(session.Spec.Config.AESIV))
@@ -1540,7 +1537,7 @@ func (c *SessionController) reconcileActiveStreams(
 	// Will need this for later
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get app: %s", err)
+		return fmt.Errorf("failed to get app: %w", err)
 	}
 
 	if !found && app != nil {
@@ -1642,8 +1639,8 @@ func (c *SessionController) reconcileActiveStreams(
 			AudioChannelCount: 2, // !TODO: parse from audio info
 
 			ClientIP: clientIP, // In the future, this will be acquired dynamically
-			//If this isn't present it crashes
-			//so, I'll keep it here until I figure out a way to pass off from moonlight client
+			// If this isn't present it crashes
+			// so, I'll keep it here until I figure out a way to pass off from moonlight client
 			ClientSettings: wolfapi.ClientSettings{
 				RunGID:              1000,
 				RunUID:              1000,
@@ -1664,7 +1661,7 @@ func (c *SessionController) reconcileActiveStreams(
 		})
 
 		if err != nil {
-			return fmt.Errorf("failed to create session: %s", err)
+			return fmt.Errorf("failed to create session: %w", err)
 		}
 		session.Status.WolfSessionID = sessionID
 	} else {

@@ -13,10 +13,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	"games-on-whales.github.io/direwolf/pkg/controllers"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
-	"k8s.io/klog/v2"
 )
 
 func main() {
@@ -83,7 +84,6 @@ func main() {
 				klog.Warningf("Waiting for wolf.sock to accept connections: %v\n", err)
 			} else if err == nil && info.Mode()&os.ModeSocket == 0 {
 				klog.Fatal("wolf.sock is not a socket", info.Mode())
-
 			} else {
 				klog.Info("Waiting for wolf.sock to appear...", err)
 			}

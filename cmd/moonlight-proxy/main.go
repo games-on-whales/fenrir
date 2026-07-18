@@ -7,15 +7,15 @@ import (
 	"strings"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/klog/v2"
+
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	"games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/moonlight"
 	"games-on-whales.github.io/direwolf/pkg/util"
-
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/informers"
-	"k8s.io/klog/v2"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 
 	var allowedHosts []string
 	if *allowedHostsStr != "" {
-		for _, h := range strings.Split(*allowedHostsStr, ",") {
+		for h := range strings.SplitSeq(*allowedHostsStr, ",") {
 			h = strings.TrimSpace(h)
 			if h != "" {
 				allowedHosts = append(allowedHosts, h)
@@ -84,7 +84,7 @@ func main() {
 	pairingLister := generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace)
 	appLister := generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace)
 	sessionLister := generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace)
-	podLister := generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
+	podLister := generic.NewLister[*corev1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
 
 	pairingManager := moonlight.NewPairingManager(
 		tlsCert,

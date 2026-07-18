@@ -6,19 +6,18 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1api "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
-	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
-	"games-on-whales.github.io/direwolf/pkg/generic"
-	"k8s.io/utils/ptr"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
 	sigsyaml "sigs.k8s.io/yaml"
+
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
+	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
+	"games-on-whales.github.io/direwolf/pkg/generic"
 )
 
 // TestSessionControllerReconcilePath builds a session CR, runs the controller's
@@ -39,11 +38,11 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	}
 
 	// Unmarshal into API types
-	var profile v1alpha1api.Profile
+	var profile direwolfv1alpha1.Profile
 	if err := sigsyaml.Unmarshal(profileYamlData, &profile); err != nil {
 		t.Fatalf("failed to unmarshal profile yaml: %v", err)
 	}
-	var app v1alpha1api.App
+	var app direwolfv1alpha1.App
 	if err := sigsyaml.Unmarshal(steamYamlData, &app); err != nil {
 		t.Fatalf("failed to unmarshal app yaml: %v", err)
 	}
@@ -60,9 +59,9 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	k8sFactory := informers.NewSharedInformerFactory(fakeK8s, 0)
 
 	// Build generic informers needed by NewSessionController
-	sessionInformer := generic.NewInformer[*v1alpha1types.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
-	appInformer := generic.NewInformer[*v1alpha1types.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
-	profileInformer := generic.NewInformer[*v1alpha1types.Profile](dwFactory.Direwolf().V1alpha1().Profiles().Informer())
+	sessionInformer := generic.NewInformer[*direwolfv1alpha1.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
+	appInformer := generic.NewInformer[*direwolfv1alpha1.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
+	profileInformer := generic.NewInformer[*direwolfv1alpha1.Profile](dwFactory.Direwolf().V1alpha1().Profiles().Informer())
 	deploymentInformer := generic.NewInformer[*appsv1.Deployment](k8sFactory.Apps().V1().Deployments().Informer())
 
 	// Create a session client scoped to the test namespace
@@ -92,17 +91,17 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	}
 
 	// Create a Session CR that references the profile and app
-	sess := &v1alpha1api.Session{
+	sess := &direwolfv1alpha1.Session{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sess-alex-steam",
 			Namespace: profile.Namespace,
 		},
-		Spec: v1alpha1api.SessionSpec{
-			ProfileReference: v1alpha1api.ProfileReference{Name: profile.Name},
-			GameReference:    v1alpha1api.GameReference{Name: app.Name},
-			PairingReference: v1alpha1api.PairingReference{Name: "pairing1"},
-			GatewayReference: v1alpha1api.GatewayReference{Name: "gw1"},
-			Config: v1alpha1api.SessionInfo{
+		Spec: direwolfv1alpha1.SessionSpec{
+			ProfileReference: direwolfv1alpha1.ProfileReference{Name: profile.Name},
+			GameReference:    direwolfv1alpha1.GameReference{Name: app.Name},
+			PairingReference: direwolfv1alpha1.PairingReference{Name: "pairing1"},
+			GatewayReference: direwolfv1alpha1.GatewayReference{Name: "gw1"},
+			Config: direwolfv1alpha1.SessionInfo{
 				AESKey:             "k1",
 				AESIV:              "i1",
 				VideoWidth:         1920,

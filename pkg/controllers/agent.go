@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
+
+	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 // Represents the controller that runs inside the Pod itself

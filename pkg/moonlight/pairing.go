@@ -16,13 +16,13 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	v1alpha1_apply "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/api/v1alpha1"
 	v1alpha1_client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
 	"games-on-whales.github.io/direwolf/pkg/util"
-	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
 type PinSubmission struct {
@@ -448,7 +448,7 @@ func aesEncryptECB(plaintext, key []byte) ([]byte, error) {
 	}
 
 	if len(plaintext)%aes.BlockSize != 0 {
-		return nil, fmt.Errorf("plaintext is not a multiple of the block size")
+		return nil, errors.New("plaintext is not a multiple of the block size")
 	}
 
 	ciphertext := make([]byte, len(plaintext))
