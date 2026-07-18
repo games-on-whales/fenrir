@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
@@ -40,8 +41,19 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
+// TODO: move them somewhere else
+const (
+	AppLabelKey       string = "direwolf/app"
+	ProfileLabelKey   string = "direwolf/profile"
+	UserLabelKey      string = "direwolf/user"
+	LobbyLabelKey     string = "direwolf/lobby"
+	NodeLabelKey      string = "direwolf/node"
+	SessionLabelKey   string = "direwolf/session"
+	LobbyTypeLabelKey string = "direwolf/lobby-type"
+)
+
 var (
-	WOLF_IMAGE = func() string {
+	wolfImage = func() string {
 		if im := os.Getenv("WOLF_IMAGE"); im != "" {
 			return im
 		}
@@ -61,7 +73,7 @@ type SessionControllerOptions struct {
 	LBSharingKey             string
 }
 
-// Session Controller manages the lifecycle of a streaming session for
+// SessionController manages the lifecycle of a streaming session for
 // a given game, of a given user.
 // If is responsible for:
 //   - 1. Setting up port forwards via Gateway API
@@ -130,7 +142,7 @@ func NewSessionController(
 	// and re-reconcile their sessions when they change.
 	res.deploymentController = generic.NewController(
 		deploymentInformer,
-		func(namepace, name string, newObj *appsv1.Deployment) error {
+		func(_, _ string, newObj *appsv1.Deployment) error {
 			// Load bearing. If we pass nil it will be casted to interface and
 			// not be comparable with nil :)
 			if newObj == nil {
@@ -183,7 +195,11 @@ func (c *SessionController) Run(ctx context.Context) error {
 		}
 	}()
 
-	return c.controller.Run(sessionCtx)
+	// Wrap the error from the interface method
+	if err := c.controller.Run(sessionCtx); err != nil {
+		return fmt.Errorf("failed to run session controller: %w", err)
+	}
+	return nil
 }
 
 func (c *SessionController) HasSynced() bool {
@@ -201,11 +217,11 @@ func (c *SessionController) reconcileDependant(obj K8sObject) error {
 		return nil
 	}
 
-	if _, ok := obj.GetLabels()["direwolf/profile"]; !ok {
+	if _, ok := obj.GetLabels()[ProfileLabelKey]; !ok {
 		return nil
 	}
 
-	if _, ok := obj.GetLabels()["direwolf/app"]; !ok {
+	if _, ok := obj.GetLabels()[AppLabelKey]; !ok {
 		return nil
 	}
 
@@ -245,7 +261,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		err := c.SessionClient.Delete(context.TODO(), newObj.Name, metav1.DeleteOptions{})
 		if err != nil && !kerrors.IsNotFound(err) {
 			klog.Errorf("Failed to delete session %s/%s: %v", newObj.Namespace, newObj.Name, err)
-			return err
+			return fmt.Errorf("session wasn't deleted: %w", err)
 		}
 		return nil
 	}
@@ -259,8 +275,9 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 	} else {
 		c.trackedSessions[pg] = sets.New(newObj.Name)
 	}
-
+	c.trackedGames[newObj.Name] = pg
 	oldStatus := newObj.Status.DeepCopy()
+	//TODO: this needs a rewrite
 	portsError := c.allocatePorts(context.TODO(), newObj)
 
 	if portsError != nil {
@@ -391,7 +408,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		// exponential backoff. Could be API server issue. Depends on response
 		// code?
 		if err != nil && !kerrors.IsNotFound(err) {
-			return err
+			return fmt.Errorf("failed to Update status: %w", err)
 		}
 	}
 
@@ -421,7 +438,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 // 			WithLabels(
 // 				map[string]string{
 // 					"app":           "direwolf-worker",
-// 					"direwolf/app":  session.Spec.GameReference.Name,
+// 					AppLabelKey:  session.Spec.GameReference.Name,
 // 					"direwolf/user": session.Spec.UserReference.Name,
 // 				}).
 // 			WithSpec(
@@ -474,7 +491,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 // 			WithLabels(
 // 				map[string]string{
 // 					"app":           "direwolf-worker",
-// 					"direwolf/app":  session.Spec.GameReference.Name,
+// 					AppLabelKey:  session.Spec.GameReference.Name,
 // 					"direwolf/user": session.Spec.UserReference.Name,
 // 				}).
 // 			WithSpec(
@@ -513,9 +530,9 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 		return errors.New("waiting for PortsAllocated")
 	}
 
-	clampString := func(s string, max int) string {
-		if len(s) > max {
-			return s[:max]
+	clampString := func(s string, maxLength int) string {
+		if len(s) > maxLength {
+			return s[:maxLength]
 		}
 		return s
 	}
@@ -525,7 +542,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 	// HACK: Delete all direwolf-worker services that dont match the service name
 	// This is until we can control the ports in wolf
 	allServices, err := c.K8sClient.CoreV1().Services(session.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app=direwolf-worker",
+		LabelSelector: "app=direwolf-worker", //nolint
 	})
 
 	if err != nil {
@@ -547,7 +564,7 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 	_, err = c.K8sClient.CoreV1().
 		Services(session.Namespace).
 		Apply(
-			context.Background(),
+			ctx,
 			v1ac.Service(session.Status.ServiceName, session.Namespace).
 				WithAnnotations(map[string]string{
 					// Try to support popular service LoadBalancer implementation
@@ -557,9 +574,9 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 				}).
 				WithLabels(
 					map[string]string{
-						"app":              "direwolf-worker",
-						"direwolf/app":     session.Spec.GameReference.Name,
-						"direwolf/profile": session.Spec.ProfileReference.Name,
+						"app":           "direwolf-worker", //nolint
+						AppLabelKey:     session.Spec.GameReference.Name,
+						ProfileLabelKey: session.Spec.ProfileReference.Name,
 					},
 				).
 				WithOwnerReferences(metav1ac.OwnerReference().
@@ -573,8 +590,8 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 						WithType(corev1.ServiceTypeLoadBalancer).
 						WithSelector(
 							map[string]string{
-								"direwolf/app":     session.Spec.GameReference.Name,
-								"direwolf/profile": session.Spec.ProfileReference.Name,
+								AppLabelKey:     session.Spec.GameReference.Name,
+								ProfileLabelKey: session.Spec.ProfileReference.Name,
 							}).
 						WithPorts(
 							v1ac.ServicePort().
@@ -705,11 +722,17 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	var ownerApply []*metav1ac.OwnerReferenceApplyConfiguration
 	if sessions, ok := c.trackedSessions[pg]; ok {
 		for name := range sessions {
-			sess, err := c.SessionInformer.Namespaced(session.Namespace).Get(name)
+			sess, err := c.SessionClient.Get(ctx, name, metav1.GetOptions{})
 			if err != nil {
+				if kerrors.IsNotFound(err) {
+					// Session is gone, clean it from tracking
+					klog.Warningf("Session %s/%s not found, skipping owner ref", session.Namespace, name)
+					continue
+				}
 				klog.Errorf("Failed to get session %s/%s: %s", session.Namespace, name, err)
 				continue
 			}
+
 			owner := metav1.OwnerReference{
 				APIVersion: direwolfv1alpha1.GroupVersion.String(),
 				Kind:       "Session",
@@ -722,7 +745,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				WithName(name).
 				WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
 				WithKind("Session").
-				WithUID(session.UID).
+				WithUID(sess.UID).
 				WithController(true))
 		}
 	}
@@ -731,13 +754,16 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	deploymentName := c.deploymentName(session)
 	if _, err := c.deploymentController.Informer().Namespaced(session.Namespace).Get(deploymentName); err == nil {
 		klog.Infof("Deployment %s/%s already exists, just updating metadata", session.Namespace, deploymentName)
-		c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
-			context.Background(),
+		if _, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
+			ctx,
 			appsv1ac.Deployment(deploymentName, session.Namespace).
 				WithOwnerReferences(ownerApply...),
 			metav1.ApplyOptions{
 				FieldManager: "direwolf-session-controller-deployment-owners",
-			})
+			},
+		); err != nil {
+			return fmt.Errorf("failed to apply owner references to deployment %s/%s: %w", session.Namespace, deploymentName, err)
+		}
 
 		return nil
 	}
@@ -751,12 +777,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	// commenting these out was the main reason nvidia stuff wasn't working.
 	// specifically the NVIDIA_VISIBLE_DEVICES
 	// I need a better method of injecting env vars / configs to the pod
-	// TODO
+	// TODO better env var handling in DRA
 	wolfEnvVars := map[string]string{
 		"PUID":                   "1000",
 		"PGID":                   "1000",
 		"UNAME":                  "ubuntu",
-		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
+		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix", //nolint
 		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
 		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
 		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
@@ -771,11 +797,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	}
 
 	// Check if runtime variables are defined in the App spec and override defaults
+	// TODO: Remove all of these
 	if app.Spec.WolfConfig.RuntimeVariables != nil {
 		runtimeVars := app.Spec.WolfConfig.RuntimeVariables
-		// if runtimeVars.LogLevel != "" {
-		// 	wolfEnvVars["WOLF_LOG_LEVEL"] = runtimeVars.LogLevel
-		// }
 		if runtimeVars.TimeZone != "" {
 			wolfEnvVars["TZ"] = runtimeVars.TimeZone
 		}
@@ -797,25 +821,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 		podToCreate.Labels = map[string]string{}
 	}
 
-	podToCreate.Labels["app"] = "direwolf-worker"
-	podToCreate.Labels["direwolf/app"] = session.Spec.GameReference.Name
-	podToCreate.Labels["direwolf/profile"] = session.Spec.ProfileReference.Name
-
-	// if podToCreate.Spec.SecurityContext == nil {
-	// 	podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}
-	// }
-
-	// if podToCreate.Spec.SecurityContext.SeccompProfile == nil {
-	// 	podToCreate.Spec.SecurityContext.SeccompProfile = &corev1.SeccompProfile{
-	// 		Type: corev1.SeccompProfileTypeUnconfined,
-	// 	}
-	// }
-
-	// if podToCreate.Spec.SecurityContext.AppArmorProfile == nil {
-	// 	podToCreate.Spec.SecurityContext.AppArmorProfile = &corev1.AppArmorProfile{
-	// 		Type: corev1.AppArmorProfileTypeUnconfined,
-	// 	}
-	// }
+	podToCreate.Labels["app"] = "direwolf-worker" //nolint
+	podToCreate.Labels[AppLabelKey] = session.Spec.GameReference.Name
+	podToCreate.Labels[ProfileLabelKey] = session.Spec.ProfileReference.Name
 
 	wolfEnvVarsSlice := make([]corev1.EnvVar, 0, len(wolfEnvVars))
 	for k, v := range wolfEnvVars {
@@ -826,7 +834,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	for i := range podToCreate.Spec.Containers {
 		podToCreate.Spec.Containers[i].VolumeMounts = append(podToCreate.Spec.Containers[i].VolumeMounts,
 			corev1.VolumeMount{
-				Name:      "wolf-runtime",
+				Name:      "wolf-runtime", //nolint
 				MountPath: "/tmp/.X11-unix",
 			},
 			corev1.VolumeMount{
@@ -844,16 +852,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			{Name: "WAYLAND_DISPLAY", Value: "wayland-1"},
 			{Name: "TZ", Value: wolfEnvVars["TZ"]},
 			{Name: "UNAME", Value: "retro"},
-			{Name: "XDG_RUNTIME_DIR", Value: "/tmp/.X11-unix"},
+			{Name: "XDG_RUNTIME_DIR", Value: "/tmp/.X11-unix"}, //nolint
 			// "UID":             "1000",
 			// "GID":             "1000",
 			{Name: "PULSE_SERVER", Value: "unix:/tmp/.X11-unix/pulse-socket"},
 			// PULSE_SINK & PULSE_SOURCE set at runtime calculated based off session ID.
 			// But would be nice if unnecessary
 
-			// Assorted NVIDIA. Unsure if required. Probabky not.
-			// just gonna uncomment to make sure that this is not the reason firefox keeps crashing and failing to play videos.
-			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
+			// Assorted NVIDIA env vars, definitely required for Nvidia devices.
 			{Name: "LIBVA_DRIVER_NAME", Value: "nvidia"},
 			{Name: "LD_LIBRARY_PATH", Value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib"},
 			{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "all"},
@@ -921,7 +927,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				return err
 			}
 			wolfAgentEnv = policies.WolfAgent.Env
-			// klog.debug("User defined env vars: %+v", wolfAgentEnv)
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
 			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
 			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
@@ -934,7 +939,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				return err
 			}
 			pulseAudioEnv = policies.PulseAudio.Env
-			// klog.Infof("User defined env vars: %+v", pulseAudioEnv)
 			pulseAudioResources = mergeResourceRequirements(pulseAudioDefaultResources, policies.PulseAudio.Resources)
 			pulseAudioVolumeMounts = policies.PulseAudio.VolumeMounts
 			pulseAudioSecurityContext = policies.PulseAudio.SecurityContext
@@ -947,7 +951,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				return err
 			}
 			wolfEnv = policies.Wolf.Env
-			// klog.Infof("User defined env vars: %+v", wolfEnv)
 			wolfResources = mergeResourceRequirements(wolfDefaultResources, policies.Wolf.Resources)
 			wolfVolumeMounts = policies.Wolf.VolumeMounts
 			wolfSecurityContext = policies.Wolf.SecurityContext
@@ -978,8 +981,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			},
 			Env: append([]corev1.EnvVar{
 				{
-					Name:  "XDG_RUNTIME_DIR",
-					Value: "/tmp/.X11-unix",
+					Name:  "XDG_RUNTIME_DIR", //nolint
+					Value: "/tmp/.X11-unix",  //nolint
 				},
 				// {
 				// 	Name:  "PUID",
@@ -1047,7 +1050,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 					MountPath: "/etc/wolf",
 				},
 				{
-					Name:      "wolf-runtime",
+					Name:      "wolf-runtime", //nolint
 					MountPath: "/tmp/.X11-unix",
 				},
 			}, wolfAgentVolumeMounts...),
@@ -1058,7 +1061,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			Env: append([]corev1.EnvVar{
 				{Name: "TZ", Value: wolfEnvVars["TZ"]},
 				{Name: "UNAME", Value: "retro"},
-				{Name: "XDG_RUNTIME_DIR", Value: "/tmp/pulse"},
+				{Name: "XDG_RUNTIME_DIR", Value: "/tmp/pulse"}, //nolint
 				// "UID":             "1000",
 				// "GID":             "1000",
 			}, pulseAudioEnv...),
@@ -1067,14 +1070,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			SecurityContext: pulseAudioSecurityContext,
 			VolumeMounts: append([]corev1.VolumeMount{
 				{
-					Name:      "wolf-runtime",
+					Name:      "wolf-runtime", //nolint
 					MountPath: "/tmp/pulse",
 				},
 			}, pulseAudioVolumeMounts...),
 		},
 		corev1.Container{
 			Name:  "wolf",
-			Image: WOLF_IMAGE,
+			Image: wolfImage,
 			Env:   append(wolfEnvVarsSlice, wolfEnv...),
 			// Note: Container Ports list is strictly informational. As long
 			// as process is listening on 0.0.0.0 it can be bound by a service.
@@ -1112,7 +1115,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 					MountPath: "/etc/wolf",
 				},
 				{
-					Name:      "wolf-runtime",
+					Name:      "wolf-runtime", //nolint
 					MountPath: "/tmp/.X11-unix",
 				},
 				{
@@ -1175,7 +1178,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			},
 		},
 		corev1.Volume{
-			Name: "wolf-runtime",
+			Name: "wolf-runtime", //nolint
 			VolumeSource: corev1.VolumeSource{
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
@@ -1230,9 +1233,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			Name:      c.deploymentName(session),
 			Namespace: session.Namespace,
 			Labels: map[string]string{
-				"app":              "direwolf-worker",
-				"direwolf/app":     session.Spec.GameReference.Name,
-				"direwolf/profile": session.Spec.ProfileReference.Name,
+				"app":           "direwolf-worker", //nolint
+				AppLabelKey:     session.Spec.GameReference.Name,
+				ProfileLabelKey: session.Spec.ProfileReference.Name,
 			},
 			OwnerReferences: owners,
 		},
@@ -1240,8 +1243,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			Replicas: ptr.To[int32](1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"direwolf/app":     session.Spec.GameReference.Name,
-					"direwolf/profile": session.Spec.ProfileReference.Name,
+					AppLabelKey:     session.Spec.GameReference.Name,
+					ProfileLabelKey: session.Spec.ProfileReference.Name,
 				},
 			},
 			Strategy: appsv1.DeploymentStrategy{
@@ -1308,7 +1311,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 // 				WithLabels(
 // 					map[string]string{
 // 						"app":           "direwolf-worker",
-// 						"direwolf/app":  session.Spec.GameReference.Name,
+// 						AppLabelKey:  session.Spec.GameReference.Name,
 // 						"direwolf/user": session.Spec.UserReference.Name,
 // 					}).
 // 				WithOwnerReferences(
@@ -1425,9 +1428,9 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *direwolfv
 		ctx,
 		v1ac.PersistentVolumeClaim(pvcName, session.Namespace).
 			WithLabels(map[string]string{
-				"app":              "direwolf-worker",
-				"direwolf/app":     session.Spec.GameReference.Name,
-				"direwolf/profile": session.Spec.ProfileReference.Name,
+				"app":           "direwolf-worker", //nolint
+				AppLabelKey:     session.Spec.GameReference.Name,
+				ProfileLabelKey: session.Spec.ProfileReference.Name,
 			}).
 			WithOwnerReferences(metav1ac.OwnerReference().
 				WithName(profile.Name).
@@ -1452,9 +1455,11 @@ func (c *SessionController) deploymentName(session *direwolfv1alpha1.Session) st
 }
 
 func (c *SessionController) allocatePorts(
-	ctx context.Context,
+	_ context.Context,
 	session *direwolfv1alpha1.Session,
-) error {
+
+) error { //nolint
+	// This will be reimplemented during DRA
 	//!TODO: Take lock if multiple workers are running
 
 	// 0. Allocate ports for this streaming session to use
@@ -1471,7 +1476,6 @@ func (c *SessionController) allocatePorts(
 		VideoRTP: 48100,
 		AudioRTP: 48200,
 	}
-
 	return nil
 }
 
@@ -1492,7 +1496,10 @@ func (c *SessionController) reconcileActiveStreams(
 
 	if deployment.Status.ObservedGeneration != deployment.Generation ||
 		deployment.Status.ReadyReplicas != deployment.Status.Replicas {
-		return fmt.Errorf("deployment %s/%s not ready (Observed %d, Latest %d) (%d/%d)", session.Namespace, deploymentName, deployment.Status.ObservedGeneration, deployment.Generation, deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+		return fmt.Errorf("deployment %s/%s not ready (Observed %d, Latest %d) (%d/%d)",
+			session.Namespace, deploymentName,
+			deployment.Status.ObservedGeneration, deployment.Generation,
+			deployment.Status.ReadyReplicas, deployment.Status.Replicas)
 	}
 
 	// Get service for the deployment
@@ -1505,12 +1512,26 @@ func (c *SessionController) reconcileActiveStreams(
 	// Ensure they match each of our k8s sessions. Hash on AESKey/IV
 	// In the future it might make sense to just match on ClientID/ClientCertFingerprint
 	// but that is hardcoded for now :)
-	wolfclient := wolfapi.NewClient(fmt.Sprintf("https://%s:8443", service.Spec.ClusterIP), &http.Client{
+	wolfclient := wolfapi.NewClient("https://"+net.JoinHostPort(service.Spec.ClusterIP, "8443"), &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint G402
 		},
 	})
-	sessions, err := wolfclient.ListSessions(ctx)
+
+	// Retry wolf-agent calls
+	var sessions []wolfapi.Session
+	for i := 0; i < 5; i++ {
+		sessions, err = wolfclient.ListSessions(ctx)
+		if err == nil {
+			break
+		}
+		klog.Warningf("wolf-agent list sessions failed (attempt %d/5) for %s/%s: %v", i+1, session.Namespace, session.Name, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(i+1) * time.Second):
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("failed to list sessions: %w", err)
 	}
@@ -1527,149 +1548,78 @@ func (c *SessionController) reconcileActiveStreams(
 
 	if found != (session.Status.WolfSessionID != "") {
 		klog.Infof("Session %s/%s found: %v, status: %v", session.Namespace, session.Name, found, session.Status.WolfSessionID)
-		// Either the session was already added but not in the list, or
-		// the session was already in the list without being added.
-		//
-		// Either scenario is invalid. Delete the session
-		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
+		// Delete the session
+		if err := c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{}); err != nil {
+			return fmt.Errorf("failed to delete invalid session %s/%s: %w", session.Namespace, session.Name, err)
+		}
+		return nil
 	}
 
-	// Will need this for later
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get app: %w", err)
 	}
 
 	if !found && app != nil {
-		// apps, err := wolfclient.ListApps(ctx)
-		// if err != nil {
-		// 	return fmt.Errorf("failed to list apps from wolf: %w", err)
-		// }
-
-		// Determine the title we expect the app to have
-		// expectedTitle := app.Spec.Title
-		// if app.Spec.WolfConfig.Title != "" {
-		// 	expectedTitle = app.Spec.WolfConfig.Title
-		// }
-
-		// var appID string
-
-		// 1. Check if the app already exists
-		// for _, loadedApp := range apps {
-		// 	if loadedApp.Title == expectedTitle {
-		// 		appID = loadedApp.ID
-		// 		klog.Infof("App '%s' already exists in Wolf with ID: %s. Skipping creation.", expectedTitle, appID)
-		// 		break
-		// 	}
-		// }
-
-		// 2. If app doesn't exist, create it
-		// if appID == "" {
-		// 	klog.Infof("App '%s' not found in Wolf. Creating it...", expectedTitle)
-
-		// 	if len(apps) == 0 {
-		// 		return fmt.Errorf("no apps found in wolf container to use as template")
-		// 	}
-
-		// 	// get the GST pipelines from the first app (supposedly wolf-ui)
-		// 	templateApp := apps[0]
-		// 	klog.Infof("Using app[0] (%s) as template for pipelines", templateApp.Title)
-
-		// 	// Defaults for booleans if nil
-		// 	startAudio := true
-		// 	if app.Spec.WolfConfig.StartAudioServer != nil {
-		// 		startAudio = *app.Spec.WolfConfig.StartAudioServer
-		// 	}
-		// 	startCompositor := true
-		// 	if app.Spec.WolfConfig.StartVirtualCompositor != nil {
-		// 		startCompositor = *app.Spec.WolfConfig.StartVirtualCompositor
-		// 	}
-
-		// 	runner := wolfapi.Runner{
-		// 		Type:   "process",
-		// 		RunCmd: "sh -c \"while :; do echo 'running...'; sleep 10; done\"",
-		// 	}
-		// 	if app.Spec.WolfConfig.Runner != nil {
-		// 		runner.Type = app.Spec.WolfConfig.Runner.Type
-		// 		runner.RunCmd = app.Spec.WolfConfig.Runner.RunCommand
-		// 	}
-		// 	var renderNode string
-		// 	if app.Spec.WolfConfig.RuntimeVariables != nil {
-		// 		renderNode = app.Spec.WolfConfig.RuntimeVariables.RenderNode
-		// 	}
-
-		// 	// Create the App in Wolf
-		// 	newApp := wolfapi.App{
-		// 		ID:                     app.Name, // Use K8s App Name as ID
-		// 		Title:                  expectedTitle,
-		// 		SupportHDR:             false, // Default
-		// 		StartVirtualCompositor: startCompositor,
-		// 		StartAudioServer:       startAudio,
-		// 		RenderNode:             renderNode,
-		// 		Runner:                 runner,
-
-		// 		// Injected Pipelines
-		// 		H264GSTPipeline: templateApp.H264GSTPipeline,
-		// 		HEVCGSTPipeline: templateApp.HEVCGSTPipeline,
-		// 		AV1GSTPipeline:  templateApp.AV1GSTPipeline,
-		// 		OpusGSTPipeline: templateApp.OpusGSTPipeline,
-		// 	}
-		// 	// no need to create an app
-		// 	// klog.Infof("Creating App in Wolf: %+v", newApp)
-		// 	// if err := wolfclient.AddApp(ctx, newApp); err != nil {
-		// 	// 	return fmt.Errorf("failed to add app to wolf: %w", err)
-		// 	// }
-		// 	appID = newApp.ID
-		// }
-
-		//!TODO: Add the ports into the request for this to support multiple
-		// sessions per Gateway.
-		//
-		// Create the session
-		clientIP := "10.128.1.0" // I'm  keeping this, for now...
+		clientIP := "10.128.1.0"
 		if session.Spec.Config.ClientIP != "" {
 			clientIP = session.Spec.Config.ClientIP
 		}
-
-		sessionID, err := wolfclient.AddSession(ctx, wolfapi.Session{
-			VideoWidth:       session.Spec.Config.VideoWidth,
-			VideoHeight:      session.Spec.Config.VideoHeight,
-			VideoRefreshRate: session.Spec.Config.VideoRefreshRate,
-			// AppID:             appID,
-			AudioChannelCount: 2, // !TODO: parse from audio info
-
-			ClientIP: clientIP, // In the future, this will be acquired dynamically
-			// If this isn't present it crashes
-			// so, I'll keep it here until I figure out a way to pass off from moonlight client
-			ClientSettings: wolfapi.ClientSettings{
-				RunGID:              1000,
-				RunUID:              1000,
-				ControllersOverride: []string{"XBOX"},
-				MouseAcceleration:   1.0,
-				VScrollAcceleration: 1.0,
-				HScrollAcceleration: 1.0,
-			},
-			AESKey: session.Spec.Config.AESKey,
-			AESIV:  session.Spec.Config.AESIV,
-			//!TODO: not this. This is the hash of the client cert we are
-			// hardcoding into wolf config. Should call pair endpoint to genuinely
-			// add it. Though not really needed since user doesnt connect via HTTPS
-			// to wolf, we just need a client ID wolf accepts for this specific
-			// pairing/client...
-			// ClientID:   "4193251087262667199",
-			RTSPFakeIP: service.Spec.ClusterIP,
-		})
-
+		//This is temporary, since sometimes session creation fails on kind cluster
+		var sessionID string
+		for i := 0; i < 5; i++ {
+			sessionID, err = wolfclient.AddSession(ctx, wolfapi.Session{
+				VideoWidth:       session.Spec.Config.VideoWidth,
+				VideoHeight:      session.Spec.Config.VideoHeight,
+				VideoRefreshRate: session.Spec.Config.VideoRefreshRate,
+				// AppID:             appID,
+				AudioChannelCount: 2,        // !TODO: parse from audio info
+				ClientIP:          clientIP, // In the future, this will be acquired dynamically
+				// If this isn't present it crashes
+				// so, I'll keep it here until I figure out a way to pass off from moonlight client
+				ClientSettings: wolfapi.ClientSettings{
+					RunGID:              1000,
+					RunUID:              1000,
+					ControllersOverride: []string{"XBOX"},
+					MouseAcceleration:   1.0,
+					VScrollAcceleration: 1.0,
+					HScrollAcceleration: 1.0,
+				},
+				AESKey: session.Spec.Config.AESKey,
+				AESIV:  session.Spec.Config.AESIV,
+				//!TODO: not this. This is the hash of the client cert we are
+				// hardcoding into wolf config. Should call pair endpoint to genuinely
+				// add it. Though not really needed since user doesnt connect via HTTPS
+				// to wolf, we just need a client ID wolf accepts for this specific
+				// pairing/client...
+				// ClientID:   "4193251087262667199",
+				RTSPFakeIP: service.Spec.ClusterIP,
+			})
+			if err == nil {
+				break
+			}
+			klog.Warningf("wolf-agent add session failed (attempt %d/5) for %s/%s: %v", i+1, session.Namespace, session.Name, err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(i+1) * time.Second):
+			}
+		}
 		if err != nil {
 			return fmt.Errorf("failed to create session: %w", err)
 		}
 		session.Status.WolfSessionID = sessionID
-	} else {
-		//!TODO: Update wolf API to include session ID in list so we can update
-		// these details/validate discrepencies
-		// assert wolf session ID non-empty and matches what we expect
 	}
+	// else {
+	//!TODO: Update wolf API to include session ID in list so we can update
+	// these details/validate discrepencies
+	// assert wolf session ID non-empty and matches what we expect
+	// }
 
-	session.Status.StreamURL = fmt.Sprintf("rtsp://%s:%d", service.Spec.ClusterIP, session.Status.Ports.RTSP)
+	session.Status.StreamURL = "rtsp://" + net.JoinHostPort(
+		service.Spec.ClusterIP,
+		strconv.FormatInt(int64(session.Status.Ports.RTSP), 10),
+	)
+
 	return nil
 }
