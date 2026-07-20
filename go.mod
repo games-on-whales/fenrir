@@ -6,7 +6,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/pelletier/go-toml/v2 v2.2.3
 	github.com/r3labs/sse/v2 v2.10.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/image v0.24.0
 	k8s.io/api v0.33.0-alpha.3
 	k8s.io/apimachinery v0.33.0-alpha.3
@@ -17,6 +17,7 @@ require (
 	sigs.k8s.io/controller-tools v0.17.2
 	sigs.k8s.io/gateway-api v1.2.1
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.2
+	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
@@ -67,5 +68,4 @@ require (
 	k8s.io/gengo/v2 v2.0.0-20250207200755-1244d31929d7 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
-	sigs.k8s.io/yaml v1.4.0 // indirect
 )
