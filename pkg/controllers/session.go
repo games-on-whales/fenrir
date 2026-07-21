@@ -752,7 +752,15 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 
 	// If deployment already exists, just skip
 	deploymentName := c.deploymentName(session)
-	if _, err := c.deploymentController.Informer().Namespaced(session.Namespace).Get(deploymentName); err == nil {
+
+	// Use API server directly, instead of informer cache because it gets stale on rapid session creation / deletion
+	existingDeployment, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	if err == nil {
+		// Deployment is being garbage-collected from previous session; don't try to adopt it
+		if existingDeployment.DeletionTimestamp != nil {
+			return fmt.Errorf("deployment %s/%s is being deleted, will retry", session.Namespace, deploymentName)
+		}
+
 		klog.Infof("Deployment %s/%s already exists, just updating metadata", session.Namespace, deploymentName)
 		if _, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
 			ctx,
@@ -760,13 +768,17 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				WithOwnerReferences(ownerApply...),
 			metav1.ApplyOptions{
 				FieldManager: "direwolf-session-controller-deployment-owners",
+				Force:        true,
 			},
 		); err != nil {
 			return fmt.Errorf("failed to apply owner references to deployment %s/%s: %w", session.Namespace, deploymentName, err)
 		}
 
 		return nil
+	} else if !kerrors.IsNotFound(err) {
+		return fmt.Errorf("failed to check for existing deployment %s/%s: %w", session.Namespace, deploymentName, err)
 	}
+	// Fall through to create deployment if not found
 
 	// Create pod from pod template
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
@@ -1514,7 +1526,7 @@ func (c *SessionController) reconcileActiveStreams(
 	// but that is hardcoded for now :)
 	wolfclient := wolfapi.NewClient("https://"+net.JoinHostPort(service.Spec.ClusterIP, "8443"), &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint G402
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint
 		},
 	})
 
@@ -1528,7 +1540,7 @@ func (c *SessionController) reconcileActiveStreams(
 		klog.Warningf("wolf-agent list sessions failed (attempt %d/5) for %s/%s: %v", i+1, session.Namespace, session.Name, err)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("context cancelled: %w", ctx.Err())
 		case <-time.After(time.Duration(i+1) * time.Second):
 		}
 	}
@@ -1565,7 +1577,7 @@ func (c *SessionController) reconcileActiveStreams(
 		if session.Spec.Config.ClientIP != "" {
 			clientIP = session.Spec.Config.ClientIP
 		}
-		//This is temporary, since sometimes session creation fails on kind cluster
+		// This is temporary, since sometimes session creation fails on kind cluster
 		var sessionID string
 		for i := 0; i < 5; i++ {
 			sessionID, err = wolfclient.AddSession(ctx, wolfapi.Session{
@@ -1601,7 +1613,7 @@ func (c *SessionController) reconcileActiveStreams(
 			klog.Warningf("wolf-agent add session failed (attempt %d/5) for %s/%s: %v", i+1, session.Namespace, session.Name, err)
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
+				return fmt.Errorf("context cancelled: %w", ctx.Err())
 			case <-time.After(time.Duration(i+1) * time.Second):
 			}
 		}
