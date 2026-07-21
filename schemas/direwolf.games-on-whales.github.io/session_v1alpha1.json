@@ -1,5 +1,5 @@
 {
-  "description": "Represents a Session CRD.",
+  "description": "Session CRD represents a user's session, TODO: DRA update",
   "properties": {
     "apiVersion": {
       "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
@@ -13,7 +13,7 @@
       "type": "object"
     },
     "spec": {
-      "description": "A session refers to a certain user playing a specific game with a specific\nclient. This object is meant to live for the duration of the user's session.\n\nA session is created in response to a user's /launch request.\n\nIt is meant to be deleted by the session controller once the agent has reported\nthat it is ended.\n\nA user can have multiple sessions active at a time, and even multiple copies\nof the same \"game\" if the underlying persistentVolumeClass supports it multiple\nbinding.\n\nA session is created when moonlight calls /launch to launch a game.",
+      "description": "SessionSpec refers to a certain user playing a specific game with a specific\nclient. This object is meant to live for the duration of the user's session.\n\nA session is created in response to a user's /launch request.\n\nIt is meant to be deleted by the session controller once the agent has reported\nthat it is ended.\n\nA user can have multiple sessions active at a time, and even multiple copies\nof the same \"game\" if the underlying persistentVolumeClass supports it multiple\nbinding.\n\nA session is created when moonlight calls /launch to launch a game.",
       "properties": {
         "config": {
           "description": "Wolf-specific config for the session",
@@ -115,7 +115,7 @@
       "additionalProperties": false
     },
     "status": {
-      "description": "Session State machine\nPending -> Initializing -> WaitForPing -> Streaming -> Ended",
+      "description": "SessionStatus is the session State machine\nPending -> Initializing -> WaitForPing -> Streaming -> Ended",
       "properties": {
         "conditions": {
           "description": "Represents the observations of a session's state.",

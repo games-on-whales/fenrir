@@ -5,6 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// App is a Games on Whales container that uses wolf's sockets to stream to the user
 // +kubebuilder:object:root=true
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -56,6 +57,7 @@ type AppSpec struct {
 	VolumeClaimTemplate *corev1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
 }
 
+// RuntimeWolfVariables will be removed into the DRA config
 // TODO so I can easily find it
 // This entire implementation needs a rework
 // It'll be modified later to better inject env vars and configs.
@@ -108,6 +110,7 @@ type WolfRunnerConfig struct {
 	RunCommand string `json:"runCommand,omitempty" toml:"run_cmd,omitempty"`
 }
 
+// AppList
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type AppList struct {
 	metav1.TypeMeta `json:",inline"`

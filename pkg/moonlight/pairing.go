@@ -63,7 +63,7 @@ type PairingManager struct {
 	PendingPins sync.Map
 
 	// Certificate of the secure serving endpoint used for pairing
-	SecureServerCerificate tls.Certificate
+	SecureServerCertificate *tls.Certificate
 
 	PairingsClient v1alpha1_client.PairingInterface
 }
@@ -97,12 +97,12 @@ func (p *pendingPin) Close() {
 	close(p.ch)
 }
 func NewPairingManager(
-	cert tls.Certificate,
+	cert *tls.Certificate,
 	pairingsClient v1alpha1_client.PairingInterface,
 ) *PairingManager {
 	return &PairingManager{
-		SecureServerCerificate: cert,
-		PairingsClient:         pairingsClient,
+		SecureServerCertificate: cert, // note: field type must also change to *tls.Certificate
+		PairingsClient:          pairingsClient,
 	}
 }
 
@@ -117,9 +117,13 @@ func (m *PairingManager) PostPin(secret string, pin string, username string) err
 		return fmt.Errorf("no pending pin for secret %s", secret)
 	}
 
-	pp := val.(*pendingPin)
+	pp, ok := val.(*pendingPin)
+	if !ok {
+		return fmt.Errorf("invalid pending pin type for secret %s: got %T", secret, val)
+	}
+
 	if err := pp.Send(PinSubmission{Pin: pin, Username: username}); err != nil {
-		klog.Errorf("failed to send pin %s and username %s to channel for secret %s: %w", pin, secret, username, err)
+		klog.Errorf("failed to send pin %s and username %s to channel for secret %s: %v", pin, username, secret, err)
 	}
 
 	klog.V(2).Infof("Sent pin %s to channel for secret %s", pin, secret)
@@ -216,7 +220,7 @@ func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt s
 	return PairingResponse{
 		Paired: 1,
 		//!TODO: Dont keep calculating this PEM every time.
-		PlainCert: hex.EncodeToString([]byte(util.CertificateChainToPEM(m.SecureServerCerificate))),
+		PlainCert: hex.EncodeToString([]byte(util.CertificateChainToPEM(*m.SecureServerCertificate))),
 		Response:  Response{StatusCode: 200},
 	}
 }
@@ -244,7 +248,10 @@ func (m *PairingManager) pairPhase2(cacheKey string, clientChallenge string) Pai
 		return failPair("Pairing session not found")
 	}
 
-	clientCache := val.(pendingPairCacheEntry)
+	clientCache, ok := val.(pendingPairCacheEntry)
+	if !ok {
+		return failPair("invalid cache entry type")
+	}
 	if clientCache.LastPhase != "GETSERVERCERT" {
 		return failPair("Out of order pair request (phase 2)")
 	}
@@ -260,7 +267,7 @@ func (m *PairingManager) pairPhase2(cacheKey string, clientChallenge string) Pai
 	}
 
 	//!TODO: Precompute/Grab of x509 somewhere. This sucks
-	serverCertSignature, err := util.ExtractCertSignature(m.SecureServerCerificate.Certificate[0])
+	serverCertSignature, err := util.ExtractCertSignature(m.SecureServerCertificate.Certificate[0])
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to extract server cert signature: %s", err))
 	}
@@ -308,7 +315,10 @@ func (m *PairingManager) pairPhase3(cacheKey string, serverChallenge string) Pai
 		return failPair("Pairing session not found")
 	}
 
-	clientCache := val.(pendingPairCacheEntry)
+	clientCache, ok := val.(pendingPairCacheEntry)
+	if !ok {
+		return failPair("invalid cache entry type")
+	}
 	if clientCache.LastPhase != "CLIENTCHALLENGE" {
 		return failPair("Out of order pair request (phase 3)")
 	}
@@ -318,7 +328,12 @@ func (m *PairingManager) pairPhase3(cacheKey string, serverChallenge string) Pai
 		return failPair(fmt.Sprintf("Failed to decrypt server challenge: %s", err))
 	}
 
-	signature, err := m.SecureServerCerificate.PrivateKey.(crypto.Signer).Sign(rand.Reader, util.Hash(clientCache.ServerSecret), crypto.SHA256)
+	signer, ok := m.SecureServerCertificate.PrivateKey.(crypto.Signer)
+	if !ok {
+		return failPair("Server private key does not implement crypto.Signer")
+	}
+
+	signature, err := signer.Sign(rand.Reader, util.Hash(clientCache.ServerSecret), crypto.SHA256)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to sign server secret: %s", err))
 	}
@@ -354,7 +369,7 @@ func (m *PairingManager) pairPhase3(cacheKey string, serverChallenge string) Pai
  * paired = 1, if all checks are fine
  * paired = 0, otherwise
  */
-func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) PairingResponse {
+func (m *PairingManager) pairPhase4(ctx context.Context, cacheKey string, pairingSecret string) PairingResponse {
 	pairingSecretData, err := hex.DecodeString(pairingSecret)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to decode pairing secret: %s", err))
@@ -367,11 +382,13 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 		return failPair("Pairing session not found")
 	}
 
-	clientCache := val.(pendingPairCacheEntry)
-	if clientCache.LastPhase != "SERVERCHALLENGERESP" {
-		return failPair("Out of order pair request (phase 4)")
+	clientCache, ok := val.(pendingPairCacheEntry)
+	if !ok {
+		return failPair("invalid cache entry type")
 	}
-
+	if clientCache.LastPhase != "SERVERCHALLENGERESP" {
+		return failPair("Out of order pair request (phase 3)")
+	}
 	clientSecret := pairingSecretData[:16]
 	clientSignature := pairingSecretData[16:]
 
@@ -395,7 +412,7 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 	// to input the PIN on the website.
 	//!TODO: Switch to base64 to avoid issues with length limits in some names
 	fingerprint := hex.EncodeToString(util.Hash(clientCache.ClientCert.Raw))
-	_, err = m.PairingsClient.Apply(context.TODO(), &v1alpha1_apply.PairingApplyConfiguration{
+	_, err = m.PairingsClient.Apply(ctx, &v1alpha1_apply.PairingApplyConfiguration{
 		TypeMetaApplyConfiguration: metav1apply.TypeMetaApplyConfiguration{
 			Kind:       ptr.To("Pairing"),
 			APIVersion: ptr.To("direwolf.games-on-whales.github.io/v1alpha1"),
@@ -427,7 +444,7 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 func aesDecryptECB(ciphertext []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decryption failed: %w", err)
 	}
 	if len(ciphertext)%block.BlockSize() != 0 {
 		return nil, errors.New("ciphertext is not a multiple of the block size")
@@ -444,7 +461,7 @@ func aesDecryptECB(ciphertext []byte, key []byte) ([]byte, error) {
 func aesEncryptECB(plaintext, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encryption failed: %w", err)
 	}
 
 	if len(plaintext)%aes.BlockSize != 0 {

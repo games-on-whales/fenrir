@@ -17,7 +17,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Represents a Profile CRD
+        description: Profile contains the user's devices and allowed applications
         properties:
           apiVersion:
             description: |-

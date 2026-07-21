@@ -87,7 +87,7 @@ func main() {
 	podLister := generic.NewLister[*corev1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
 
 	pairingManager := moonlight.NewPairingManager(
-		tlsCert,
+		&tlsCert,
 		direwolfClient.DirewolfV1alpha1().Pairings(*namespace),
 	)
 
@@ -109,7 +109,9 @@ func main() {
 
 	go func() {
 		defer appCancel()
-		restServer.Run(appContext)
+		if err := restServer.Run(appContext); err != nil {
+			klog.ErrorS(err, "REST server exited with error")
+		}
 	}()
 
 	<-appContext.Done()

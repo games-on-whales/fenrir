@@ -25,7 +25,7 @@ type ServerInfoResponse struct {
 	ServerInfo `xml:",inline"`
 }
 
-// Root structure that represents the whole XML
+// ServerInfo is the Root structure that represents the whole XML
 type ServerInfo struct {
 	Hostname               string       `xml:"hostname"`
 	AppVersion             string       `xml:"appversion"`
@@ -33,7 +33,7 @@ type ServerInfo struct {
 	UniqueID               string       `xml:"uniqueid"`
 	MaxLumaPixelsHEVC      int64        `xml:"MaxLumaPixelsHEVC"`
 	ServerCodecModeSupport int          `xml:"ServerCodecModeSupport"`
-	HttpsPort              int          `xml:"HttpsPort"`
+	HTTPSPort              int          `xml:"HTTPSPort"`
 	ExternalPort           int          `xml:"ExternalPort"`
 	MAC                    string       `xml:"mac"`
 	LocalIP                string       `xml:"LocalIP"`
@@ -43,12 +43,12 @@ type ServerInfo struct {
 	State                  string       `xml:"state"`
 }
 
-// Wrapper for multiple display modes
+// DisplayModes is a wrapper for multiple display modes
 type DisplayModes struct {
 	Modes []DisplayMode `xml:"DisplayMode"`
 }
 
-// Individual display mode struct
+// DisplayMode is the individual display mode struct
 type DisplayMode struct {
 	Width       int `xml:"Width"`
 	Height      int `xml:"Height"`

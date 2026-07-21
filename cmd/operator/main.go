@@ -109,7 +109,7 @@ func main() {
 		RenewDeadline: 10 * time.Second,
 		RetryPeriod:   2 * time.Second,
 		Callbacks: leaderelection.LeaderCallbacks{
-			OnStartedLeading: func(ctx context.Context) {
+			OnStartedLeading: func(_ context.Context) {
 				klog.Info("started leading")
 				err := sessionController.Run(appContext)
 				if err != nil && !errors.Is(err, context.Canceled) {

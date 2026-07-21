@@ -5,7 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Represents a Profile CRD
+// Profile contains the user's devices and allowed applications
 // +genclient
 // +kubebuilder:subresource:status
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -51,7 +51,7 @@ type ProfileReference struct {
 	Name string `json:"name,omitempty"`
 }
 
-// This will later be removed once wolf-agent is a daemonset
+// SidecarPolicy will be removed once wolf-agent is a daemonset
 // Maybe it'll be kept to limit some of the application resources?
 type SidecarPolicy struct {
 	// Environment variables appended to the sidecar
@@ -73,7 +73,7 @@ type SidecarPolicy struct {
 	HostIPC *bool `json:"hostIPC,omitempty"`
 }
 
-// This will be deleted once wolf-agent becomes a daemonset, it's no longer needed.
+// SidecarPolicies will be deleted once wolf-agent becomes a daemonset, it's no longer needed.
 type SidecarPolicies struct {
 	// Policy for the 'wolf' streaming sidecar
 	// +optional
@@ -89,6 +89,7 @@ type SidecarPolicies struct {
 type ProfileStatus struct {
 }
 
+// ProfileList is as the name implies a list of profiles
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ProfileList struct {
 	metav1.TypeMeta `json:",inline"`

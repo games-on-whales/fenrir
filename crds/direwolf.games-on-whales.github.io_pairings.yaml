@@ -18,7 +18,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          Represents a Pairing CRD.
+          Pairing Represents a user device's information.
           A pairing CRD is created when a client pairs with the server. It represents
           an association between a Moonlight client and a user.
         properties:

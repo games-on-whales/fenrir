@@ -366,7 +366,7 @@ func TestReconcileRetry(t *testing.T) {
 
 	calls := atomic.Uint64{}
 	success := atomic.Bool{}
-	tracker, myController, _, waitForReconcile, verifyNoMoreEvents := setupTest(testContext, func(s1, s2 string, o runtime.Object) error {
+	tracker, myController, _, waitForReconcile, verifyNoMoreEvents := setupTest(testContext, func(_, _ string, _ runtime.Object) error {
 		if calls.Add(1) > 2 {
 			// Suddenly start liking the object
 			success.Store(true)
@@ -493,7 +493,7 @@ func TestInformerList(t *testing.T) {
 	require.NoError(t, tracker.Add(object1))
 	require.NoError(t, tracker.Add(object2))
 
-	require.NoError(t, wait.PollUntilContextTimeout(testContext, 100*time.Millisecond, 500*time.Millisecond, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, wait.PollUntilContextTimeout(testContext, 100*time.Millisecond, 500*time.Millisecond, false, func(_ context.Context) (done bool, err error) {
 		return myController.Informer().LastSyncResourceVersion() == object2.GetResourceVersion(), nil
 	}))
 
@@ -505,7 +505,7 @@ func TestInformerList(t *testing.T) {
 	require.NoError(t, tracker.Delete(fakeGVR, object2.GetNamespace(), object2.GetName()))
 	require.NoError(t, tracker.Add(object3))
 
-	require.NoError(t, wait.PollUntilContextTimeout(testContext, 100*time.Millisecond, 500*time.Millisecond, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, wait.PollUntilContextTimeout(testContext, 100*time.Millisecond, 500*time.Millisecond, false, func(_ context.Context) (done bool, err error) {
 		return myController.Informer().LastSyncResourceVersion() == object3.GetResourceVersion(), nil
 	}))
 
@@ -516,7 +516,7 @@ func TestInformerList(t *testing.T) {
 	require.NoError(t, tracker.Add(namespacedObject1))
 	require.NoError(t, tracker.Add(namespacedObject2))
 
-	require.NoError(t, wait.PollUntilContextTimeout(testContext, 100*time.Millisecond, 500*time.Millisecond, false, func(ctx context.Context) (done bool, err error) {
+	require.NoError(t, wait.PollUntilContextTimeout(testContext, 100*time.Millisecond, 500*time.Millisecond, false, func(_ context.Context) (done bool, err error) {
 		return myController.Informer().LastSyncResourceVersion() == namespacedObject2.GetResourceVersion(), nil
 	}))
 	values, err = myController.Informer().Namespaced(namespacedObject1.GetNamespace()).List(labels.Everything())

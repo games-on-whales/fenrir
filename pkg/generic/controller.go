@@ -71,7 +71,7 @@ func NewController[T runtime.Object](
 		options.Workers = 2
 	}
 
-	if len(options.Name) == 0 {
+	if options.Name == "" {
 		options.Name = fmt.Sprintf("%T-controller", *new(T))
 	}
 
@@ -86,7 +86,11 @@ func NewController[T runtime.Object](
 		if f == nil {
 			return false
 		}
-		return f.(func() bool)()
+		fn, ok := f.(func() bool)
+		if !ok {
+			return false
+		}
+		return fn()
 	}
 	return c
 }
@@ -146,7 +150,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 				}
 				return
 			} else if oldMeta.GetResourceVersion() == newMeta.GetResourceVersion() {
-				if len(oldMeta.GetResourceVersion()) == 0 {
+				if oldMeta.GetResourceVersion() == "" {
 					klog.Warningf("%v throwing out update with empty RV. this is likely to happen if a test did not supply a resource version on an updated object", c.options.Name)
 				}
 				return
@@ -162,7 +166,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	// Error might be raised if informer was started and stopped already
 	if err != nil {
-		return err
+		return fmt.Errorf("failure due to Informer Stopping: %w", err)
 	}
 
 	c.notificationsDelivered.Store(registration.HasSynced)
@@ -192,7 +196,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	waitGroup := sync.WaitGroup{}
 
-	for range uint(c.options.Workers) {
+	for range c.options.Workers {
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
@@ -213,7 +217,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 	waitGroup.Wait()
 
 	// Only way for workers to ever stop is for caller to cancel the context
-	return ctx.Err()
+	return fmt.Errorf("context cancelled: %w", ctx.Err())
 }
 
 func (c *controller[T]) HasSynced() bool {
@@ -267,10 +271,10 @@ func (c *controller[T]) reconcile(key string) error {
 	namespace, name, err = cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-		return nil
+		return fmt.Errorf("failure due to invalid resource key: %w", err)
 	}
 
-	if len(namespace) > 0 {
+	if namespace != "" {
 		lister = c.informer.Namespaced(namespace)
 	} else {
 		lister = c.informer
@@ -279,7 +283,7 @@ func (c *controller[T]) reconcile(key string) error {
 	newObj, err = lister.Get(name)
 	if err != nil {
 		if !kerrors.IsNotFound(err) {
-			return err
+			return fmt.Errorf("listener not found: %w", err)
 		}
 
 		// Deleted object. Inform reconciler with empty

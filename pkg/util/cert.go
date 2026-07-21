@@ -31,11 +31,11 @@ func LoadCertificates(serverCertPath, serverKeyPath string) (tls.Certificate, er
 		}
 
 		// Write cert and key to filesystem
-		if err := os.WriteFile(serverCertPath, certPEM, 0644); err != nil {
+		if err := os.WriteFile(serverCertPath, certPEM, 0o600); err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to write cert: %w", err)
 		}
 
-		if err := os.WriteFile(serverKeyPath, keyPEM, 0644); err != nil {
+		if err := os.WriteFile(serverKeyPath, keyPEM, 0o600); err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to write key: %w", err)
 		}
 	} else {
@@ -134,7 +134,7 @@ func encodePrivateKey(priv any) ([]byte, error) {
 	case *ecdsa.PrivateKey:
 		ecKey, err := x509.MarshalECPrivateKey(k)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to marshal private key: %w", err)
 		}
 		return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: ecKey}), nil
 	default:
@@ -142,7 +142,7 @@ func encodePrivateKey(priv any) ([]byte, error) {
 	}
 }
 
-// Convert tls.Certificate to PEM format (full chain)
+// CertificateChainToPEM Converts tls.Certificate to PEM format (full chain)
 func CertificateChainToPEM(cert tls.Certificate) string {
 	var pemData []byte
 

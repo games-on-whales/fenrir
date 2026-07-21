@@ -78,17 +78,17 @@ func (c *client) AddSession(
 ) (string, error) {
 	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions/add")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failure: %w", err)
 	}
 
 	encodedSession, err := json.Marshal(session)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failure: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewBuffer(encodedSession))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewBuffer(encodedSession))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failure: %w", err)
 	}
 
 	// FORCE HTTP/1.0 (this disables chunked encoding automatically)
@@ -100,13 +100,13 @@ func (c *client) AddSession(
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failure: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var addSessionResp AddSessionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&addSessionResp); err != nil {
-		return "", err
+		return "", fmt.Errorf("failure: %w", err)
 	}
 
 	if !addSessionResp.Success {
@@ -120,23 +120,23 @@ func (c *client) AddSession(
 func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
 	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, u, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var sessionsResp SessionsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&sessionsResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
 	if !sessionsResp.Success {
@@ -150,23 +150,23 @@ func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
 func (c *client) ListApps(ctx context.Context) ([]App, error) {
 	u, err := url.JoinPath(c.apiURL, "/api/v1/apps")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, u, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var appsResp AppsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&appsResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
 	if !appsResp.Success {
@@ -180,30 +180,30 @@ func (c *client) ListApps(ctx context.Context) ([]App, error) {
 func (c *client) AddApp(ctx context.Context, app App) error {
 	u, err := url.JoinPath(c.apiURL, "/api/v1/apps/add")
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
 	encodedApp, err := json.Marshal(app)
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewBuffer(encodedApp))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewBuffer(encodedApp))
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var response Response
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
 	if !response.Success {
@@ -219,7 +219,7 @@ func (c *client) StopSession(ctx context.Context, sessionID string) error {
 	}
 	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions/stop")
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
 	stopSessionReq := StopSessionRequest{
@@ -227,23 +227,23 @@ func (c *client) StopSession(ctx context.Context, sessionID string) error {
 	}
 	encodedStopSessionReq, err := json.Marshal(stopSessionReq)
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, u, bytes.NewBuffer(encodedStopSessionReq))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewBuffer(encodedStopSessionReq))
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	}
 
 	defer resp.Body.Close()
 	var stopSessionResp Response
 	if err := json.NewDecoder(resp.Body).Decode(&stopSessionResp); err != nil {
-		return err
+		return fmt.Errorf("failure: %w", err)
 	} else if !stopSessionResp.Success {
 		return fmt.Errorf("failed to stop session: %s", stopSessionResp.Error)
 	}
@@ -260,7 +260,7 @@ func (c *client) SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, erro
 	err := sseClient.SubscribeChanRawWithContext(ctx, events)
 	if err != nil {
 		close(events)
-		return nil, err
+		return nil, fmt.Errorf("failure: %w", err)
 	}
 
 	return events, nil

@@ -4,7 +4,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Represents a Pairing CRD.
+// Pairing Represents a user device's information.
 // A pairing CRD is created when a client pairs with the server. It represents
 // an association between a Moonlight client and a user.
 //
@@ -45,6 +45,7 @@ type GatewayReference struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
+// PairingList contains the paired devices
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type PairingList struct {
 	metav1.TypeMeta `json:",inline"`

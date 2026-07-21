@@ -126,7 +126,7 @@ func (s *RESTServer) Run(ctx context.Context) error {
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{s.Cert},
 			ClientAuth:   tls.RequestClientCert,
-			VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			VerifyPeerCertificate: func(_ [][]byte, _ [][]*x509.Certificate) error {
 				// Accept any certificate for now during connection negotiation
 				// we have a middleware that will verify the actual ceritificate
 				// used and find a user for later user.
@@ -136,13 +136,13 @@ func (s *RESTServer) Run(ctx context.Context) error {
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
-	var error atomic.Pointer[error]
+	var serverErr atomic.Pointer[error]
 	go func() {
 		defer cancel()
 		klog.Infof("HTTP server listening on %s", server.Addr)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
 			klog.Errorf("HTTP Server failed: %s", err)
-			error.CompareAndSwap(nil, &err)
+			serverErr.CompareAndSwap(nil, &err)
 		}
 	}()
 
@@ -151,30 +151,41 @@ func (s *RESTServer) Run(ctx context.Context) error {
 		klog.Infof("HTTPS server listening on %s", secureServer.Addr)
 		if err := secureServer.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, context.Canceled) {
 			klog.Errorf("HTTPS Server failed: %s", err)
-			error.CompareAndSwap(nil, &err)
+			serverErr.CompareAndSwap(nil, &err)
 		}
 	}()
 
 	<-ctx.Done()
 	klog.Info("Shutting down server...")
-	server.Shutdown(context.Background())
-	secureServer.Shutdown(context.Background())
 
-	if err := error.Load(); err != nil {
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer shutdownCancel()
+
+	var shutdownErr error
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		shutdownErr = err
+		klog.Errorf("HTTP server shutdown failed: %s", err)
+	}
+	if err := secureServer.Shutdown(shutdownCtx); err != nil {
+		shutdownErr = err
+		klog.Errorf("HTTPS server shutdown failed: %s", err)
+	}
+
+	if err := serverErr.Load(); err != nil {
 		klog.Errorf("Server failed: %s", *err)
 		return *err
 	}
 
-	return nil
+	return shutdownErr
 }
 
-func (s *RESTServer) readyzHandler(w http.ResponseWriter, r *http.Request) {
+func (s *RESTServer) readyzHandler(w http.ResponseWriter, _ *http.Request) {
 	// Server is ready to serve traffic as soon as HTTP & HTTPS server is UP.
 	//!TODO: (And when all informers/caches are synced)
 	w.WriteHeader(http.StatusOK)
 }
 
-func (s *RESTServer) livezHandler(w http.ResponseWriter, r *http.Request) {
+func (s *RESTServer) livezHandler(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -189,13 +200,12 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 	if pairing := r.Context().Value(pairingContextKey{}); pairing != nil {
 		pairStatus = 1
 
-		if profiles := r.Context().Value(profilesContextKey{}); profiles != nil {
-			profiles := profiles.([]*direwolfv1alpha1.Profile)
-
+		if profiles, ok := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile); ok {
 			// Check pods for any of the available profiles
 			for _, profile := range profiles {
 				pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
-					"direwolf/profile": profile.Name,
+					// TODO use the const instead
+					"direwolf/profile": profile.Name, //nolint
 				}))
 				if err != nil {
 					writeErrorResponse(w, 500, fmt.Errorf("failed to list pods: %w", err))
@@ -215,7 +225,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
+	// TODO: implement this instead of hard code it
 	root := ServerInfoResponse{
 		Response: Response{
 			StatusCode: 200,
@@ -227,7 +237,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 			UniqueID:               "dd7c60f6-4b88-4ef1-be07-eeec72f96080", // Does this matter?
 			MaxLumaPixelsHEVC:      1869449984,
 			ServerCodecModeSupport: 65793, // Bitwise OR of various codecs. Just hardcoding HEVC and AV1 for now
-			HttpsPort:              s.SecurePort,
+			HTTPSPort:              s.SecurePort,
 			ExternalPort:           s.Port,
 			MAC:                    "00:00:00:00:00:00", // Does this matter?
 			LocalIP:                "127.0.0.1",         // Does this matter?
@@ -327,7 +337,7 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 		klog.Infof("Pairing phase 4 with %s\n", cacheKey)
 		clientPairingSecret := r.URL.Query().Get("clientpairingsecret")
 
-		sendXML(w, s.manager.pairPhase4(cacheKey, clientPairingSecret))
+		sendXML(w, s.manager.pairPhase4(r.Context(), cacheKey, clientPairingSecret))
 		return
 	} else if phrase := r.URL.Query().Get("phrase"); phrase == "pairchallenge" {
 		klog.Infof("Pairing phase 5 with %s\n", cacheKey)
@@ -366,7 +376,9 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(pinHTML))
+		if _, err := w.Write([]byte(pinHTML)); err != nil {
+			klog.Errorf("failed to write pin HTML response: %v", err)
+		}
 		return
 	}
 
@@ -381,7 +393,9 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 		var req PinRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request"))
+			if _, writeErr := w.Write([]byte("Invalid request")); writeErr != nil {
+				klog.Errorf("failed to write invalid request response: %v", writeErr)
+			}
 			return
 		}
 		if req.Username == "" {
@@ -389,7 +403,9 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Pin == "" || req.Secret == "" || req.Username == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request: missing pin, secret, or username"))
+			if _, writeErr := w.Write([]byte("Invalid request: missing pin, secret, or username")); writeErr != nil {
+				klog.Errorf("failed to write missing fields response: %v", writeErr)
+			}
 			return
 		}
 
@@ -398,21 +414,31 @@ func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
 		err := s.manager.PostPin(req.Secret, req.Pin, req.Username)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
+			if _, writeErr := w.Write([]byte(err.Error())); writeErr != nil {
+				klog.Errorf("failed to write PostPin error response: %v", writeErr)
+			}
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		if _, writeErr := w.Write([]byte("OK")); writeErr != nil {
+			klog.Errorf("failed to write OK response: %v", writeErr)
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusBadRequest)
-	w.Write([]byte("Invalid pin request"))
+	if _, writeErr := w.Write([]byte("Invalid pin request")); writeErr != nil {
+		klog.Errorf("failed to write invalid pin request response: %v", writeErr)
+	}
 }
 
 func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
-	profiles := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
+	profiles, ok := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
+	if !ok || profiles == nil {
+		http.Error(w, "profiles not found or invalid type in context", http.StatusInternalServerError)
+		return
+	}
 
 	appsList := make([]App, 0)
 	for _, profile := range profiles {
@@ -442,11 +468,9 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	// 2025/03/03 11:34:48 HTTP/2.0 GET /launch map[additionalStates:[1] appid:[firefox] localAudioPlayMode:[0] mode:[1920x1080x60] rikey:[773448F67992470C5C62848D361E1025] rikeyid:[1311662065] sops:[0] surroundAudioInfo:[196610] uniqueid:[0123456789ABCDEF]] 127.0.0.1:65314
 	// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
 	appID := r.URL.Query().Get("appid")
-	// additionalStates := r.URL.Query().Get("additionalStates") // ???
 	mode := r.URL.Query().Get("mode")
 	rikey := r.URL.Query().Get("rikey")
 	rikeyID := r.URL.Query().Get("rikeyid")
-	// sops := r.URL.Query().Get("sops") // legacy GFE auto-optimize game settings. i dont think wolf has equivalent
 	surroundAudioInfo := r.URL.Query().Get("surroundAudioInfo")
 
 	if appID == "" {
@@ -506,8 +530,17 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profiles := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
-	pairing := r.Context().Value(pairingContextKey{}).(*direwolfv1alpha1.Pairing)
+	profiles, ok := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
+	if !ok || profiles == nil {
+		http.Error(w, "profiles not found or invalid type in context", http.StatusInternalServerError)
+		return
+	}
+
+	pairing, ok := r.Context().Value(pairingContextKey{}).(*direwolfv1alpha1.Pairing)
+	if !ok || pairing == nil {
+		http.Error(w, "pairing not found or invalid type in context", http.StatusInternalServerError)
+		return
+	}
 
 	// Find a profile that contains the requested app
 	var targetProfile *direwolfv1alpha1.Profile
@@ -532,7 +565,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	// at the old pod. It is very likely to happen before operator syncs and
 	// can create session, but perhaps should still check after operator returns
 	// the session URL.
-	if err := s.stopSessionsForProfile(targetProfile, false); err != nil && !kerrors.IsNotFound(err) {
+	if err := s.stopSessionsForProfile(r.Context(), targetProfile, false); err != nil && !kerrors.IsNotFound(err) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %w", err))
 		return
 	}
@@ -593,7 +626,7 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
 		session, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("failed to get sessions: %w", err)
 		}
 
 		if session.Status.StreamURL == "" {
@@ -622,11 +655,15 @@ func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 	s.launchHandler(w, r)
 }
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
-	profiles := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
+	profiles, ok := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
+	if !ok || profiles == nil {
+		http.Error(w, "profiles not found or invalid type in context", http.StatusInternalServerError)
+		return
+	}
 
 	anyErr := false
 	for _, profile := range profiles {
-		if err := s.stopSessionsForProfile(profile, true); err != nil && !kerrors.IsNotFound(err) {
+		if err := s.stopSessionsForProfile(r.Context(), profile, true); err != nil && !kerrors.IsNotFound(err) {
 			anyErr = true
 		}
 	}
@@ -638,7 +675,7 @@ func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	sendXML(w, Response{StatusCode: 200})
 }
 
-func (s *RESTServer) stopSessionsForProfile(profile *direwolfv1alpha1.Profile, shouldWait bool) error {
+func (s *RESTServer) stopSessionsForProfile(ctx context.Context, profile *direwolfv1alpha1.Profile, shouldWait bool) error {
 	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
 		"direwolf/profile": profile.Name,
 	}))
@@ -648,7 +685,7 @@ func (s *RESTServer) stopSessionsForProfile(profile *direwolfv1alpha1.Profile, s
 
 	didDelete := false
 	for _, session := range sessions {
-		if err := s.SessionClient.Delete(context.Background(), session.Name, metav1.DeleteOptions{}); err != nil {
+		if err := s.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{}); err != nil {
 			return fmt.Errorf("failed to delete session: %w", err)
 		}
 		didDelete = true
@@ -661,12 +698,12 @@ func (s *RESTServer) stopSessionsForProfile(profile *direwolfv1alpha1.Profile, s
 
 	if shouldWait {
 		// Wait for pods to be cleaned up
-		err = wait.PollUntilContextTimeout(context.Background(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
+		err = wait.PollUntilContextTimeout(ctx, 250*time.Millisecond, 25*time.Second, true, func(_ context.Context) (bool, error) {
 			pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
 				"direwolf/profile": profile.Name,
 			}))
 			if err != nil {
-				return false, err
+				return false, fmt.Errorf("failed to clean up pods %s: %w", pods, err)
 			}
 			return len(pods) == 0, nil
 		})
@@ -720,7 +757,9 @@ func writeErrorResponse(w http.ResponseWriter, status int, err error) {
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(status)
-	w.Write([]byte(xml.Header))
+	if _, writeErr := w.Write([]byte(xml.Header)); writeErr != nil {
+		klog.Errorf("failed to write XML header: %v", writeErr)
+	}
 
 	// First attempt to serialize as XML with the message. If that fails, just
 	// send unfallible statuscode
@@ -728,10 +767,14 @@ func writeErrorResponse(w http.ResponseWriter, status int, err error) {
 		StatusCode:    status,
 		StatusMessage: err.Error(),
 	}); err == nil {
-		w.Write(bytes)
+		if _, writeErr := w.Write(bytes); writeErr != nil {
+			klog.Errorf("failed to write XML error response: %v", writeErr)
+		}
 	} else {
 		klog.ErrorS(err, "Failed to marshal XML. Just sending status code")
-		w.Write(fmt.Appendf(nil, `<root status_code="%d"></root>`, status))
+		if _, writeErr := w.Write(fmt.Appendf(nil, `<root status_code="%d"></root>`, status)); writeErr != nil {
+			klog.Errorf("failed to write fallback error response: %v", writeErr)
+		}
 	}
 
 	klog.ErrorS(err, "Sent error response", "status", status)
@@ -746,13 +789,17 @@ func sendXML(w http.ResponseWriter, resp Responsible) {
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(resp.GetStatusCode())
-	w.Write([]byte(xml.Header))
-	w.Write(bytes)
+	if _, writeErr := w.Write([]byte(xml.Header)); writeErr != nil {
+		klog.V(3).Infof("failed to write XML header: %v", writeErr)
+	}
+	if _, writeErr := w.Write(bytes); writeErr != nil {
+		klog.V(3).Infof("failed to write XML body: %v", writeErr)
+	}
 
-	if resp.GetStatusCode() != 200 {
-		klog.V(3).Info("Sent response", string(bytes))
+	if resp.GetStatusCode() == 200 {
+		klog.V(3).Info("sent response", string(bytes))
 	} else {
-		klog.V(3).Info("Sent response", string(bytes))
+		klog.V(3).Info("failed to send response", string(bytes))
 	}
 }
 
@@ -824,7 +871,7 @@ func (s *RESTServer) getAppByID(appID string) (*direwolfv1alpha1.App, error) {
 
 	apps, err := s.AppLister.List(nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get app list: %w", err)
 	}
 
 	for _, app := range apps {

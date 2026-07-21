@@ -17,6 +17,8 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
+        description: App is a Games on Whales container that uses wolf's sockets to
+          stream to the user
         properties:
           apiVersion:
             description: |-

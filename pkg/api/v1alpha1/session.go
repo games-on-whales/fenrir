@@ -4,7 +4,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Represents a Session CRD.
+// Session CRD represents a user's session, TODO: DRA update
 // +kubebuilder:object:root=true
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -20,7 +20,7 @@ type Session struct {
 	Status SessionStatus `json:"status"`
 }
 
-// A session refers to a certain user playing a specific game with a specific
+// SessionSpec refers to a certain user playing a specific game with a specific
 // client. This object is meant to live for the duration of the user's session.
 //
 // A session is created in response to a user's /launch request.
@@ -53,7 +53,7 @@ type SessionSpec struct {
 	Config SessionInfo `json:"config"`
 }
 
-// Session State machine
+// SessionStatus is the session State machine
 // Pending -> Initializing -> WaitForPing -> Streaming -> Ended
 type SessionStatus struct {
 	// Represents the observations of a session's state.
@@ -74,6 +74,7 @@ type SessionStatus struct {
 	ServiceName    string `json:"serviceName,omitempty"`
 }
 
+// SessionList is a list containing the sessions
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type SessionList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -104,7 +105,7 @@ type SessionInfo struct {
 	SurroundAudioFlags int `json:"surroundAudioFlags,omitempty"`
 }
 
-// Each session will have 4 ports allocated to it on the shared gateway.
+// SessionPorts are 4 ports allocated to it on the shared gateway.
 // Using port forward allows us to avoid the need for a separate IP per session
 // or a relay which could add latency to the stream.
 type SessionPorts struct {
