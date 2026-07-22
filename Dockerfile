@@ -10,7 +10,7 @@ COPY . .
 RUN go build -o /app/$APP_NAME ./cmd/$APP_NAME
 
 # Second stage: minimal runtime
-FROM alpine:3.21.3 AS output
+FROM alpine:3.24.1 AS output
 WORKDIR /app
 
 # Alpine sh uses busybox which doesnt expand $@
