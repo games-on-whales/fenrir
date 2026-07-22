@@ -4,6 +4,25 @@
 global:
   fullnameOverride: direwolf
 
+# Here is where the ConfigMap is defined. 
+# The user can modify the contents under `data:`
+configMaps:
+  direwolf-config:
+    forceRename: "fix-home-perms"
+    enabled: true
+    data:
+      99-fix-home-perms.sh: |
+        #!/usr/bin/env bash
+        set -e
+
+        # Log helper
+        gow_log() { echo "$(date +"[%Y-%m-%d %H:%M:%S]") $*"; }
+
+        gow_log "Fixing permissions for $HOME recursively at depth 1"
+        find $HOME -mindepth 1 -maxdepth 1 -exec chown ${UNAME}:${UNAME} {} \;
+
+        gow_log "Done fixing home ownership/permissions"
+
 serviceAccount:
   direwolf_operator:
     forceRename: &operatorName direwolf-operator

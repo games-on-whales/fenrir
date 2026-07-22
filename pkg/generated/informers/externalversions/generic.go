@@ -57,10 +57,10 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Apps().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("pairings"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Pairings().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("profiles"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Profiles().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("sessions"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Sessions().Informer()}, nil
-	case v1alpha1.SchemeGroupVersion.WithResource("users"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Direwolf().V1alpha1().Users().Informer()}, nil
 
 	}
 

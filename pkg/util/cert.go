@@ -9,6 +9,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -30,11 +31,11 @@ func LoadCertificates(serverCertPath, serverKeyPath string) (tls.Certificate, er
 		}
 
 		// Write cert and key to filesystem
-		if err := os.WriteFile(serverCertPath, certPEM, 0644); err != nil {
+		if err := os.WriteFile(serverCertPath, certPEM, 0o600); err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to write cert: %w", err)
 		}
 
-		if err := os.WriteFile(serverKeyPath, keyPEM, 0644); err != nil {
+		if err := os.WriteFile(serverKeyPath, keyPEM, 0o600); err != nil {
 			return tls.Certificate{}, fmt.Errorf("failed to write key: %w", err)
 		}
 	} else {
@@ -61,7 +62,7 @@ func LoadCertificates(serverCertPath, serverKeyPath string) (tls.Certificate, er
 
 // GenerateEphemeralCert generates an in-memory TLS certificate with either RSA or ECC
 func GenerateEphemeralCert(keyType string) (certPem []byte, keyPem []byte, err error) {
-	var priv interface{}
+	var priv any
 
 	switch keyType {
 	case "RSA":
@@ -73,13 +74,13 @@ func GenerateEphemeralCert(keyType string) (certPem []byte, keyPem []byte, err e
 	}
 
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate private key: %v", err)
+		return nil, nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
 
 	// Create a unique serial number
 	serialNumber, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to generate serial number: %v", err)
+		return nil, nil, fmt.Errorf("failed to generate serial number: %w", err)
 	}
 
 	// Define certificate template
@@ -101,20 +102,20 @@ func GenerateEphemeralCert(keyType string) (certPem []byte, keyPem []byte, err e
 	// Self-sign the certificate
 	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, publicKey(priv), priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create certificate: %v", err)
+		return nil, nil, fmt.Errorf("failed to create certificate: %w", err)
 	}
 
 	// Encode the cert & key to PEM format
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	keyPEM, err := encodePrivateKey(priv)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal private key: %v", err)
+		return nil, nil, fmt.Errorf("failed to marshal private key: %w", err)
 	}
 	return certPEM, keyPEM, nil
 }
 
 // publicKey extracts the public key from a given private key
-func publicKey(priv interface{}) interface{} {
+func publicKey(priv any) any {
 	switch k := priv.(type) {
 	case *rsa.PrivateKey:
 		return &k.PublicKey
@@ -126,22 +127,22 @@ func publicKey(priv interface{}) interface{} {
 }
 
 // encodePrivateKey encodes a private key to PEM format
-func encodePrivateKey(priv interface{}) ([]byte, error) {
+func encodePrivateKey(priv any) ([]byte, error) {
 	switch k := priv.(type) {
 	case *rsa.PrivateKey:
 		return pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}), nil
 	case *ecdsa.PrivateKey:
 		ecKey, err := x509.MarshalECPrivateKey(k)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to marshal private key: %w", err)
 		}
 		return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: ecKey}), nil
 	default:
-		return nil, fmt.Errorf("unsupported key type")
+		return nil, errors.New("unsupported key type")
 	}
 }
 
-// Convert tls.Certificate to PEM format (full chain)
+// CertificateChainToPEM Converts tls.Certificate to PEM format (full chain)
 func CertificateChainToPEM(cert tls.Certificate) string {
 	var pemData []byte
 

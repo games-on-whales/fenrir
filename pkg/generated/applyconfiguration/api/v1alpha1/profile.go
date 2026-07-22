@@ -25,22 +25,22 @@ import (
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-// UserApplyConfiguration represents a declarative configuration of the User type for use
+// ProfileApplyConfiguration represents a declarative configuration of the Profile type for use
 // with apply.
-type UserApplyConfiguration struct {
+type ProfileApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration    `json:",inline"`
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *UserSpecApplyConfiguration `json:"spec,omitempty"`
-	Status                           *apiv1alpha1.UserStatus     `json:"status,omitempty"`
+	Spec                             *ProfileSpecApplyConfiguration `json:"spec,omitempty"`
+	Status                           *apiv1alpha1.ProfileStatus     `json:"status,omitempty"`
 }
 
-// User constructs a declarative configuration of the User type for use with
+// Profile constructs a declarative configuration of the Profile type for use with
 // apply.
-func User(name, namespace string) *UserApplyConfiguration {
-	b := &UserApplyConfiguration{}
+func Profile(name, namespace string) *ProfileApplyConfiguration {
+	b := &ProfileApplyConfiguration{}
 	b.WithName(name)
 	b.WithNamespace(namespace)
-	b.WithKind("User")
+	b.WithKind("Profile")
 	b.WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1")
 	return b
 }
@@ -48,7 +48,7 @@ func User(name, namespace string) *UserApplyConfiguration {
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Kind field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithKind(value string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithKind(value string) *ProfileApplyConfiguration {
 	b.TypeMetaApplyConfiguration.Kind = &value
 	return b
 }
@@ -56,7 +56,7 @@ func (b *UserApplyConfiguration) WithKind(value string) *UserApplyConfiguration 
 // WithAPIVersion sets the APIVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the APIVersion field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithAPIVersion(value string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithAPIVersion(value string) *ProfileApplyConfiguration {
 	b.TypeMetaApplyConfiguration.APIVersion = &value
 	return b
 }
@@ -64,7 +64,7 @@ func (b *UserApplyConfiguration) WithAPIVersion(value string) *UserApplyConfigur
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithName(value string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithName(value string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Name = &value
 	return b
@@ -73,7 +73,7 @@ func (b *UserApplyConfiguration) WithName(value string) *UserApplyConfiguration 
 // WithGenerateName sets the GenerateName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the GenerateName field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithGenerateName(value string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithGenerateName(value string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.GenerateName = &value
 	return b
@@ -82,7 +82,7 @@ func (b *UserApplyConfiguration) WithGenerateName(value string) *UserApplyConfig
 // WithNamespace sets the Namespace field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Namespace field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithNamespace(value string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithNamespace(value string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Namespace = &value
 	return b
@@ -91,7 +91,7 @@ func (b *UserApplyConfiguration) WithNamespace(value string) *UserApplyConfigura
 // WithUID sets the UID field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the UID field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithUID(value types.UID) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithUID(value types.UID) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.UID = &value
 	return b
@@ -100,7 +100,7 @@ func (b *UserApplyConfiguration) WithUID(value types.UID) *UserApplyConfiguratio
 // WithResourceVersion sets the ResourceVersion field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the ResourceVersion field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithResourceVersion(value string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithResourceVersion(value string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.ResourceVersion = &value
 	return b
@@ -109,7 +109,7 @@ func (b *UserApplyConfiguration) WithResourceVersion(value string) *UserApplyCon
 // WithGeneration sets the Generation field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Generation field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithGeneration(value int64) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithGeneration(value int64) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.Generation = &value
 	return b
@@ -118,7 +118,7 @@ func (b *UserApplyConfiguration) WithGeneration(value int64) *UserApplyConfigura
 // WithCreationTimestamp sets the CreationTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the CreationTimestamp field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithCreationTimestamp(value metav1.Time) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithCreationTimestamp(value metav1.Time) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.CreationTimestamp = &value
 	return b
@@ -127,7 +127,7 @@ func (b *UserApplyConfiguration) WithCreationTimestamp(value metav1.Time) *UserA
 // WithDeletionTimestamp sets the DeletionTimestamp field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionTimestamp field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionTimestamp = &value
 	return b
@@ -136,7 +136,7 @@ func (b *UserApplyConfiguration) WithDeletionTimestamp(value metav1.Time) *UserA
 // WithDeletionGracePeriodSeconds sets the DeletionGracePeriodSeconds field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the DeletionGracePeriodSeconds field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	b.ObjectMetaApplyConfiguration.DeletionGracePeriodSeconds = &value
 	return b
@@ -146,7 +146,7 @@ func (b *UserApplyConfiguration) WithDeletionGracePeriodSeconds(value int64) *Us
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Labels field,
 // overwriting an existing map entries in Labels field with the same key.
-func (b *UserApplyConfiguration) WithLabels(entries map[string]string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithLabels(entries map[string]string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Labels == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Labels = make(map[string]string, len(entries))
@@ -161,7 +161,7 @@ func (b *UserApplyConfiguration) WithLabels(entries map[string]string) *UserAppl
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, the entries provided by each call will be put on the Annotations field,
 // overwriting an existing map entries in Annotations field with the same key.
-func (b *UserApplyConfiguration) WithAnnotations(entries map[string]string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithAnnotations(entries map[string]string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	if b.ObjectMetaApplyConfiguration.Annotations == nil && len(entries) > 0 {
 		b.ObjectMetaApplyConfiguration.Annotations = make(map[string]string, len(entries))
@@ -175,7 +175,7 @@ func (b *UserApplyConfiguration) WithAnnotations(entries map[string]string) *Use
 // WithOwnerReferences adds the given value to the OwnerReferences field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the OwnerReferences field.
-func (b *UserApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenceApplyConfiguration) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		if values[i] == nil {
@@ -189,7 +189,7 @@ func (b *UserApplyConfiguration) WithOwnerReferences(values ...*v1.OwnerReferenc
 // WithFinalizers adds the given value to the Finalizers field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
 // If called multiple times, values provided by each call will be appended to the Finalizers field.
-func (b *UserApplyConfiguration) WithFinalizers(values ...string) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithFinalizers(values ...string) *ProfileApplyConfiguration {
 	b.ensureObjectMetaApplyConfigurationExists()
 	for i := range values {
 		b.ObjectMetaApplyConfiguration.Finalizers = append(b.ObjectMetaApplyConfiguration.Finalizers, values[i])
@@ -197,7 +197,7 @@ func (b *UserApplyConfiguration) WithFinalizers(values ...string) *UserApplyConf
 	return b
 }
 
-func (b *UserApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
+func (b *ProfileApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 	if b.ObjectMetaApplyConfiguration == nil {
 		b.ObjectMetaApplyConfiguration = &v1.ObjectMetaApplyConfiguration{}
 	}
@@ -206,7 +206,7 @@ func (b *UserApplyConfiguration) ensureObjectMetaApplyConfigurationExists() {
 // WithSpec sets the Spec field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Spec field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithSpec(value *UserSpecApplyConfiguration) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithSpec(value *ProfileSpecApplyConfiguration) *ProfileApplyConfiguration {
 	b.Spec = value
 	return b
 }
@@ -214,13 +214,13 @@ func (b *UserApplyConfiguration) WithSpec(value *UserSpecApplyConfiguration) *Us
 // WithStatus sets the Status field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Status field is set to the value of the last call.
-func (b *UserApplyConfiguration) WithStatus(value apiv1alpha1.UserStatus) *UserApplyConfiguration {
+func (b *ProfileApplyConfiguration) WithStatus(value apiv1alpha1.ProfileStatus) *ProfileApplyConfiguration {
 	b.Status = &value
 	return b
 }
 
 // GetName retrieves the value of the Name field in the declarative configuration.
-func (b *UserApplyConfiguration) GetName() *string {
+func (b *ProfileApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
 }

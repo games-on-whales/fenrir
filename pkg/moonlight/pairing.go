@@ -12,25 +12,22 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 
 	v1alpha1_apply "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/api/v1alpha1"
 	v1alpha1_client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
 	"games-on-whales.github.io/direwolf/pkg/util"
-	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-func hardcodedPin() (string, bool) {
-	val, ok := os.LookupEnv("HARDCODED_PIN")
-	if !ok {
-		return "", false
-	}
-	return val, true
+type PinSubmission struct {
+	Pin      string
+	Username string
 }
 
 type PairingResponse struct {
@@ -66,18 +63,46 @@ type PairingManager struct {
 	PendingPins sync.Map
 
 	// Certificate of the secure serving endpoint used for pairing
-	SecureServerCerificate tls.Certificate
+	SecureServerCertificate *tls.Certificate
 
 	PairingsClient v1alpha1_client.PairingInterface
 }
+type pendingPin struct {
+	ch     chan PinSubmission
+	closed bool
+	mu     sync.Mutex
+}
 
+func (p *pendingPin) Send(sub PinSubmission) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return errors.New("channel closed")
+	}
+	select {
+	case p.ch <- sub:
+		return nil
+	default:
+		return errors.New("channel full")
+	}
+}
+
+func (p *pendingPin) Close() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return
+	}
+	p.closed = true
+	close(p.ch)
+}
 func NewPairingManager(
-	cert tls.Certificate,
+	cert *tls.Certificate,
 	pairingsClient v1alpha1_client.PairingInterface,
 ) *PairingManager {
 	return &PairingManager{
-		SecureServerCerificate: cert,
-		PairingsClient:         pairingsClient,
+		SecureServerCertificate: cert, // note: field type must also change to *tls.Certificate
+		PairingsClient:          pairingsClient,
 	}
 }
 
@@ -86,21 +111,23 @@ func failPair(statusMsg string) PairingResponse {
 	return PairingResponse{Paired: 0, Response: Response{StatusCode: 400, StatusMessage: statusMsg}}
 }
 
-func (m *PairingManager) PostPin(secret string, pin string) error {
-	channel, found := m.PendingPins.Load(secret)
+func (m *PairingManager) PostPin(secret string, pin string, username string) error {
+	val, found := m.PendingPins.Load(secret)
 	if !found {
-		err := fmt.Errorf("no pending pin for secret %s", secret)
-		return err
+		return fmt.Errorf("no pending pin for secret %s", secret)
 	}
 
-	select {
-	case channel.(chan string) <- pin:
-		klog.Infof("Sent pin %s to channel for secret %s", pin, secret)
-		return nil
-	default:
-		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)
-		return err
+	pp, ok := val.(*pendingPin)
+	if !ok {
+		return fmt.Errorf("invalid pending pin type for secret %s: got %T", secret, val)
 	}
+
+	if err := pp.Send(PinSubmission{Pin: pin, Username: username}); err != nil {
+		klog.Errorf("failed to send pin %s and username %s to channel for secret %s: %v", pin, username, secret, err)
+	}
+
+	klog.V(2).Infof("Sent pin %s to channel for secret %s", pin, secret)
+	return nil
 }
 
 func (m *PairingManager) Unpair(cacheKey string) error {
@@ -119,8 +146,9 @@ func (m *PairingManager) Unpair(cacheKey string) error {
  *
  * At this stage we only have to send back our public certificate (`plaincert`).
  */
-func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr string) PairingResponse {
+func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt string, clientCertStr string, clientReqBaseURL string) PairingResponse {
 	// Check if pairing session exists
+	klog.Info("Starting Pairing Process")
 	if _, found := m.PairingCache.Load(cacheKey); found {
 		m.PairingCache.Delete(cacheKey)
 		return failPair("Out of order pair request (phase 1)")
@@ -132,6 +160,9 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	}
 
 	clientCertDER, _ := pem.Decode(clientCertData)
+	if clientCertDER == nil {
+		return failPair("Failed to decode client cert: invalid PEM block")
+	}
 	clientCert, err := x509.ParseCertificate(clientCertDER.Bytes)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to parse client cert: %s", err))
@@ -150,21 +181,30 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	pinSecretHex := hex.EncodeToString(pinSecret)
 
 	// Store the pin secret
-	pinChannel := make(chan string, 1)
-	defer close(pinChannel)
+	// not sure if commenting this out is enough, so I'll add a sync guard
+	// defer close(pinChannel)
+	pp := &pendingPin{ch: make(chan PinSubmission, 1)}
 	defer m.PendingPins.Delete(pinSecretHex)
-	m.PendingPins.Store(pinSecretHex, pinChannel)
+	defer pp.Close()
+	m.PendingPins.Store(pinSecretHex, pp)
 
-	//!TODO: Get proper hostname
-	klog.Infof("Insert pin at http://%s/pin/#%s", "127.0.0.1:47989", pinSecretHex)
+	if clientReqBaseURL == "" {
+		clientReqBaseURL = "http://127.0.0.1:47989" // Fallback
+	}
 
-	// Hardcoded pin for testing in debug builds if debugger is attached
-	var pin string
-	if hardcoded, ok := hardcodedPin(); ok {
-		klog.Infof("Debugger attached, using hardcoded pin")
-		pin = hardcoded
-	} else {
-		pin = <-pinChannel
+	klog.Infof("\n\n=======================================================\n"+
+		"PENDING PAIR REQUEST!\n"+
+		"To approve, visit: %s/pin/#%s\n"+
+		"=======================================================\n", clientReqBaseURL, pinSecretHex)
+
+	var submission PinSubmission
+	select {
+	case submission = <-pp.ch:
+		// Successfully received pin
+	case <-ctx.Done():
+		return failPair("Pairing request cancelled or timed out waiting for PIN")
+	case <-time.After(30 * time.Second):
+		return failPair("Pairing request timed out waiting for PIN (30 seconds)")
 	}
 
 	// Generate server cert and AES key
@@ -172,15 +212,15 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	m.PairingCache.Store(cacheKey, pendingPairCacheEntry{
 		ClientCert: clientCert,
 		LastPhase:  "GETSERVERCERT",
-		Username:   "alex", // TODO: TEMPORARY: We should serve the PIN auth page under authenticated SSL to get username
-		AESKey:     util.Hash(saltData[:16], []byte(pin))[:16],
+		Username:   submission.Username,
+		AESKey:     util.Hash(saltData[:16], []byte(submission.Pin))[:16],
 	})
 
 	// Send hex encoded server cert pem
 	return PairingResponse{
 		Paired: 1,
 		//!TODO: Dont keep calculating this PEM every time.
-		PlainCert: hex.EncodeToString([]byte(util.CertificateChainToPEM(m.SecureServerCerificate))),
+		PlainCert: hex.EncodeToString([]byte(util.CertificateChainToPEM(*m.SecureServerCertificate))),
 		Response:  Response{StatusCode: 200},
 	}
 }
@@ -208,7 +248,10 @@ func (m *PairingManager) pairPhase2(cacheKey string, clientChallenge string) Pai
 		return failPair("Pairing session not found")
 	}
 
-	clientCache := val.(pendingPairCacheEntry)
+	clientCache, ok := val.(pendingPairCacheEntry)
+	if !ok {
+		return failPair("invalid cache entry type")
+	}
 	if clientCache.LastPhase != "GETSERVERCERT" {
 		return failPair("Out of order pair request (phase 2)")
 	}
@@ -224,7 +267,7 @@ func (m *PairingManager) pairPhase2(cacheKey string, clientChallenge string) Pai
 	}
 
 	//!TODO: Precompute/Grab of x509 somewhere. This sucks
-	serverCertSignature, err := util.ExtractCertSignature(m.SecureServerCerificate.Certificate[0])
+	serverCertSignature, err := util.ExtractCertSignature(m.SecureServerCertificate.Certificate[0])
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to extract server cert signature: %s", err))
 	}
@@ -272,7 +315,10 @@ func (m *PairingManager) pairPhase3(cacheKey string, serverChallenge string) Pai
 		return failPair("Pairing session not found")
 	}
 
-	clientCache := val.(pendingPairCacheEntry)
+	clientCache, ok := val.(pendingPairCacheEntry)
+	if !ok {
+		return failPair("invalid cache entry type")
+	}
 	if clientCache.LastPhase != "CLIENTCHALLENGE" {
 		return failPair("Out of order pair request (phase 3)")
 	}
@@ -282,7 +328,12 @@ func (m *PairingManager) pairPhase3(cacheKey string, serverChallenge string) Pai
 		return failPair(fmt.Sprintf("Failed to decrypt server challenge: %s", err))
 	}
 
-	signature, err := m.SecureServerCerificate.PrivateKey.(crypto.Signer).Sign(rand.Reader, util.Hash(clientCache.ServerSecret), crypto.SHA256)
+	signer, ok := m.SecureServerCertificate.PrivateKey.(crypto.Signer)
+	if !ok {
+		return failPair("Server private key does not implement crypto.Signer")
+	}
+
+	signature, err := signer.Sign(rand.Reader, util.Hash(clientCache.ServerSecret), crypto.SHA256)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to sign server secret: %s", err))
 	}
@@ -318,7 +369,7 @@ func (m *PairingManager) pairPhase3(cacheKey string, serverChallenge string) Pai
  * paired = 1, if all checks are fine
  * paired = 0, otherwise
  */
-func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) PairingResponse {
+func (m *PairingManager) pairPhase4(ctx context.Context, cacheKey string, pairingSecret string) PairingResponse {
 	pairingSecretData, err := hex.DecodeString(pairingSecret)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to decode pairing secret: %s", err))
@@ -331,11 +382,13 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 		return failPair("Pairing session not found")
 	}
 
-	clientCache := val.(pendingPairCacheEntry)
-	if clientCache.LastPhase != "SERVERCHALLENGERESP" {
-		return failPair("Out of order pair request (phase 4)")
+	clientCache, ok := val.(pendingPairCacheEntry)
+	if !ok {
+		return failPair("invalid cache entry type")
 	}
-
+	if clientCache.LastPhase != "SERVERCHALLENGERESP" {
+		return failPair("Out of order pair request (phase 3)")
+	}
 	clientSecret := pairingSecretData[:16]
 	clientSignature := pairingSecretData[16:]
 
@@ -359,22 +412,24 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 	// to input the PIN on the website.
 	//!TODO: Switch to base64 to avoid issues with length limits in some names
 	fingerprint := hex.EncodeToString(util.Hash(clientCache.ClientCert.Raw))
-	_, err = m.PairingsClient.Apply(context.TODO(), &v1alpha1_apply.PairingApplyConfiguration{
+	_, err = m.PairingsClient.Apply(ctx, &v1alpha1_apply.PairingApplyConfiguration{
 		TypeMetaApplyConfiguration: metav1apply.TypeMetaApplyConfiguration{
 			Kind:       ptr.To("Pairing"),
 			APIVersion: ptr.To("direwolf.games-on-whales.github.io/v1alpha1"),
 		},
 		ObjectMetaApplyConfiguration: &metav1apply.ObjectMetaApplyConfiguration{
 			Name: ptr.To(fingerprint),
+			// to allow the user to search for all pairing belonging to a user through selectors
+			Labels: map[string]string{
+				"direwolf/username": clientCache.Username,
+			},
 		},
 		Spec: &v1alpha1_apply.PairingSpecApplyConfiguration{
 			ClientCertPEM: ptr.To(string(pem.EncodeToMemory(&pem.Block{
 				Type:  "CERTIFICATE",
 				Bytes: clientCache.ClientCert.Raw,
 			}))),
-			UserReference: &v1alpha1_apply.UserReferenceApplyConfiguration{
-				Name: ptr.To(clientCache.Username),
-			},
+			Username: ptr.To(clientCache.Username),
 		},
 	}, metav1.ApplyOptions{
 		FieldManager: "moonlight-proxy",
@@ -389,7 +444,7 @@ func (m *PairingManager) pairPhase4(cacheKey string, pairingSecret string) Pairi
 func aesDecryptECB(ciphertext []byte, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decryption failed: %w", err)
 	}
 	if len(ciphertext)%block.BlockSize() != 0 {
 		return nil, errors.New("ciphertext is not a multiple of the block size")
@@ -406,11 +461,11 @@ func aesDecryptECB(ciphertext []byte, key []byte) ([]byte, error) {
 func aesEncryptECB(plaintext, key []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("encryption failed: %w", err)
 	}
 
 	if len(plaintext)%aes.BlockSize != 0 {
-		return nil, fmt.Errorf("plaintext is not a multiple of the block size")
+		return nil, errors.New("plaintext is not a multiple of the block size")
 	}
 
 	ciphertext := make([]byte, len(plaintext))

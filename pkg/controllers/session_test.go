@@ -6,32 +6,31 @@ import (
 	"testing"
 	"time"
 
-	v1alpha1api "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
-	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
-	"games-on-whales.github.io/direwolf/pkg/generic"
-	"k8s.io/utils/ptr"
-
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
 	sigsyaml "sigs.k8s.io/yaml"
+
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
+	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
+	"games-on-whales.github.io/direwolf/pkg/generic"
 )
 
 // TestSessionControllerReconcilePath builds a session CR, runs the controller's
 // reconcile helper methods and logs the resulting Deployment YAML. This does
 // not call the full controller Run loop, but exercises the same code paths the
-// controller would use to create the Deployment from the App/User/Session CRs.
+// controller would use to create the Deployment from the App/Profile/Session CRs.
 func TestSessionControllerReconcilePath(t *testing.T) {
 	ctx := context.Background()
 
 	// Read fixtures
-	userYamlData, err := os.ReadFile("../../examples/user.yaml")
+	profileYamlData, err := os.ReadFile("../../examples/profile.yaml")
 	if err != nil {
-		t.Fatalf("failed to read user.yaml: %v", err)
+		t.Fatalf("failed to read profile.yaml: %v", err)
 	}
 	steamYamlData, err := os.ReadFile("../../examples/steam.yaml")
 	if err != nil {
@@ -39,20 +38,20 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	}
 
 	// Unmarshal into API types
-	var user v1alpha1api.User
-	if err := sigsyaml.Unmarshal(userYamlData, &user); err != nil {
-		t.Fatalf("failed to unmarshal user yaml: %v", err)
+	var profile direwolfv1alpha1.Profile
+	if err := sigsyaml.Unmarshal(profileYamlData, &profile); err != nil {
+		t.Fatalf("failed to unmarshal profile yaml: %v", err)
 	}
-	var app v1alpha1api.App
+	var app direwolfv1alpha1.App
 	if err := sigsyaml.Unmarshal(steamYamlData, &app); err != nil {
 		t.Fatalf("failed to unmarshal app yaml: %v", err)
 	}
 
-	// Ensure App is in same namespace as User for this test (controller resolves App by session namespace)
-	app.Namespace = user.Namespace
+	// Ensure App is in same namespace as profile for this test (controller resolves App by session namespace)
+	app.Namespace = profile.Namespace
 
-	// Create fake clients pre-seeded with User and App
-	fakeDirewolf := generatedclient.NewSimpleClientset(&user, &app)
+	// Create fake clients pre-seeded with profile and App
+	fakeDirewolf := generatedclient.NewSimpleClientset(&profile, &app)
 	fakeK8s := k8sfake.NewSimpleClientset()
 
 	// Create informer factories
@@ -60,13 +59,13 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	k8sFactory := informers.NewSharedInformerFactory(fakeK8s, 0)
 
 	// Build generic informers needed by NewSessionController
-	sessionInformer := generic.NewInformer[*v1alpha1types.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
-	appInformer := generic.NewInformer[*v1alpha1types.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
-	userInformer := generic.NewInformer[*v1alpha1types.User](dwFactory.Direwolf().V1alpha1().Users().Informer())
+	sessionInformer := generic.NewInformer[*direwolfv1alpha1.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
+	appInformer := generic.NewInformer[*direwolfv1alpha1.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
+	profileInformer := generic.NewInformer[*direwolfv1alpha1.Profile](dwFactory.Direwolf().V1alpha1().Profiles().Informer())
 	deploymentInformer := generic.NewInformer[*appsv1.Deployment](k8sFactory.Apps().V1().Deployments().Informer())
 
 	// Create a session client scoped to the test namespace
-	sessionClient := fakeDirewolf.DirewolfV1alpha1().Sessions(user.Namespace)
+	sessionClient := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace)
 
 	// Instantiate controller with nil gateway clients (not used in this test)
 	sc := NewSessionController(
@@ -76,7 +75,7 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		sessionClient,
 		sessionInformer,
 		appInformer,
-		userInformer,
+		profileInformer,
 		deploymentInformer,
 		SessionControllerOptions{},
 	)
@@ -91,18 +90,18 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		t.Fatal("informers failed to sync")
 	}
 
-	// Create a Session CR that references the user and app
-	sess := &v1alpha1api.Session{
+	// Create a Session CR that references the profile and app
+	sess := &direwolfv1alpha1.Session{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sess-alex-steam",
-			Namespace: user.Namespace,
+			Namespace: profile.Namespace,
 		},
-		Spec: v1alpha1api.SessionSpec{
-			UserReference:    v1alpha1api.UserReference{Name: user.Name},
-			GameReference:    v1alpha1api.GameReference{Name: app.Name},
-			PairingReference: v1alpha1api.PairingReference{Name: "pairing1"},
-			GatewayReference: v1alpha1api.GatewayReference{Name: "gw1"},
-			Config: v1alpha1api.SessionInfo{
+		Spec: direwolfv1alpha1.SessionSpec{
+			ProfileReference: direwolfv1alpha1.ProfileReference{Name: profile.Name},
+			GameReference:    direwolfv1alpha1.GameReference{Name: app.Name},
+			PairingReference: direwolfv1alpha1.PairingReference{Name: "pairing1"},
+			GatewayReference: direwolfv1alpha1.GatewayReference{Name: "gw1"},
+			Config: direwolfv1alpha1.SessionInfo{
 				AESKey:             "k1",
 				AESIV:              "i1",
 				VideoWidth:         1920,
@@ -114,7 +113,7 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	}
 
 	// Create the Session in the fake client so informers can list it if necessary
-	if _, err := fakeDirewolf.DirewolfV1alpha1().Sessions(user.Namespace).Create(ctx, sess, metav1.CreateOptions{}); err != nil {
+	if _, err := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace).Create(ctx, sess, metav1.CreateOptions{}); err != nil {
 		t.Fatalf("failed to create session in fake client: %v", err)
 	}
 
@@ -128,17 +127,17 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 
 	// Pre-create an empty ConfigMap that reconcileConfigMap will apply/patch.
 	cmName := sc.deploymentName(sess)
-	_, err = fakeK8s.CoreV1().ConfigMaps(user.Namespace).Create(ctx, &corev1.ConfigMap{
+	_, err = fakeK8s.CoreV1().ConfigMaps(profile.Namespace).Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
-			Namespace: user.Namespace,
+			Namespace: profile.Namespace,
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
 		t.Fatalf("failed to pre-create configmap: %v", err)
 	}
 
-	// // 2) reconcileConfigMap
+	// 2) reconcileConfigMap, we're no longer using the config map toml
 	// if err := sc.reconcileConfigMap(ctx, sess); err != nil {
 	// 	t.Fatalf("reconcileConfigMap failed: %v", err)
 	// }
@@ -150,10 +149,10 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 
 	// Pre-create a minimal deployment so the fake k8s client's Apply can update it
 	deployName := sc.deploymentName(sess)
-	_, err = fakeK8s.AppsV1().Deployments(user.Namespace).Create(ctx, &appsv1.Deployment{
+	_, err = fakeK8s.AppsV1().Deployments(profile.Namespace).Create(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deployName,
-			Namespace: user.Namespace,
+			Namespace: profile.Namespace,
 		},
 		Spec: appsv1.DeploymentSpec{Replicas: ptr.To[int32](0)},
 	}, metav1.CreateOptions{})
@@ -168,8 +167,8 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 
 	// Pre-create a minimal service so Apply will succeed
 	svcName := sess.Name + "-rtp"
-	_, err = fakeK8s.CoreV1().Services(user.Namespace).Create(ctx, &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: user.Namespace},
+	_, err = fakeK8s.CoreV1().Services(profile.Namespace).Create(ctx, &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: profile.Namespace},
 		Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "direwolf-worker"}},
 	}, metav1.CreateOptions{})
 	if err != nil {
@@ -183,7 +182,7 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 
 	// Fetch the created deployment and log YAML
 	deploymentName := sc.deploymentName(sess)
-	dep, err := fakeK8s.AppsV1().Deployments(user.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	dep, err := fakeK8s.AppsV1().Deployments(profile.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("failed to get deployment from fake k8s: %v", err)
 	}

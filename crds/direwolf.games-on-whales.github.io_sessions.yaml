@@ -17,7 +17,7 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: Represents a Session CRD.
+        description: 'Session CRD represents a user''s session, TODO: DRA update'
         properties:
           apiVersion:
             description: |-
@@ -38,7 +38,7 @@ spec:
             type: object
           spec:
             description: |-
-              A session refers to a certain user playing a specific game with a specific
+              SessionSpec refers to a certain user playing a specific game with a specific
               client. This object is meant to live for the duration of the user's session.
 
               A session is created in response to a user's /launch request.
@@ -105,7 +105,7 @@ spec:
                 required:
                 - name
                 type: object
-              userReference:
+              profileReference:
                 properties:
                   name:
                     type: string
@@ -117,11 +117,11 @@ spec:
             - gameReference
             - gateway
             - pairingReference
-            - userReference
+            - profileReference
             type: object
           status:
             description: |-
-              Session State machine
+              SessionStatus is the session State machine
               Pending -> Initializing -> WaitForPing -> Streaming -> Ended
             properties:
               conditions:

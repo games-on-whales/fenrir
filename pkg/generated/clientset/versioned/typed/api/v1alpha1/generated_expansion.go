@@ -22,6 +22,6 @@ type AppExpansion interface{}
 
 type PairingExpansion interface{}
 
-type SessionExpansion interface{}
+type ProfileExpansion interface{}
 
-type UserExpansion interface{}
+type SessionExpansion interface{}

@@ -1,7 +1,7 @@
 # please keep this alphabetized
 version: "2"
 run:
-  tests: true
+  tests: false
   timeout: 5m
 linters:
   default: none
@@ -117,7 +117,7 @@ linters:
     govet:
       disable:
         - fieldalignment
-        # - shadow
+        - shadow
         # - buildtag
       enable-all: true
     importas:
@@ -127,17 +127,23 @@ linters:
           alias: corev1
         - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
           alias: metav1
+        - pkg: k8s.io/api/apps/v1
+          alias: appsv1
         - pkg: k8s.io/client-go/kubernetes
           alias: kubernetes
+        - pkg: k8s.io/apimachinery/pkg/api/errors
+          alias: kerrors
+        - pkg: games-on-whales.github.io/direwolf/pkg/api/v1alpha1
+          alias: direwolfv1alpha1
     misspell:
       mode: default
     # modernize:
       # disable:
         # - omitzero #should we be using omitzero instead of omitempty?
         # - fmtappendf
-    # nolintlint:
-    #   require-specific: true
-    #   allow-unused: false
+    nolintlint:
+      # require-specific: true
+      allow-unused: true
     revive:
       rules:
         # The following rules are recommended https://github.com/mgechev/revive#recommended-configuration

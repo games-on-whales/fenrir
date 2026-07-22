@@ -20,7 +20,7 @@ func TestSerialize(t *testing.T) {
 			UniqueID:               "dd7c60f6-4b88-4ef1-be07-eeec72f96080",
 			MaxLumaPixelsHEVC:      1869449984,
 			ServerCodecModeSupport: 65793,
-			HttpsPort:              47984,
+			HTTPSPort:              47984,
 			ExternalPort:           47989,
 			MAC:                    "00:00:00:00:00:00",
 			LocalIP:                "10.129.2.254",
@@ -50,7 +50,7 @@ func TestSerialize(t *testing.T) {
   <uniqueid>dd7c60f6-4b88-4ef1-be07-eeec72f96080</uniqueid>
   <MaxLumaPixelsHEVC>1869449984</MaxLumaPixelsHEVC>
   <ServerCodecModeSupport>65793</ServerCodecModeSupport>
-  <HttpsPort>47984</HttpsPort>
+  <HTTPSPort>47984</HTTPSPort>
   <ExternalPort>47989</ExternalPort>
   <mac>00:00:00:00:00:00</mac>
   <LocalIP>10.129.2.254</LocalIP>

@@ -1,0 +1,23 @@
+# Start with a Go image that has the tools we need
+FROM golang:1.25
+
+# Install Delve for debugging and Air for live-reloading
+RUN go install github.com/go-delve/delve/cmd/dlv@latest
+RUN go install github.com/air-verse/air@latest
+
+# Set up the working directory inside the container
+WORKDIR /app
+
+# Copy dependency files first to leverage Docker cache
+COPY go.mod go.sum ./
+RUN go mod download
+
+
+COPY . .
+
+# Expose the Delve port
+EXPOSE 2345
+
+# The command to run when the container starts.
+# We just start `air`, and it will handle the rest based on .air.toml
+CMD ["air"]

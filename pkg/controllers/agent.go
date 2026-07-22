@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
+
+	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
-// Represents the controller that runs inside the Pod itself
+// Agent represents the controller that runs inside the Pod itself
 type Agent struct {
 	WolfClient wolfapi.Client
 }
@@ -38,7 +39,7 @@ func (a *Agent) Run(ctx context.Context) error {
 func (a *Agent) watchEvents(ctx context.Context) error {
 	ch, err := a.WolfClient.SubscribeToEvents(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("subscribe to wolf events: %w", err)
 	}
 
 	go func() {

@@ -23,3 +23,8 @@ test:
 ## Run go vet
 vet:
 	@go vet ./...
+
+## Run the hack script update-codegen.sh
+## Which updates the generated codebase
+codegen:
+	/bin/bash -c $(CURDIR)/hack/update-codegen.sh
