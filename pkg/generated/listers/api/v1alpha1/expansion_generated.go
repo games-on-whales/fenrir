@@ -34,6 +34,14 @@ type PairingListerExpansion interface{}
 // PairingNamespaceLister.
 type PairingNamespaceListerExpansion interface{}
 
+// ProfileListerExpansion allows custom methods to be added to
+// ProfileLister.
+type ProfileListerExpansion interface{}
+
+// ProfileNamespaceListerExpansion allows custom methods to be added to
+// ProfileNamespaceLister.
+type ProfileNamespaceListerExpansion interface{}
+
 // SessionListerExpansion allows custom methods to be added to
 // SessionLister.
 type SessionListerExpansion interface{}
@@ -41,11 +49,3 @@ type SessionListerExpansion interface{}
 // SessionNamespaceListerExpansion allows custom methods to be added to
 // SessionNamespaceLister.
 type SessionNamespaceListerExpansion interface{}
-
-// UserListerExpansion allows custom methods to be added to
-// UserLister.
-type UserListerExpansion interface{}
-
-// UserNamespaceListerExpansion allows custom methods to be added to
-// UserNamespaceLister.
-type UserNamespaceListerExpansion interface{}

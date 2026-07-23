@@ -22,7 +22,7 @@ package v1alpha1
 // with apply.
 type SidecarPoliciesApplyConfiguration struct {
 	Wolf       *SidecarPolicyApplyConfiguration `json:"wolf,omitempty"`
-	PulseAudio *SidecarPolicyApplyConfiguration `json:"pulseaudio,omitempty"`
+	PulseAudio *SidecarPolicyApplyConfiguration `json:"pulseAudio,omitempty"`
 	WolfAgent  *SidecarPolicyApplyConfiguration `json:"wolfAgent,omitempty"`
 }
 

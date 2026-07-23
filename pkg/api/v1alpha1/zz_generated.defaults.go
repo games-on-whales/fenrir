@@ -32,8 +32,8 @@ import (
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&App{}, func(obj interface{}) { SetObjectDefaults_App(obj.(*App)) })
 	scheme.AddTypeDefaultingFunc(&AppList{}, func(obj interface{}) { SetObjectDefaults_AppList(obj.(*AppList)) })
-	scheme.AddTypeDefaultingFunc(&User{}, func(obj interface{}) { SetObjectDefaults_User(obj.(*User)) })
-	scheme.AddTypeDefaultingFunc(&UserList{}, func(obj interface{}) { SetObjectDefaults_UserList(obj.(*UserList)) })
+	scheme.AddTypeDefaultingFunc(&Profile{}, func(obj interface{}) { SetObjectDefaults_Profile(obj.(*Profile)) })
+	scheme.AddTypeDefaultingFunc(&ProfileList{}, func(obj interface{}) { SetObjectDefaults_ProfileList(obj.(*ProfileList)) })
 	return nil
 }
 
@@ -193,7 +193,7 @@ func SetObjectDefaults_AppList(in *AppList) {
 	}
 }
 
-func SetObjectDefaults_User(in *User) {
+func SetObjectDefaults_Profile(in *Profile) {
 	for i := range in.Spec.Volumes {
 		a := &in.Spec.Volumes[i]
 		if a.VolumeSource.ISCSI != nil {
@@ -241,9 +241,9 @@ func SetObjectDefaults_User(in *User) {
 	}
 }
 
-func SetObjectDefaults_UserList(in *UserList) {
+func SetObjectDefaults_ProfileList(in *ProfileList) {
 	for i := range in.Items {
 		a := &in.Items[i]
-		SetObjectDefaults_User(a)
+		SetObjectDefaults_Profile(a)
 	}
 }

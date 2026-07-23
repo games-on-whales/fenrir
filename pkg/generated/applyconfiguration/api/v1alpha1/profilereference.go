@@ -18,22 +18,22 @@ limitations under the License.
 
 package v1alpha1
 
-// UserReferenceApplyConfiguration represents a declarative configuration of the UserReference type for use
+// ProfileReferenceApplyConfiguration represents a declarative configuration of the ProfileReference type for use
 // with apply.
-type UserReferenceApplyConfiguration struct {
+type ProfileReferenceApplyConfiguration struct {
 	Name *string `json:"name,omitempty"`
 }
 
-// UserReferenceApplyConfiguration constructs a declarative configuration of the UserReference type for use with
+// ProfileReferenceApplyConfiguration constructs a declarative configuration of the ProfileReference type for use with
 // apply.
-func UserReference() *UserReferenceApplyConfiguration {
-	return &UserReferenceApplyConfiguration{}
+func ProfileReference() *ProfileReferenceApplyConfiguration {
+	return &ProfileReferenceApplyConfiguration{}
 }
 
 // WithName sets the Name field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Name field is set to the value of the last call.
-func (b *UserReferenceApplyConfiguration) WithName(value string) *UserReferenceApplyConfiguration {
+func (b *ProfileReferenceApplyConfiguration) WithName(value string) *ProfileReferenceApplyConfiguration {
 	b.Name = &value
 	return b
 }
