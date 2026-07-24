@@ -64,11 +64,13 @@ cluster-delete:
 cluster-certmanager:
 	@kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.0/cert-manager.yaml --context=kind-direwolf-cluster
 ## installs metallb and sets up a loadbalancer ip pool within the docker network of the kind cluster
+## then wait for it to finish
 cluster-metallb:
-    @kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml --context=kind-direwolf-cluster
+	@kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml --context=kind-direwolf-cluster
+	@kubectl rollout status deployment controller -n metallb-system --context=kind-direwolf-cluster --timeout=120s
 ## automatically find the kind network ip range
 ## then place the metallb ip address pool at the end of it
-cluster-ippool:
+cluster-ippool: cluster-metallb
 	@export KIND_NETWORK_IP=$$(docker network inspect kind -f '{{range .Containers}}{{.IPv4Address}} {{end}}' | awk '{print $$1}' | cut -d'/' -f1 | sed 's/\.[^.]*$$//'); \
 	echo "$$matallbpool" | sed "s/\$${KIND_NETWORK_IP}/$$KIND_NETWORK_IP/g" | kubectl apply -f - --context=kind-direwolf-cluster
 ## This sets up the resources needed for the cluster to operator
