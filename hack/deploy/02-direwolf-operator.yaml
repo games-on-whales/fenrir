@@ -1,0 +1,118 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: direwolf-operator-dev
+  namespace: direwolf-dev
+  labels:
+    app: direwolf
+    component: operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: direwolf
+      component: operator
+  template:
+    metadata:
+      labels:
+        app: direwolf
+        component: operator
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - direwolf
+                - key: component
+                  operator: In
+                  values:
+                  - operator
+              topologyKey: "kubernetes.io/hostname"
+      serviceAccountName: direwolf-operator
+      containers:
+        - name: operator
+          image: direwolf-operator-dev
+          imagePullPolicy: IfNotPresent
+          env:
+          - name: APP_NAME
+            value: operator
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          ## To specify which image you want to use for wolf and wolf-agent 
+          # - name: WOLF_IMAGE
+          #   value: ghcr.io/games-on-whales/wolf:session
+          - name: AGENT_IMAGE
+            value: wolf-agent-dev
+          - name: AGENT_IMAGE_PULL_POLICY
+            value: Always
+          # - name: RUST_LOG
+          #   value: DEBUG
+          # resources:
+          #   requests:
+          #     cpu: 100m
+          #     memory: 128Mi
+          #   limits:
+          #     cpu: 250m
+          #     memory: 256Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: direwolf-operator
+  namespace: direwolf-dev
+  labels:
+    app: direwolf
+    component: operator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: direwolf-operator
+  namespace: direwolf-dev
+  labels:
+    app: direwolf
+    component: operator
+rules:
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["direwolf.games-on-whales.github.io"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["services", "persistentvolumeclaims", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: direwolf-operator
+  namespace: direwolf-dev
+  labels:
+    app: direwolf
+    component: operator
+subjects:
+- kind: ServiceAccount
+  name: direwolf-operator
+  namespace: direwolf-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: direwolf-operator
+---
