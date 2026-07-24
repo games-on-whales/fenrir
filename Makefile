@@ -42,6 +42,7 @@ cluster-delete:
 	@kind delete cluster --name direwolf-cluster
 
 ## This sets up the resources needed for the cluster to operator
-## resources such as cert-manager
+## resources such as cert-manager & metallb
 cluster-setup:
 	@kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.21.0/cert-manager.yaml --context=kind-direwolf-cluster
+	@kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml --context=kind-direwolf-cluster
