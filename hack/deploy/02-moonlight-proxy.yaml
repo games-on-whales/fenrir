@@ -1,15 +1,9 @@
-# A YAML containing everything you need to develop direwolf
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: direwolf
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: direwolf
-  namespace: direwolf
+  namespace: direwolf-dev
   labels:
     app: direwolf
     component: moonlight-proxy
@@ -33,7 +27,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: direwolf-moonlight-proxy-dev
-  namespace: direwolf
+  namespace: direwolf-dev
   labels:
     app: direwolf
     component: moonlight-proxy
@@ -53,8 +47,8 @@ spec:
       containers:
         - name: moonlight-proxy
           # Dev image for use with skaffold
-          image: localhost:5001/direwolf-moonlight-dev
-          imagePullPolicy: Always
+          image: direwolf-moonlight-dev
+          imagePullPolicy: IfNotPresent
           # args:
           # - --tls-cert=/etc/certs/server.crt
           # - --tls-key=/etc/certs/server.key
@@ -98,128 +92,11 @@ spec:
         configMap:
           name: direwolf-certs
 ---
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: direwolf-operator-dev
-  namespace: direwolf
-  labels:
-    app: direwolf
-    component: operator
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: direwolf
-      component: operator
-  template:
-    metadata:
-      labels:
-        app: direwolf
-        component: operator
-    spec:
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            podAffinityTerm:
-              labelSelector:
-                matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                  - direwolf
-                - key: component
-                  operator: In
-                  values:
-                  - operator
-              topologyKey: "kubernetes.io/hostname"
-      serviceAccountName: direwolf-operator
-      containers:
-        - name: operator
-          image: localhost:5001/direwolf-operator-dev
-          imagePullPolicy: Always
-          env:
-          - name: APP_NAME
-            value: operator
-          - name: POD_NAME
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.name
-          - name: POD_NAMESPACE
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.namespace
-          ## To specify which image you want to use for wolf and wolf-agent 
-          # - name: WOLF_IMAGE
-          #   value: ghcr.io/games-on-whales/wolf:session
-          - name: AGENT_IMAGE
-            value: localhost:5001/wolf-agent-dev
-          - name: AGENT_IMAGE_PULL_POLICY
-            value: Always
-          # - name: RUST_LOG
-          #   value: DEBUG
-          # resources:
-          #   requests:
-          #     cpu: 100m
-          #     memory: 128Mi
-          #   limits:
-          #     cpu: 250m
-          #     memory: 256Mi
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: direwolf-operator
-  namespace: direwolf
-  labels:
-    app: direwolf
-    component: operator
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: direwolf-operator
-  namespace: direwolf
-  labels:
-    app: direwolf
-    component: operator
-rules:
-- apiGroups: ["coordination.k8s.io"]
-  resources: ["leases"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["direwolf.games-on-whales.github.io"]
-  resources: ["*"]
-  verbs: ["*"]
-- apiGroups: ["apps"]
-  resources: ["deployments"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: [""]
-  resources: ["services", "persistentvolumeclaims", "configmaps"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: direwolf-operator
-  namespace: direwolf
-  labels:
-    app: direwolf
-    component: operator
-subjects:
-- kind: ServiceAccount
-  name: direwolf-operator
-  namespace: direwolf
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: direwolf-operator
----
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: direwolf-moonlight-proxy
-  namespace: direwolf
+  namespace: direwolf-dev
   labels:
     app: direwolf
     component: direwolf-moonlight-proxy
@@ -228,7 +105,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: direwolf-moonlight-proxy
-  namespace: direwolf
+  namespace: direwolf-dev
   labels:
     app: direwolf
     component: direwolf-moonlight-proxy
@@ -247,19 +124,18 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: direwolf-moonlight-proxy
-  namespace: direwolf
+  namespace: direwolf-dev
   labels:
     app: direwolf
     component: direwolf-moonlight-proxy
 subjects:
 - kind: ServiceAccount
   name: direwolf-moonlight-proxy
-  namespace: direwolf
+  namespace: direwolf-dev
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: direwolf-moonlight-proxy
-
 ---
 # Throwaway "ephemeral" cert and key for persistence. Up to user about whether
 # to mount a PVC to store the generated one in the app or to use legit CertManager
@@ -268,7 +144,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: direwolf-certs
-  namespace: direwolf
+  namespace: direwolf-dev
 data:
   server.crt: |
     -----BEGIN CERTIFICATE-----
@@ -320,21 +196,4 @@ data:
     8LkfhBUj1omA7CKI+ymGOzlXm5BDGToTE9XMKfNCx2Nty5fftNt5iXfyxV5nid21
     7TBnSdib9SiKhZ/8mtBL0E59wD6KEdjjYly6M4tA/raUGJpNrGnBBA==
     -----END RSA PRIVATE KEY-----
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: fix-home-perms
-  namespace: direwolf
-data:
-  99-fix-home-perms.sh: |
-    #!/usr/bin/env bash
-    set -e
 
-    # Log helper
-    gow_log() { echo "$(date +"[%Y-%m-%d %H:%M:%S]") $*"; }
-
-    gow_log "Fixing permissions for $HOME recursively at depth 1"
-    find $HOME -mindepth 1 -maxdepth 1 -exec chown ${UNAME}:${UNAME} {} \;
-
-    gow_log "Done fixing home ownership/permissions"

@@ -76,3 +76,16 @@ cluster-ippool: cluster-metallb
 ## This sets up the resources needed for the cluster to operator
 ## resources such as cert-manager & metallb
 cluster-setup: cluster-certmanager cluster-metallb cluster-ippool
+
+## run skaffold development for both moonlight-proxy and direwolf operators
+dev-operators:
+	@skaffold dev --profile="operator-moonlight" --auto-build=false
+## run skaffold development for direwolf-operator
+dev-direwolf:
+	@skaffold dev --profile="operator" --auto-build=false
+## run skaffold development for moonlight-proxy
+dev-moonlight:
+	@skaffold dev --profile="moonlight" --auto-build=false
+## run skaffold development for wolf-agent
+dev-agent:
+	@skaffold dev --profile="wolf-agent" --auto-build=false

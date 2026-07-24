@@ -1,10 +1,13 @@
 apiVersion: skaffold/v4beta7
 kind: Config
 build:
+  local:
+    push: false
+    useDockerCLI: true
   tagPolicy:
     sha256: {}
   artifacts:
-    - image: localhost:5001/direwolf-operator-dev
+    - image: direwolf-operator-dev
       context: .
       docker:
         dockerfile: Dockerfile.dev
@@ -20,7 +23,7 @@ build:
             dest: .
           - src: 'go.sum'
             dest: .
-    - image: localhost:5001/direwolf-moonlight-dev
+    - image: direwolf-moonlight-dev
       context: .
       docker:
         dockerfile: Dockerfile.dev
@@ -36,14 +39,22 @@ build:
             dest: .
           - src: 'go.sum'
             dest: .
-    - image: localhost:5001/wolf-agent-dev
+    - image: wolf-agent-dev
       context: .
       docker:
         dockerfile: Dockerfile
         buildArgs:
           APP_NAME: wolf-agent
-  local:
-    push: true
+      sync:
+        manual:
+          - src: 'pkg/**/*.go'
+            dest: .
+          - src: 'cmd/wolf-agent/main.go'
+            dest: .
+          - src: 'go.mod'
+            dest: .
+          - src: 'go.sum'
+            dest: .
 ## To prevent skaffold from copying into the non active profile
 profiles:
   - name: operator
@@ -85,8 +96,8 @@ deploy:
         - "--server-side"
 manifests:
   rawYaml:
-  - ./hack/devbox.yaml
   - ./crds/*
+  - ./hack/deploy/*.yaml
 
 portForward:
   ## For the streaming service there should be more? since both services share all ports
