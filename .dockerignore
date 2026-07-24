@@ -7,3 +7,6 @@ images/
 hack/
 poc.svg
 README.md
+skaffold.yaml
+Makefile
+renovate.json

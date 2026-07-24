@@ -74,6 +74,8 @@ profiles:
     patches:
       - op: remove
         path: /build/artifacts/2
+      - op: remove
+        path: /manifests/rawYaml/2
 # This should be launched from a separate instance, since it requires rebuilding everytime
   - name: wolf-agent
     patches:
@@ -82,10 +84,12 @@ profiles:
         path: /build/artifacts/0
       - op: remove
         path: /build/artifacts/0
+      # This operation works like a stack pop
+      # This removes index 3, which is direwolf-operator, making moonlight-proxy at index 3
       - op: remove
-        path: /deploy
+        path: /manifests/rawYaml/3
       - op: remove
-        path: /manifests
+        path: /manifests/rawYaml/3
       - op: remove
         path: /portForward
 
@@ -97,7 +101,11 @@ deploy:
 manifests:
   rawYaml:
   - ./crds/*
-  - ./hack/deploy/*.yaml
+  - ./hack/deploy/00-namespace.yaml
+  - ./hack/deploy/01-wolf-agent.yaml
+  - ./hack/deploy/02-direwolf-operator.yaml
+  - ./hack/deploy/02-moonlight-proxy.yaml
+  - ./hack/deploy/03-misc.yaml
 
 portForward:
   ## For the streaming service there should be more? since both services share all ports
