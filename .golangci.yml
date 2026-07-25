@@ -1,0 +1,221 @@
+# please keep this alphabetized
+version: "2"
+run:
+  tests: true
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - asasalint # warns about passing []any to func(...any) without expanding it
+    - asciicheck # non ascii symbols
+    - bidichk # dangerous unicode sequences
+    - bodyclose # unclosed http bodies
+    - contextcheck # context.Context nested in a struct
+    - copyloopvar # copying loop variables
+    - dogsled # too many blank identifiers in assignments
+    - dupl # Detects duplicate fragments of code.
+    - dupword # duplicate words
+    - durationcheck # multiplying two durations
+    - errcheck # unchecked errors
+    - errchkjson # invalid types passed to json encoder
+    - errorlint # Find code that can cause problems with the error wrapping scheme introduced in Go 1.13.
+    - exhaustive # Check exhaustiveness of enum switch statements.
+    # - forbidigo # allows to block usage of funcs
+    - forcetypeassert #finds forced type assertions.
+    # - ginkgolinter # ginkgo and gomega; we don't use them
+    - testifylint # Checks usage of github.com/stretchr/testify.
+    - goconst # Finds repeated strings that could be replaced by a constant.
+    - gocritic # bugs, performance, style (we could add custom ones to this one)
+    # - godot # checks that comments end in a period
+    - godox # block FIXMEs
+    - depguard # blocks dependencies; not sure what to put yet
+    - godoclint # Checks Golang's documentation practice (godoc).
+    - goprintffuncname # printft-like functions should be named with f at the end
+    - gosec # potential security problems
+    - govet # basically 'go vet'
+    - importas # consistent import aliases
+    - ineffassign # ineffectual assignments
+    - intrange # suggest using integer range in for loops
+    - loggercheck # check for even key/value pairs in logger calls
+    - misspell # spelling
+    - modernize #A suite of analyzers that suggest simplifications to Go code, using modern language and library features.
+    - nakedret # naked returns (named return parameters and an empty return)
+    - nilnesserr # Reports constructs that checks for err != nil, but returns a different nil value error. Powered by nilness and nilerr.
+    - nilerr # returning nil after checking err is not nil
+    - noctx # http requests without context.Context
+    - nolintlint # badly formatted nolint directives
+    - perfsprint # Checks that fmt.Sprintf can be replaced with a faster alternative.
+    - nosprintfhostport # using sprintf to construct host:port in a URL
+    - prealloc # suggest preallocating slices
+    - predeclared # shadowing predeclared identifiers
+    - revive # better version of golint
+    - staticcheck # some of staticcheck's rules
+    - thelper # test helpers not starting with t.Helper()
+    - unconvert # unnecessary type conversions
+    - unparam # unused function parameters
+    - unused # unused constants, variables,functions, types
+    - usestdlibvars # using variables/constants from the standard library
+    - usetesting # report function to be replace by testing
+    - whitespace # unnecessary newlines
+    - wrapcheck # Checks that errors returned from external packages are wrapped.
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: "github.com/pkg/errors"
+              desc: "Use stdlib errors or fmt.Errorf with %w"
+            - pkg: "io/ioutil"
+              desc: "Deprecated since Go 1.16; use io or os"
+            - pkg: "k8s.io/kubernetes/pkg"
+              desc: "Do not import internal k8s packages directly"
+    dupl:
+      threshold: 100
+    goconst:
+      ignore-tests: true
+      min-occurrences: 4
+    gocritic:
+      disabled-checks:
+        - appendAssign
+        # - dupImport # https://github.com/go-critic/go-critic/issues/845
+        - evalOrder
+        # - ifElseChain
+        # - octalLiteral
+        # - regexpSimplify
+        # - sloppyReassign
+        - truncateCmp
+        - typeDefFirst
+        # - unnamedResult
+        # - unnecessaryDefer 
+        - whyNoLint
+        - wrapperFunc
+        - rangeValCopy
+        # - hugeParam
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - performance
+        # - style # not sure if I should enable this
+    # godot:
+    #   #   declarations - for top level declaration comments (default);
+    #   #   toplevel     - for top level comments;
+    #   #   all          - for all comments.
+    #   scope: toplevel
+    #   exclude:
+    #     - ^ \+.*
+    #     - ^ ANCHOR.*
+    #     - '^ (alpha|beta|GA): v.*'
+    godox:
+      keywords:
+        - FIXME # FIXME's should be removed before merging PRs
+        # - TODO # Will need to enable this in the future
+    gosec:
+      severity: medium
+      confidence: medium
+      excludes:
+        - G102 # for 0.0.0.0
+    govet:
+      disable:
+        - fieldalignment
+        # - shadow
+        # - buildtag
+      enable-all: true
+    importas:
+    # This needs configuring
+      alias:
+        - pkg: k8s.io/api/core/v1
+          alias: corev1
+        - pkg: k8s.io/apimachinery/pkg/apis/meta/v1
+          alias: metav1
+        - pkg: k8s.io/client-go/kubernetes
+          alias: kubernetes
+    misspell:
+      mode: default
+    # modernize:
+      # disable:
+        # - omitzero #should we be using omitzero instead of omitempty?
+        # - fmtappendf
+    # nolintlint:
+    #   require-specific: true
+    #   allow-unused: false
+    revive:
+      rules:
+        # The following rules are recommended https://github.com/mgechev/revive#recommended-configuration
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: time-naming
+        - name: unexported-return
+        - name: indent-error-flow
+        - name: errorf
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        #
+        # Rules in addition to the recommended configuration above.
+        #
+        - name: bool-literal-in-expr
+        - name: constant-logical-expr
+    staticcheck:
+    # Need to scope this better
+      checks:
+        - all
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - schemas$
+      - pkg/generated$
+      - hack$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(games-on-whales.github.io/direwolf)
+        - blank
+        - dot
+      custom-order: true
+    gofumpt:
+      extra-rules: true
+    goimports:
+      local-prefixes:
+        - games-on-whales.github.io/direwolf
+  exclusions:
+    generated: lax
+    paths:
+      - builtin$
+      - pkg/generated$
+      - hack$
+      - schemas$
+      - examples$
+      - charts$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  uniq-by-line: false
+  fix: false

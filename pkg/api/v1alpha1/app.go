@@ -65,7 +65,7 @@ type RuntimeWolfVariables struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="/dev/dri/renderD128"
 	RenderNode string `json:"renderNode,omitempty"`
-	
+
 	// Time zone for the wolf container
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=UTC
@@ -76,7 +76,6 @@ type RuntimeWolfVariables struct {
 	// +kubebuilder:validation:Enum=ERROR;WARNING;INFO;DEBUG;TRACE
 	// +kubebuilder:default:="DEBUG"
 	LogLevel string `json:"logLevel,omitempty"`
-
 }
 
 type WolfConfig struct {
@@ -90,7 +89,7 @@ type WolfConfig struct {
 	Video *WolfStreamConfig `json:"video,omitempty" toml:"video,omitempty"`
 
 	Runner *WolfRunnerConfig `json:"runner,omitempty" toml:"runner,omitempty"`
-	
+
 	// Additional wolf configs to use.
 	// +kubebuilder:validation:Optional
 	RuntimeVariables *RuntimeWolfVariables `json:"runtimeVariables,omitempty"`
