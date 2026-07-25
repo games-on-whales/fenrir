@@ -54,31 +54,9 @@ type AddSessionResponse struct {
 	SessionID string `json:"session_id"`
 }
 
-// App types
-type App struct {
-	ID                     string `json:"id"`
-	Title                  string `json:"title"`
-	SupportHDR             bool   `json:"support_hdr"`
-	IconPNGPath            string `json:"icon_png_path"`
-	StartVirtualCompositor bool   `json:"start_virtual_compositor"`
-	StartAudioServer       bool   `json:"start_audio_server"`
-	RenderNode             string `json:"render_node"`
-	Runner                 Runner `json:"runner"`
-
-	H264GSTPipeline string `json:"h264_gst_pipeline"`
-	HEVCGSTPipeline string `json:"hevc_gst_pipeline"`
-	AV1GSTPipeline  string `json:"av1_gst_pipeline"`
-	OpusGSTPipeline string `json:"opus_gst_pipeline"`
-}
-
 type Runner struct {
 	Type   string `json:"type"`
 	RunCmd string `json:"run_cmd,omitempty"`
-}
-
-type AppsResponse struct {
-	Response `json:",inline"`
-	Apps     []App `json:"apps"`
 }
 
 // Event types

@@ -16,14 +16,12 @@ type Client interface {
 	AddSession(ctx context.Context, session Session) (string, error)
 	StopSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context) ([]Session, error)
-	ListApps(ctx context.Context) ([]App, error)
 	SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error)
 	ListLobbies(ctx context.Context) ([]Lobby, error)
 	CreateLobby(ctx context.Context, req LobbyCreateRequest) (*LobbyCreateResponse, error)
 	JoinLobby(ctx context.Context, req JoinLobbyRequest) error
 	LeaveLobby(ctx context.Context, req LeaveLobbyRequest) error
 	StopLobby(ctx context.Context, req StopLobbyRequest) error
-	AddApp(ctx context.Context, app App) error // will be removed soon
 }
 
 type client struct {
@@ -108,17 +106,6 @@ func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
 	return resp.Sessions, nil
 }
 
-func (c *client) ListApps(ctx context.Context) ([]App, error) {
-	var resp AppsResponse
-	if err := c.get(ctx, "/api/v1/apps", &resp); err != nil {
-		return nil, err
-	}
-	if !resp.Success {
-		return nil, fmt.Errorf("failed to list apps: %s", resp.Error)
-	}
-	return resp.Apps, nil
-}
-
 func (c *client) StopSession(ctx context.Context, sessionID string) error {
 	req := StopSessionRequest{SessionID: sessionID}
 	var resp Response
@@ -201,17 +188,6 @@ func (c *client) StopLobby(ctx context.Context, req StopLobbyRequest) error {
 	}
 	if !resp.Success {
 		return fmt.Errorf("failed to stop lobby: %s", resp.Error)
-	}
-	return nil
-}
-
-func (c *client) AddApp(ctx context.Context, app App) error {
-	var resp Response
-	if err := c.post(ctx, "/api/v1/apps/add", app, &resp); err != nil {
-		return err
-	}
-	if !resp.Success {
-		return fmt.Errorf("failed to add app: %s", resp.Error)
 	}
 	return nil
 }
