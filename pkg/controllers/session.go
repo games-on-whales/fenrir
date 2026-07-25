@@ -296,23 +296,6 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		})
 	}
 
-	// configError := c.reconcileConfigMap(context.TODO(), newObj)
-	// if configError != nil {
-	// 	klog.Errorf("Failed to reconcile configmap: %s", configError)
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:    "ConfigMapCreated",
-	// 		Status:  metav1.ConditionFalse,
-	// 		Reason:  "ConfigMapCreationFailed",
-	// 		Message: configError.Error(),
-	// 	})
-	// } else {
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:   "ConfigMapCreated",
-	// 		Status: metav1.ConditionTrue,
-	// 		Reason: "Success",
-	// 	})
-	// }
-
 	if pvcError := c.reconcilePVC(context.TODO(), newObj); pvcError != nil {
 		klog.Errorf("Failed to reconcile pvc: %s", pvcError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
@@ -361,23 +344,6 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		})
 	}
 
-	// Gateway not yet supported
-	// if gatewayError := c.reconcileGateway(context.TODO(), newObj); gatewayError != nil {
-	// 	klog.Errorf("Failed to reconcile gateway: %s", gatewayError)
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:    "RoutesCreated",
-	// 		Status:  metav1.ConditionFalse,
-	// 		Reason:  "GatewayConfigurationFailed",
-	// 		Message: gatewayError.Error(),
-	// 	})
-	// } else {
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:   "RoutesCreated",
-	// 		Status: metav1.ConditionTrue,
-	// 		Reason: "Success",
-	// 	})
-	// }
-
 	if streamError := c.reconcileActiveStreams(context.TODO(), newObj); streamError != nil {
 		klog.Errorf("Failed to reconcile active streams: %s", streamError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
@@ -415,115 +381,6 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 	//!TODO: figure our retry logic. Some of these errors surely are retriable
 	return nil
 }
-
-// // !TODO: Unused. Part of testing gateway implementation. The final idea is for
-// // Direwolf to dynamically set up port forwards / UDPRoutes via Kubernetes
-// // Gateway API for RTSP, ENet, Video RTP, Audio RTP.
-// func (c *SessionController) reconcileGateway(ctx context.Context, session *v1alpha1types.Session) error {
-// 	// 1. Decide the ports this session will use for RTSP, Enet, Video RTP, Audio RTP
-// 	// 2. Create TCPRoute for RTSP, UDP routes for Enet, RTP via Gateway API
-// 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
-// 		return fmt.Errorf("waiting for PortsAllocated")
-// 	}
-
-// 	_, err := c.UDPRouteClient.Apply(
-// 		ctx,
-// 		gatewayv1alpha2ac.UDPRoute(session.Name, session.Namespace).
-// 			WithOwnerReferences(metav1ac.OwnerReference().
-// 				WithName(session.Name).
-// 				WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 				WithKind("Session").
-// 				WithUID(session.UID).
-// 				WithController(true)).
-// 			WithLabels(
-// 				map[string]string{
-// 					"app":           "direwolf-worker",
-// 					AppLabelKey:  session.Spec.GameReference.Name,
-// 					"direwolf/user": session.Spec.UserReference.Name,
-// 				}).
-// 			WithSpec(
-// 				gatewayv1alpha2ac.UDPRouteSpec().
-// 					WithParentRefs(gatewayv1ac.ParentReference().
-// 						WithKind("Gateway").
-// 						WithGroup("gateway.networking.k8s.io").
-// 						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
-// 						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
-// 					WithRules(
-// 						gatewayv1alpha2ac.UDPRouteRule().
-// 							WithName(gatewayv1.SectionName(session.Name)).
-// 							WithBackendRefs(
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.Control)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.VideoRTP)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.AudioRTP)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 							),
-// 					),
-// 			),
-// 		metav1.ApplyOptions{
-// 			FieldManager: "direwolf-session-controller-udp-route",
-// 			Force:        true,
-// 		},
-// 	)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to apply udp route: %s", err)
-// 	}
-
-// 	_, err = c.TCPRouteClient.Apply(
-// 		ctx,
-// 		gatewayv1alpha2ac.TCPRoute(session.Name, session.Namespace).
-// 			WithOwnerReferences(metav1ac.OwnerReference().
-// 				WithName(session.Name).
-// 				WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 				WithKind("Session").
-// 				WithUID(session.UID).
-// 				WithController(true)).
-// 			WithLabels(
-// 				map[string]string{
-// 					"app":           "direwolf-worker",
-// 					AppLabelKey:  session.Spec.GameReference.Name,
-// 					"direwolf/user": session.Spec.UserReference.Name,
-// 				}).
-// 			WithSpec(
-// 				gatewayv1alpha2ac.TCPRouteSpec().
-// 					WithParentRefs(gatewayv1ac.ParentReference().
-// 						WithKind("Gateway").
-// 						WithGroup("gateway.networking.k8s.io").
-// 						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
-// 						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
-// 					WithRules(
-// 						gatewayv1alpha2ac.TCPRouteRule().
-// 							WithName(gatewayv1.SectionName(session.Name)).
-// 							WithBackendRefs(
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.RTSP)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 							),
-// 					),
-// 			),
-// 		metav1.ApplyOptions{
-// 			FieldManager: "direwolf-session-controller-TCP-route",
-// 			Force:        true,
-// 		},
-// 	)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to apply TCP route: %s", err)
-// 	}
-
-// 	return nil
-// }
 
 func (c *SessionController) reconcileService(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
@@ -1164,25 +1021,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	}
 
 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
-		// corev1.Volume{
-		// 	Name: "config",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
-		// 			LocalObjectReference: corev1.LocalObjectReference{
-		// 				Name: c.deploymentName(session),
-		// 			},
-		// 		},
-		// 	},
-		// },
-		// corev1.Volume{
-		// 	Name: "wolf-tls-secret",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		Secret: &corev1.SecretVolumeSource{
-		// 			SecretName: "wolf-tls-secret",
-		// 			Optional:   ptr.To(true), // Optional so it doesn't crash if you forgot to create it
-		// 		},
-		// 	},
-		// },
 		corev1.Volume{
 			Name: "wolf-cfg",
 			VolumeSource: corev1.VolumeSource{
@@ -1199,34 +1037,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			Name:         "wolf-data",
 			VolumeSource: wolfDataVolumeSource,
 		},
-		// corev1.Volume{ //Needs to be changed into something more secure, without host path
-		// 	Name: "dev-input",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		HostPath: &corev1.HostPathVolumeSource{
-		// 			Path: "/dev/input",
-		// 			Type: ptr.To(corev1.HostPathDirectory),
-		// 		},
-		// 	},
-		// },
-		// I'm moving this to volumeConfig
-		// corev1.Volume{
-		// 	Name: "dev-uinput",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		HostPath: &corev1.HostPathVolumeSource{
-		// 			Path: "/dev/uinput",
-		// 			Type: ptr.To(corev1.HostPathFile),
-		// 		},
-		// 	},
-		// },
-		// corev1.Volume{ //Needs to be changed into something more secure, without host path
-		// 	Name: "host-udev",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		HostPath: &corev1.HostPathVolumeSource{
-		// 			Path: "/run/udev",
-		// 			Type: ptr.To(corev1.HostPathDirectory),
-		// 		},
-		// 	},
-		// },
 	)
 
 	// Add volumes from the profile spec
@@ -1294,62 +1104,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 
 	return nil
 }
-
-// func (c *SessionController) reconcileConfigMap(
-// 	ctx context.Context,
-// 	session *v1alpha1types.Session,
-// ) error {
-// 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to get app: %s", err)
-// 	}
-
-// 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to get user: %s", err)
-// 	}
-
-// 	wolfConfig, err := GenerateWolfConfig(app)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to generate wolf config: %s", err)
-// 	}
-// 	deploymentName := c.deploymentName(session)
-
-// 	_, err = c.K8sClient.CoreV1().
-// 		ConfigMaps(session.Namespace).
-// 		Apply(
-// 			context.Background(),
-// 			v1ac.ConfigMap(deploymentName, session.Namespace).
-// 				WithLabels(
-// 					map[string]string{
-// 						"app":           "direwolf-worker",
-// 						AppLabelKey:  session.Spec.GameReference.Name,
-// 						"direwolf/user": session.Spec.UserReference.Name,
-// 					}).
-// 				WithOwnerReferences(
-// 					metav1ac.OwnerReference().
-// 						WithName(app.Name).
-// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 						WithKind("App").
-// 						WithUID(app.UID).
-// 						WithController(true),
-// 					metav1ac.OwnerReference().
-// 						WithName(user.Name).
-// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 						WithKind("User").
-// 						WithUID(user.UID),
-// 				).
-// 				WithData(map[string]string{
-// 					"config.toml": wolfConfig,
-// 				}),
-// 			metav1.ApplyOptions{
-// 				FieldManager: "direwolf-session-controller",
-// 			})
-// 	if err != nil {
-// 		return fmt.Errorf("failed to apply configmap: %s", err)
-// 	}
-// 	return nil
-// }
 
 func (c *SessionController) reconcilePVC(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	profile, err := c.ProfileInformer.Namespaced(session.Namespace).Get(session.Spec.ProfileReference.Name)
