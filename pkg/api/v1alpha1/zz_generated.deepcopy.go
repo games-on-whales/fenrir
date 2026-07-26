@@ -95,16 +95,14 @@ func (in *AppSpec) DeepCopyInto(out *AppSpec) {
 		*out = make([]byte, len(*in))
 		copy(*out, *in)
 	}
-	if in.Template != nil {
-		in, out := &in.Template, &out.Template
-		*out = new(v1.PodTemplateSpec)
-		(*in).DeepCopyInto(*out)
-	}
+	in.Template.DeepCopyInto(&out.Template)
 	in.WolfConfig.DeepCopyInto(&out.WolfConfig)
-	if in.VolumeClaimTemplate != nil {
-		in, out := &in.VolumeClaimTemplate, &out.VolumeClaimTemplate
-		*out = new(v1.PersistentVolumeClaimTemplate)
-		(*in).DeepCopyInto(*out)
+	if in.VolumeClaimTemplates != nil {
+		in, out := &in.VolumeClaimTemplates, &out.VolumeClaimTemplates
+		*out = make([]v1.PersistentVolumeClaim, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
 	}
 	return
 }

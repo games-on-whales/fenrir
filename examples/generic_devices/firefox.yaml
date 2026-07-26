@@ -10,12 +10,18 @@ spec:
   id: 1
   isHDRSupported: false
   title: Firefox
-  #This will automatically provision storage with the default parameters
-  volumeClaimTemplate: 
-    spec: {}
   wolfConfig:
     runtimeVariables:
       renderNode: /dev/dri/renderD128
+  volumeClaimTemplates:
+  - metadata:
+      name: app-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
   template:
     spec:
       containers:
@@ -26,6 +32,8 @@ spec:
           mountPath: /etc/cont-init.d/99-fix-home-perms.sh
           subPath: 99-fix-home-perms.sh
           readOnly: true
+        - name: app-data
+          mountPath: /home/retro
         resources:
           limits:
             devic.es/dri: "1"
