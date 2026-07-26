@@ -66,6 +66,9 @@ type LobbyStatus struct {
 	// WaylandSocketName is the name of the Wayland socket file generated for this Lobby
 	WaylandSocketName string `json:"waylandSocketName,omitempty"`
 
+	// LobbyNode is the current node this lobby is on
+	LobbyNode string `json:"lobbyNode,omitempty"`
+
 	StatefulSetName string `json:"statefulSetName,omitempty"`
 	ServiceName     string `json:"serviceName,omitempty"`
 
@@ -73,6 +76,7 @@ type LobbyStatus struct {
 	Ports SessionPorts `json:"ports,omitempty"`
 }
 
+// LobbyList is a list of all lobbies, across all nodes
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type LobbyList struct {
 	metav1.TypeMeta `json:",inline"`

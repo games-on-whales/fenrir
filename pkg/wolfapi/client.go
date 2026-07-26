@@ -37,7 +37,7 @@ func NewClient(apiURL string, httpClient *http.Client) Client {
 }
 
 // do performs an HTTP request and decodes the JSON response.
-func (c *client) do(ctx context.Context, method, path string, body, result interface{}) error {
+func (c *client) do(ctx context.Context, method, path string, body, result any) error {
 	u, err := url.JoinPath(c.apiURL, path)
 	if err != nil {
 		return fmt.Errorf("building URL for %s: %w", path, err)
@@ -76,11 +76,11 @@ func (c *client) do(ctx context.Context, method, path string, body, result inter
 	return nil
 }
 
-func (c *client) get(ctx context.Context, path string, result interface{}) error {
+func (c *client) get(ctx context.Context, path string, result any) error {
 	return c.do(ctx, http.MethodGet, path, nil, result)
 }
 
-func (c *client) post(ctx context.Context, path string, body, result interface{}) error {
+func (c *client) post(ctx context.Context, path string, body, result any) error {
 	return c.do(ctx, http.MethodPost, path, body, result)
 }
 

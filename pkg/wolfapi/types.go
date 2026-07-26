@@ -1,6 +1,5 @@
 package wolfapi
 
-// Base response
 type Response struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
@@ -12,7 +11,7 @@ type Session struct {
 	AudioChannelCount int            `json:"audio_channel_count"`
 	ClientID          string         `json:"client_id,omitempty"` // omit, otherwise it throws 'Unhandled exception: stoull'
 	ClientIP          string         `json:"client_ip"`
-	ClientSettings    ClientSettings `json:"client_settings,omitempty"`
+	ClientSettings    ClientSettings `json:"client_settings"`
 	VideoHeight       int            `json:"video_height"`
 	VideoRefreshRate  int            `json:"video_refresh_rate"`
 	VideoWidth        int            `json:"video_width"`
@@ -59,7 +58,8 @@ type Runner struct {
 	RunCmd string `json:"run_cmd,omitempty"`
 }
 
-// Event types
+// WolfEventType are the main wolf events that we want
+// the wolf-agent to log
 type WolfEventType string
 
 const (

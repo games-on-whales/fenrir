@@ -998,7 +998,6 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 
 	// Build VolumeClaimTemplates from app spec with Profile ownership for GC
 	var volumeClaimTemplates []corev1.PersistentVolumeClaim
-	// hasWolfDataClaim := false
 	for _, template := range app.Spec.VolumeClaimTemplates {
 		claim := *template.DeepCopy()
 
@@ -1023,10 +1022,6 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 		})
 
 		volumeClaimTemplates = append(volumeClaimTemplates, claim)
-
-		// if claim.Name == "wolf-data" {
-		// 	hasWolfDataClaim = true
-		// }
 	}
 
 	// Assemble pod volumes
@@ -1044,25 +1039,6 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 			},
 		},
 	)
-
-	// if hasWolfDataClaim {
-	// 	// StatefulSet controller creates the PVC from the template; pod references template name
-	// 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, corev1.Volume{
-	// 		Name: "wolf-data",
-	// 		VolumeSource: corev1.VolumeSource{
-	// 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-	// 				ClaimName: "wolf-data",
-	// 			},
-	// 		},
-	// 	})
-	// } else {
-	// 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, corev1.Volume{
-	// 		Name: "wolf-data",
-	// 		VolumeSource: corev1.VolumeSource{
-	// 			EmptyDir: &corev1.EmptyDirVolumeSource{},
-	// 		},
-	// 	})
-	// }
 
 	// Add volumes from the profile spec
 	if len(profile.Spec.Volumes) > 0 {

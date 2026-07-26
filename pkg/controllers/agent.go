@@ -74,6 +74,14 @@ func (a *Agent) watchEvents(ctx context.Context) error {
 						utilruntime.HandleError(fmt.Errorf("failed to stop session: %w", err))
 						continue
 					}
+				case wolfapi.ResumeStreamEventType:
+					continue
+				case wolfapi.StreamSessionEventType:
+					continue
+				case wolfapi.VideoSessionEventType:
+					continue
+				case wolfapi.AudioSessionEventType:
+					continue
 				default:
 					continue
 				}
