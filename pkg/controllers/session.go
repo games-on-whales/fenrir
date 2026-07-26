@@ -1172,7 +1172,7 @@ func (c *SessionController) reconcileActiveStreams(
 
 	// Retry wolf-agent calls
 	var sessions []wolfapi.Session
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		sessions, err = wolfclient.ListSessions(ctx)
 		if err == nil {
 			break
@@ -1219,7 +1219,7 @@ func (c *SessionController) reconcileActiveStreams(
 		}
 		// This is temporary, since sometimes session creation fails on kind cluster
 		var sessionID string
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			sessionID, err = wolfclient.AddSession(ctx, wolfapi.Session{
 				VideoWidth:       session.Spec.Config.VideoWidth,
 				VideoHeight:      session.Spec.Config.VideoHeight,
