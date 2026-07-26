@@ -160,8 +160,6 @@ spec:
                   - type
                   type: object
                 type: array
-              deploymentName:
-                type: string
               lobbyID:
                 description: The ID returned by the Wolf API when the lobby is created
                 type: string
@@ -182,6 +180,8 @@ spec:
                     type: integer
                 type: object
               serviceName:
+                type: string
+              statefulSetName:
                 type: string
               waylandSocketName:
                 description: WaylandSocketName is the name of the Wayland socket file

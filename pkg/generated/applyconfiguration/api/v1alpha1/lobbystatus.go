@@ -28,7 +28,7 @@ type LobbyStatusApplyConfiguration struct {
 	Conditions        []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	LobbyID           *string                          `json:"lobbyID,omitempty"`
 	WaylandSocketName *string                          `json:"waylandSocketName,omitempty"`
-	DeploymentName    *string                          `json:"deploymentName,omitempty"`
+	StatefulSetName   *string                          `json:"statefulSetName,omitempty"`
 	ServiceName       *string                          `json:"serviceName,omitempty"`
 	Ports             *SessionPortsApplyConfiguration  `json:"ports,omitempty"`
 }
@@ -68,11 +68,11 @@ func (b *LobbyStatusApplyConfiguration) WithWaylandSocketName(value string) *Lob
 	return b
 }
 
-// WithDeploymentName sets the DeploymentName field in the declarative configuration to the given value
+// WithStatefulSetName sets the StatefulSetName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DeploymentName field is set to the value of the last call.
-func (b *LobbyStatusApplyConfiguration) WithDeploymentName(value string) *LobbyStatusApplyConfiguration {
-	b.DeploymentName = &value
+// If called multiple times, the StatefulSetName field is set to the value of the last call.
+func (b *LobbyStatusApplyConfiguration) WithStatefulSetName(value string) *LobbyStatusApplyConfiguration {
+	b.StatefulSetName = &value
 	return b
 }
 

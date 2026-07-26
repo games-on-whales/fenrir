@@ -184,8 +184,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              deploymentName:
-                type: string
               ports:
                 description: The ports allocated to the session on the shared gateway.
                 properties:
@@ -203,6 +201,8 @@ spec:
                     type: integer
                 type: object
               serviceName:
+                type: string
+              statefulSetName:
                 type: string
               streamURL:
                 type: string

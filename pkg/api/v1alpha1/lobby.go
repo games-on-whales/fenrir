@@ -66,8 +66,8 @@ type LobbyStatus struct {
 	// WaylandSocketName is the name of the Wayland socket file generated for this Lobby
 	WaylandSocketName string `json:"waylandSocketName,omitempty"`
 
-	DeploymentName string `json:"deploymentName,omitempty"`
-	ServiceName    string `json:"serviceName,omitempty"`
+	StatefulSetName string `json:"statefulSetName,omitempty"`
+	ServiceName     string `json:"serviceName,omitempty"`
 
 	// The ports allocated to the lobby on the shared gateway.
 	Ports SessionPorts `json:"ports,omitempty"`

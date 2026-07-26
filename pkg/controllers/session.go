@@ -637,13 +637,13 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 	// I need a better method of injecting env vars / configs to the pod
 	// TODO better env var handling in DRA
 	wolfEnvVars := map[string]string{
-		"PUID":                   "1000",
-		"PGID":                   "1000",
-		"UNAME":                  "ubuntu",
-		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix", //nolint
-		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
-		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
-		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
+		"PUID":            "1000",
+		"PGID":            "1000",
+		"UNAME":           "ubuntu",
+		"XDG_RUNTIME_DIR": "/tmp/.X11-unix", //nolint
+		"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
+		// "HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
+		"WOLF_SOCKET_PATH": "/etc/wolf/wolf.sock",
 		// Keeping those for later
 		// "GST_VAAPI_ALL_DRIVERS":      "1",
 		// "GST_DEBUG":                  "2",
@@ -695,11 +695,11 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 				Name:      "wolf-runtime", //nolint
 				MountPath: "/tmp/.X11-unix",
 			},
-			corev1.VolumeMount{
-				Name:      "wolf-data",
-				MountPath: "/home/retro",
-				SubPath:   "state/" + app.Name,
-			},
+			// corev1.VolumeMount{
+			// 	Name:      "wolf-data",
+			// 	MountPath: "/home/retro",
+			// 	SubPath:   "state/" + app.Name,
+			// },
 		)
 
 		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, []corev1.EnvVar{
@@ -976,10 +976,10 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 					Name:      "wolf-runtime", //nolint
 					MountPath: "/tmp/.X11-unix",
 				},
-				{
-					Name:      "wolf-data",
-					MountPath: "/mnt/data/wolf",
-				},
+				// {
+				// 	Name:      "wolf-data",
+				// 	MountPath: "/mnt/data/wolf",
+				// },
 				// {
 				// 	Name:      "dev-input",
 				// 	MountPath: "/dev/input",
@@ -998,7 +998,7 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 
 	// Build VolumeClaimTemplates from app spec with Profile ownership for GC
 	var volumeClaimTemplates []corev1.PersistentVolumeClaim
-	hasWolfDataClaim := false
+	// hasWolfDataClaim := false
 	for _, template := range app.Spec.VolumeClaimTemplates {
 		claim := *template.DeepCopy()
 
@@ -1024,9 +1024,9 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 
 		volumeClaimTemplates = append(volumeClaimTemplates, claim)
 
-		if claim.Name == "wolf-data" {
-			hasWolfDataClaim = true
-		}
+		// if claim.Name == "wolf-data" {
+		// 	hasWolfDataClaim = true
+		// }
 	}
 
 	// Assemble pod volumes
@@ -1045,24 +1045,24 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 		},
 	)
 
-	if hasWolfDataClaim {
-		// StatefulSet controller creates the PVC from the template; pod references template name
-		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, corev1.Volume{
-			Name: "wolf-data",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: "wolf-data",
-				},
-			},
-		})
-	} else {
-		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, corev1.Volume{
-			Name: "wolf-data",
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
-			},
-		})
-	}
+	// if hasWolfDataClaim {
+	// 	// StatefulSet controller creates the PVC from the template; pod references template name
+	// 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, corev1.Volume{
+	// 		Name: "wolf-data",
+	// 		VolumeSource: corev1.VolumeSource{
+	// 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+	// 				ClaimName: "wolf-data",
+	// 			},
+	// 		},
+	// 	})
+	// } else {
+	// 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, corev1.Volume{
+	// 		Name: "wolf-data",
+	// 		VolumeSource: corev1.VolumeSource{
+	// 			EmptyDir: &corev1.EmptyDirVolumeSource{},
+	// 		},
+	// 	})
+	// }
 
 	// Add volumes from the profile spec
 	if len(profile.Spec.Volumes) > 0 {

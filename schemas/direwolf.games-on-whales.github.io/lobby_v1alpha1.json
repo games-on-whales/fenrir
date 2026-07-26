@@ -151,9 +151,6 @@
           },
           "type": "array"
         },
-        "deploymentName": {
-          "type": "string"
-        },
         "lobbyID": {
           "description": "The ID returned by the Wolf API when the lobby is created",
           "type": "string"
@@ -182,6 +179,9 @@
           "additionalProperties": false
         },
         "serviceName": {
+          "type": "string"
+        },
+        "statefulSetName": {
           "type": "string"
         },
         "waylandSocketName": {

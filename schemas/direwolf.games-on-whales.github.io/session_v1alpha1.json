@@ -177,9 +177,6 @@
           ],
           "x-kubernetes-list-type": "map"
         },
-        "deploymentName": {
-          "type": "string"
-        },
         "ports": {
           "description": "The ports allocated to the session on the shared gateway.",
           "properties": {
@@ -204,6 +201,9 @@
           "additionalProperties": false
         },
         "serviceName": {
+          "type": "string"
+        },
+        "statefulSetName": {
           "type": "string"
         },
         "streamURL": {
