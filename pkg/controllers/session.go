@@ -41,17 +41,6 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
-// TODO: move them somewhere else
-const (
-	AppLabelKey       string = "direwolf/app"
-	ProfileLabelKey   string = "direwolf/profile"
-	UserLabelKey      string = "direwolf/user"
-	LobbyLabelKey     string = "direwolf/lobby"
-	NodeLabelKey      string = "direwolf/node"
-	SessionLabelKey   string = "direwolf/session"
-	LobbyTypeLabelKey string = "direwolf/lobby-type"
-)
-
 var (
 	wolfImage = func() string {
 		if im := os.Getenv("WOLF_IMAGE"); im != "" {
@@ -217,11 +206,11 @@ func (c *SessionController) reconcileDependant(obj K8sObject) error {
 		return nil
 	}
 
-	if _, ok := obj.GetLabels()[ProfileLabelKey]; !ok {
+	if _, ok := obj.GetLabels()[direwolfv1alpha1.LabelProfile]; !ok {
 		return nil
 	}
 
-	if _, ok := obj.GetLabels()[AppLabelKey]; !ok {
+	if _, ok := obj.GetLabels()[direwolfv1alpha1.LabelApp]; !ok {
 		return nil
 	}
 
@@ -438,7 +427,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 // 			WithLabels(
 // 				map[string]string{
 // 					"app":           "direwolf-worker",
-// 					AppLabelKey:  session.Spec.GameReference.Name,
+// 					direwolfv1alpha1.LabelApp:  session.Spec.GameReference.Name,
 // 					"direwolf/user": session.Spec.UserReference.Name,
 // 				}).
 // 			WithSpec(
@@ -491,7 +480,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 // 			WithLabels(
 // 				map[string]string{
 // 					"app":           "direwolf-worker",
-// 					AppLabelKey:  session.Spec.GameReference.Name,
+// 					direwolfv1alpha1.LabelApp:  session.Spec.GameReference.Name,
 // 					"direwolf/user": session.Spec.UserReference.Name,
 // 				}).
 // 			WithSpec(
@@ -574,9 +563,9 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 				}).
 				WithLabels(
 					map[string]string{
-						"app":           "direwolf-worker", //nolint
-						AppLabelKey:     session.Spec.GameReference.Name,
-						ProfileLabelKey: session.Spec.ProfileReference.Name,
+						"app":                         "direwolf-worker", //nolint
+						direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
+						direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
 					},
 				).
 				WithOwnerReferences(metav1ac.OwnerReference().
@@ -590,8 +579,8 @@ func (c *SessionController) reconcileService(ctx context.Context, session *direw
 						WithType(corev1.ServiceTypeLoadBalancer).
 						WithSelector(
 							map[string]string{
-								AppLabelKey:     session.Spec.GameReference.Name,
-								ProfileLabelKey: session.Spec.ProfileReference.Name,
+								direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
+								direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
 							}).
 						WithPorts(
 							v1ac.ServicePort().
@@ -834,8 +823,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	}
 
 	podToCreate.Labels["app"] = "direwolf-worker" //nolint
-	podToCreate.Labels[AppLabelKey] = session.Spec.GameReference.Name
-	podToCreate.Labels[ProfileLabelKey] = session.Spec.ProfileReference.Name
+	podToCreate.Labels[direwolfv1alpha1.LabelApp] = session.Spec.GameReference.Name
+	podToCreate.Labels[direwolfv1alpha1.LabelProfile] = session.Spec.ProfileReference.Name
 
 	wolfEnvVarsSlice := make([]corev1.EnvVar, 0, len(wolfEnvVars))
 	for k, v := range wolfEnvVars {
@@ -1245,9 +1234,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			Name:      c.deploymentName(session),
 			Namespace: session.Namespace,
 			Labels: map[string]string{
-				"app":           "direwolf-worker", //nolint
-				AppLabelKey:     session.Spec.GameReference.Name,
-				ProfileLabelKey: session.Spec.ProfileReference.Name,
+				"app":                         "direwolf-worker", //nolint
+				direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
+				direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
 			},
 			OwnerReferences: owners,
 		},
@@ -1255,8 +1244,8 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			Replicas: ptr.To[int32](1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					AppLabelKey:     session.Spec.GameReference.Name,
-					ProfileLabelKey: session.Spec.ProfileReference.Name,
+					direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
+					direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
 				},
 			},
 			Strategy: appsv1.DeploymentStrategy{
@@ -1323,7 +1312,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 // 				WithLabels(
 // 					map[string]string{
 // 						"app":           "direwolf-worker",
-// 						AppLabelKey:  session.Spec.GameReference.Name,
+// 						direwolfv1alpha1.LabelApp:  session.Spec.GameReference.Name,
 // 						"direwolf/user": session.Spec.UserReference.Name,
 // 					}).
 // 				WithOwnerReferences(
@@ -1440,9 +1429,9 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *direwolfv
 		ctx,
 		v1ac.PersistentVolumeClaim(pvcName, session.Namespace).
 			WithLabels(map[string]string{
-				"app":           "direwolf-worker", //nolint
-				AppLabelKey:     session.Spec.GameReference.Name,
-				ProfileLabelKey: session.Spec.ProfileReference.Name,
+				"app":                         "direwolf-worker", //nolint
+				direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
+				direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
 			}).
 			WithOwnerReferences(metav1ac.OwnerReference().
 				WithName(profile.Name).
