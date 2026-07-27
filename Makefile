@@ -1,25 +1,6 @@
 
 .PHONY: help
 
-# This is the metall ip pool automatically created during cluster setup
-define matallbpool
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: kind-pool
-  namespace: metallb-system
-spec:
-  addresses:
-  - $${KIND_NETWORK_IP}.240-$${KIND_NETWORK_IP}.250
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: kind-l2adv
-  namespace: metallb-system
-endef
-export matallbpool
-
 ## Print this help message (based on hslib's answer https://stackoverflow.com/questions/35730218/how-to-automatically-generate-a-makefile-help-command)
 help:
 	@awk '/^## / \
@@ -72,7 +53,7 @@ cluster-metallb:
 ## then place the metallb ip address pool at the end of it
 cluster-ippool: cluster-metallb
 	@export KIND_NETWORK_IP=$$(docker network inspect kind -f '{{range .Containers}}{{.IPv4Address}} {{end}}' | awk '{print $$1}' | cut -d'/' -f1 | sed 's/\.[^.]*$$//'); \
-	echo "$$matallbpool" | sed "s/\$${KIND_NETWORK_IP}/$$KIND_NETWORK_IP/g" | kubectl apply -f - --context=kind-direwolf-cluster
+	sed "s/\$${KIND_NETWORK_IP}/$$KIND_NETWORK_IP/g" hack/templates/metallb-ip-pool.yaml | kubectl apply -f - --context=kind-direwolf-cluster
 ## This sets up the resources needed for the cluster to operator
 ## resources such as cert-manager & metallb
 cluster-setup: cluster-certmanager cluster-metallb cluster-ippool
