@@ -53,7 +53,7 @@ cluster-metallb:
 ## then place the metallb ip address pool at the end of it
 cluster-ippool: cluster-metallb
 	@export KIND_NETWORK_IP=$$(docker network inspect kind -f '{{range .Containers}}{{.IPv4Address}} {{end}}' | awk '{print $$1}' | cut -d'/' -f1 | sed 's/\.[^.]*$$//'); \
-	sed "s/\$${KIND_NETWORK_IP}/$$KIND_NETWORK_IP/g" hack/templates/metallb-ip-pool.yaml | kubectl apply -f - --context=kind-direwolf-cluster
+	envsubst < hack/templates/metallb-ip-pool.yaml | kubectl apply -f - --context=kind-direwolf-cluster
 ## This sets up the resources needed for the cluster to operator
 ## resources such as cert-manager & metallb
 cluster-setup: cluster-certmanager cluster-metallb cluster-ippool
