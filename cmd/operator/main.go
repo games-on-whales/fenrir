@@ -89,8 +89,8 @@ func main() {
 	// Session Controller
 	sessionController := controllers.NewSessionController(
 		k8sClient,
-		gatewayClient.GatewayV1alpha2().TCPRoutes(*namespace),
-		gatewayClient.GatewayV1alpha2().UDPRoutes(*namespace),
+		gatewayClient.GatewayV1().TCPRoutes(*namespace),
+		gatewayClient.GatewayV1().UDPRoutes(*namespace),
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
