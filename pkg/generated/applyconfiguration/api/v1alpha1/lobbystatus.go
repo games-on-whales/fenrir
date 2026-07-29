@@ -25,12 +25,17 @@ import (
 // LobbyStatusApplyConfiguration represents a declarative configuration of the LobbyStatus type for use
 // with apply.
 type LobbyStatusApplyConfiguration struct {
-	Conditions        []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	LobbyID           *string                          `json:"lobbyID,omitempty"`
-	WaylandSocketName *string                          `json:"waylandSocketName,omitempty"`
-	StatefulSetName   *string                          `json:"statefulSetName,omitempty"`
-	ServiceName       *string                          `json:"serviceName,omitempty"`
-	Ports             *SessionPortsApplyConfiguration  `json:"ports,omitempty"`
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// The ID returned by the Wolf API when the lobby is created
+	LobbyID *string `json:"lobbyID,omitempty"`
+	// WaylandSocketName is the name of the Wayland socket file generated for this Lobby
+	WaylandSocketName *string `json:"waylandSocketName,omitempty"`
+	// LobbyNode is the current node this lobby is on
+	LobbyNode       *string `json:"lobbyNode,omitempty"`
+	StatefulSetName *string `json:"statefulSetName,omitempty"`
+	ServiceName     *string `json:"serviceName,omitempty"`
+	// The ports allocated to the lobby on the shared gateway.
+	Ports *SessionPortsApplyConfiguration `json:"ports,omitempty"`
 }
 
 // LobbyStatusApplyConfiguration constructs a declarative configuration of the LobbyStatus type for use with
@@ -65,6 +70,14 @@ func (b *LobbyStatusApplyConfiguration) WithLobbyID(value string) *LobbyStatusAp
 // If called multiple times, the WaylandSocketName field is set to the value of the last call.
 func (b *LobbyStatusApplyConfiguration) WithWaylandSocketName(value string) *LobbyStatusApplyConfiguration {
 	b.WaylandSocketName = &value
+	return b
+}
+
+// WithLobbyNode sets the LobbyNode field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LobbyNode field is set to the value of the last call.
+func (b *LobbyStatusApplyConfiguration) WithLobbyNode(value string) *LobbyStatusApplyConfiguration {
+	b.LobbyNode = &value
 	return b
 }
 

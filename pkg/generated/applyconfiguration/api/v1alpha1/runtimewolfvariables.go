@@ -20,10 +20,19 @@ package v1alpha1
 
 // RuntimeWolfVariablesApplyConfiguration represents a declarative configuration of the RuntimeWolfVariables type for use
 // with apply.
+//
+// RuntimeWolfVariables will be removed into the DRA config
+// TODO so I can easily find it
+// This entire implementation needs a rework
+// It'll be modified later to better inject env vars and configs.
 type RuntimeWolfVariablesApplyConfiguration struct {
+	// RenderNode specifies the filepath to the DRM render node device.
+	// Wolf defaults to: "/dev/dri/renderD128"
 	RenderNode *string `json:"renderNode,omitempty"`
-	TimeZone   *string `json:"timeZone,omitempty"`
-	LogLevel   *string `json:"logLevel,omitempty"`
+	// Time zone for the wolf container
+	TimeZone *string `json:"timeZone,omitempty"`
+	// Logging level for wolf.
+	LogLevel *string `json:"logLevel,omitempty"`
 }
 
 // RuntimeWolfVariablesApplyConfiguration constructs a declarative configuration of the RuntimeWolfVariables type for use with

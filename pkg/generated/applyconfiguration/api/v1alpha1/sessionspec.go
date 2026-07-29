@@ -20,12 +20,31 @@ package v1alpha1
 
 // SessionSpecApplyConfiguration represents a declarative configuration of the SessionSpec type for use
 // with apply.
+//
+// SessionSpec refers to a certain user playing a specific game with a specific
+// client. This object is meant to live for the duration of the user's session.
+//
+// A session is created in response to a user's /launch request.
+//
+// It is meant to be deleted by the session controller once the agent has reported
+// that it is ended.
+//
+// A user can have multiple sessions active at a time, and even multiple copies
+// of the same "game" if the underlying persistentVolumeClass supports it multiple
+// binding.
+//
+// A session is created when moonlight calls /launch to launch a game.
 type SessionSpecApplyConfiguration struct {
 	ProfileReference *ProfileReferenceApplyConfiguration `json:"profileReference,omitempty"`
 	GameReference    *GameReferenceApplyConfiguration    `json:"gameReference,omitempty"`
 	PairingReference *PairingReferenceApplyConfiguration `json:"pairingReference,omitempty"`
+	// The name of the Gateway used to access the moonlight server.
+	// The gateway IP used for the stream session must be the same as the IP of
+	// the moonlight server used to initiate the connection due to moonlight
+	// protocol restrictions.
 	GatewayReference *GatewayReferenceApplyConfiguration `json:"gateway,omitempty"`
-	Config           *SessionInfoApplyConfiguration      `json:"config,omitempty"`
+	// Wolf-specific config for the session
+	Config *SessionInfoApplyConfiguration `json:"config,omitempty"`
 }
 
 // SessionSpecApplyConfiguration constructs a declarative configuration of the SessionSpec type for use with
