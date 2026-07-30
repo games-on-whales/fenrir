@@ -13,6 +13,7 @@ import (
 const (
 	cdiVersion    = "0.8.0"
 	xdgRuntimeDir = "/run/user/wolf"
+	pulseSockFile = "/pulse-socket"
 )
 
 type cdiSpec struct {
@@ -73,7 +74,7 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 	}
 
 	waylandSockFile := fmt.Sprintf("wayland-%d", idx)
-	hostPath := filepath.Join(g.socketsDir, waylandSockFile)
+
 	devName := "wayland-claim-" + claimUID
 
 	env := []string{
@@ -84,6 +85,9 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 		fmt.Sprintf("GAMESCOPE_REFRESH=%d", video.RefreshRate),
 		fmt.Sprintf("GAMESCOPE_WIDTH=%d", video.Width),
 		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", video.Height),
+		"PULSE_SOURCE=virtual_sink_" + lobbyID + ".monitor",
+		"PULSE_SINK=virtual_sink_" + lobbyID,
+		"PULSE_SERVER=" + xdgRuntimeDir + pulseSockFile,
 		"XDG_RUNTIME_DIR=" + xdgRuntimeDir,
 		"WOLF_SESSION_ID=" + lobbyID,
 		"WOLF_VIDEO_BUFFER_CAPS=" + video.VideoProducerBufferCaps,
@@ -103,16 +107,16 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 					Env: env,
 					Mounts: []cdiMount{
 						{
-							HostPath:      hostPath,
+							HostPath:      filepath.Join(g.socketsDir, waylandSockFile),
 							ContainerPath: filepath.Join(xdgRuntimeDir, waylandSockFile),
 							Options:       []string{"rw", "bind"},
 						},
 						// TODO pulse audio
-						// {
-						// 	HostPath:      hostPath,
-						// 	ContainerPath: filepath.Join(xdgRuntimeDir, pulseSockFile),
-						// 	Options:       []string{"rw", "bind"},
-						// },
+						{
+							HostPath:      filepath.Join(g.socketsDir, pulseSockFile),
+							ContainerPath: filepath.Join(xdgRuntimeDir, pulseSockFile),
+							Options:       []string{"rw", "bind"},
+						},
 					},
 				},
 			},

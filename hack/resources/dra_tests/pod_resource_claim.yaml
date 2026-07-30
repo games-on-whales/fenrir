@@ -52,7 +52,7 @@ metadata:
 spec:
   containers:
   - name: app
-    image: busybox:latest
+    image: alpine:latest
     command: ["sh", "-c", "echo '--- ENV ---'; env | grep -E 'WAYLAND|GAMESCOPE|XDG|WOLF'; echo '--- MOUNTS ---'; cat /proc/self/mounts | grep wolf; sleep 3600"]
     resources:
       claims:
