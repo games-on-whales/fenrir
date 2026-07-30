@@ -1,0 +1,50 @@
+---
+# yaml-language-server: $schema=https://github.com/games-on-whales/fenrir/raw/refs/heads/main/schemas/direwolf.games-on-whales.github.io/profile_v1alpha1.json
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: Profile
+metadata:
+  name: default
+  namespace: direwolf-dev
+spec:
+  volumes:
+    - name: fix-home-perms
+      configMap:
+        name: fix-home-perms
+        defaultMode: 0755
+  apps:
+  - name: firefox
+  pairings:
+  # We can add our pairing ids here for automatic access to a profile and it's applications
+  - name: "1ca62e79255d652d6e9cc84e24c9743d23916f34149d183473fd1b18e32a0de1"
+  resources:
+    limits:
+      devic.es/gpu: "1"
+      cpu: 4000m
+      memory: 8G
+    requests:
+      devic.es/gpu: "1"
+      cpu: 4000m
+      memory: 8G
+  # TODO removal 
+  sidecarPolicies:
+    wolf:
+      # env:
+      #   - name: RUST_LOG
+      #     value: DEBUG
+      # I'm using generic devices to pass along the gpu.
+      resources:
+        requests:
+          devic.es/gpu: "1"
+          devic.es/uinput: "1"
+          cpu: 2
+          memory: 2G
+        limits:
+          devic.es/gpu: "1"
+          devic.es/uinput: "1"
+          cpu: 2
+          memory: 2G
+      volumeMounts:
+        - name: fix-home-perms
+          mountPath: /etc/cont-init.d/99-fix-home-perms.sh
+          subPath: 99-fix-home-perms.sh
+          readOnly: true

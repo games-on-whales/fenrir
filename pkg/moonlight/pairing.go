@@ -421,7 +421,7 @@ func (m *PairingManager) pairPhase4(ctx context.Context, cacheKey string, pairin
 			Name: ptr.To(fingerprint),
 			// to allow the user to search for all pairing belonging to a user through selectors
 			Labels: map[string]string{
-				"direwolf/username": clientCache.Username,
+				"direwolf/user": clientCache.Username,
 			},
 		},
 		Spec: &v1alpha1_apply.PairingSpecApplyConfiguration{

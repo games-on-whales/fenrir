@@ -205,7 +205,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 			for _, profile := range profiles {
 				pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
 					// TODO use the const instead
-					"direwolf/profile": profile.Name, //nolint
+					direwolfv1alpha1.LabelProfile: profile.Name,
 				}))
 				if err != nil {
 					writeErrorResponse(w, 500, fmt.Errorf("failed to list pods: %w", err))
@@ -214,7 +214,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 
 				if len(pods) > 0 {
 					serverStatus = "SUNSHINE_SERVER_BUSY"
-					currentApp, err := s.AppLister.Get(pods[0].Labels["direwolf/app"])
+					currentApp, err := s.AppLister.Get(pods[0].Labels[direwolfv1alpha1.LabelApp])
 					if err != nil {
 						writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %w", err))
 						return
@@ -578,12 +578,12 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 				GenerateName: fmt.Sprintf("%s-%s-", targetProfile.Name, app.Name),
 				Namespace:    pairing.Namespace,
 				Labels: map[string]string{
-					"direwolf":         "true",
-					"direwolf/app":     app.Name,
-					"direwolf/profile": targetProfile.Name,
+					"direwolf":                    "true",
+					direwolfv1alpha1.LabelApp:     app.Name,
+					direwolfv1alpha1.LabelProfile: targetProfile.Name,
 				},
 				Annotations: map[string]string{
-					"direwolf/pairing": pairing.Name,
+					direwolfv1alpha1.LabelPairing: pairing.Name,
 				},
 			},
 			Spec: direwolfv1alpha1.SessionSpec{
@@ -677,7 +677,7 @@ func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 
 func (s *RESTServer) stopSessionsForProfile(ctx context.Context, profile *direwolfv1alpha1.Profile, shouldWait bool) error {
 	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
-		"direwolf/profile": profile.Name,
+		direwolfv1alpha1.LabelProfile: profile.Name,
 	}))
 	if err != nil {
 		return fmt.Errorf("failed to list sessions: %w", err)
@@ -700,7 +700,7 @@ func (s *RESTServer) stopSessionsForProfile(ctx context.Context, profile *direwo
 		// Wait for pods to be cleaned up
 		err = wait.PollUntilContextTimeout(ctx, 250*time.Millisecond, 25*time.Second, true, func(_ context.Context) (bool, error) {
 			pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
-				"direwolf/profile": profile.Name,
+				direwolfv1alpha1.LabelProfile: profile.Name,
 			}))
 			if err != nil {
 				return false, fmt.Errorf("failed to clean up pods %s: %w", pods, err)
