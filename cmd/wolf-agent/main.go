@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -13,11 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"games-on-whales.github.io/direwolf/pkg/controllers"
-	"games-on-whales.github.io/direwolf/pkg/dra"
-	"games-on-whales.github.io/direwolf/pkg/util"
-	"games-on-whales.github.io/direwolf/pkg/wolfapi"
-
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,7 +20,11 @@ import (
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
+
+	"games-on-whales.github.io/direwolf/pkg/controllers"
+	"games-on-whales.github.io/direwolf/pkg/dra"
+	"games-on-whales.github.io/direwolf/pkg/util"
+	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 func main() {
@@ -119,8 +117,8 @@ func main() {
 		cancel(nil)
 	}()
 
-	pluginDir := filepath.Join("/var/lib/kubelet/plugins", driverName)
-	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+	pluginDir := filepath.Join(kubeletplugin.KubeletPluginsDir, driverName)
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
 		klog.Fatal("Failed to create plugin directory: ", err)
 	}
 
@@ -148,12 +146,12 @@ func main() {
 						Devices: []resourceapi.Device{
 							{
 								Name:                     "wayland-pool",
-								AllowMultipleAllocations: ptr.To(true),
+								AllowMultipleAllocations: new(true),
 								Capacity: map[resourceapi.QualifiedName]resourceapi.DeviceCapacity{
-									"slots": {Value: resource.MustParse(fmt.Sprintf("%d", maxWayland))},
+									"slots": {Value: resource.MustParse(strconv.Itoa(maxWayland))},
 								},
 								Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-									"wayland.dra.io/type": {StringValue: ptr.To("wayland")},
+									"wayland.dra.io/type": {StringValue: new("wayland")},
 								},
 							},
 						},
@@ -209,7 +207,7 @@ func waitForWolfSock(path string, timeout time.Duration) error {
 	for {
 		select {
 		case <-deadline:
-			return fmt.Errorf("timeout")
+			return errors.New("timeout")
 		case <-tick.C:
 			if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 {
 				var d net.Dialer

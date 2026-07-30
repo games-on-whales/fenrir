@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 
-	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 	"github.com/davecgh/go-spew/spew"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/klog/v2"
+
+	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 type WolfDriverConfig struct {
