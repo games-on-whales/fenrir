@@ -1,11 +1,13 @@
 package wolfapi
 
+// TODO, go through the wolf code to mimick their structs
 type Response struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
 }
 
 // Session types
+// TODO: use the shared settings from lobby?
 type Session struct {
 	AppID             string         `json:"app_id,omitempty"`
 	AudioChannelCount int            `json:"audio_channel_count"`
@@ -37,6 +39,7 @@ type ClientSettings struct {
 	RunGID              int     `json:"run_gid"`
 	RunUID              int     `json:"run_uid"`
 	VScrollAcceleration float64 `json:"v_scroll_acceleration"`
+	// MotionControllerOverride ControllerType `motion_controller_override`
 }
 
 type StopSessionRequest struct {
