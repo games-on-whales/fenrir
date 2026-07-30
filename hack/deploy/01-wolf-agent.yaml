@@ -1,3 +1,44 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: wolf-dra
+  namespace: direwolf-dev
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: wolf-dra
+rules:
+  # DRA: ResourceSlice publishing
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceslices"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # DRA: read-only on claims/classes/templates
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims", "resourceclaimtemplates", "deviceclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["deviceclasses"]
+    verbs: ["get"]
+  # Needed by kubeletplugin to read node info
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: wolf-dra
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: wolf-dra
+subjects:
+  - kind: ServiceAccount
+    name: wolf-dra
+    namespace: direwolf-dev
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -14,8 +55,8 @@ spec:
       labels:
         app: wolf-agent-dev
     spec:
+      serviceAccountName: wolf-dra
       volumes:
-      # This is where the wolf.sock and config.toml are created
       - emptyDir: {}
         name: wolf-cfg
       - name: plugins-dir
@@ -39,30 +80,43 @@ spec:
       - image: wolf-agent-dev
         name: wolf-agent-dev
         imagePullPolicy: IfNotPresent
-        args:
-        - --socket=/etc/wolf/wolf.sock
-        - --port=8443
         env:
-        # This is where the wayland + pulseaudio sockets are created
-        - name: XDG_RUNTIME_DIR
-          value: /var/run/wolf-sockets
-        # This is the wolf socket
-        - name: WOLF_SOCKET_PATH
-          value: /etc/wolf/wolf.sock
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              apiVersion: v1
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              apiVersion: v1
-              fieldPath: metadata.namespace
+        - name: LOG_LEVEL
+          value: "5"
+        - name: APP_NAME
+          value: wolf-agent
         - name: NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: DRIVER_NAME
+          value: wolf.dra.io
+        - name: SOCKETS_DIR
+          value: /var/run/wolf-sockets
+        - name: WOLF_SOCKET_PATH
+          value: /etc/wolf/wolf.sock
+        - name: MAX_WAYLAND_SOCKETS
+          value: "10"
+        - name: QUEUE_TIMEOUT_SECONDS
+          value: "30"
+        - name: WOLF_DRA_ENABLE_SSE
+          value: "false"
+        - name: TLS_CERT
+          value: /etc/wolf/server.crt
+        - name: TLS_KEY
+          value: /etc/wolf/server.key
         volumeMounts:
         - mountPath: /etc/wolf
           name: wolf-cfg
