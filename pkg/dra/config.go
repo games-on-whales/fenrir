@@ -36,6 +36,9 @@ func (c *WolfDriverConfig) Defaults() *WolfDriverConfig {
 	return c
 }
 
+// ClaimParams are the resource claim parameters
+// they're supposed to be passed from moonlight to operator
+// and finally to the wolf-dra to create the lobby
 type ClaimParams struct {
 	VideoSettings  wolfapi.LobbyVideoSettings `json:"video_settings"`
 	AudioSettings  wolfapi.LobbyAudioSettings `json:"audio_settings"`

@@ -42,7 +42,7 @@ build:
     - image: wolf-agent-dev
       context: .
       docker:
-        dockerfile: Dockerfile
+        dockerfile: Dockerfile.dev
         buildArgs:
           APP_NAME: wolf-agent
       sync:
