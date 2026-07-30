@@ -18,7 +18,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 
 	v1alpha1_apply "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/api/v1alpha1"
 	v1alpha1_client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
@@ -414,22 +413,22 @@ func (m *PairingManager) pairPhase4(ctx context.Context, cacheKey string, pairin
 	fingerprint := hex.EncodeToString(util.Hash(clientCache.ClientCert.Raw))
 	_, err = m.PairingsClient.Apply(ctx, &v1alpha1_apply.PairingApplyConfiguration{
 		TypeMetaApplyConfiguration: metav1apply.TypeMetaApplyConfiguration{
-			Kind:       ptr.To("Pairing"),
-			APIVersion: ptr.To("direwolf.games-on-whales.github.io/v1alpha1"),
+			Kind:       new("Pairing"),
+			APIVersion: new("direwolf.games-on-whales.github.io/v1alpha1"),
 		},
 		ObjectMetaApplyConfiguration: &metav1apply.ObjectMetaApplyConfiguration{
-			Name: ptr.To(fingerprint),
+			Name: new(fingerprint),
 			// to allow the user to search for all pairing belonging to a user through selectors
 			Labels: map[string]string{
 				"direwolf/user": clientCache.Username,
 			},
 		},
 		Spec: &v1alpha1_apply.PairingSpecApplyConfiguration{
-			ClientCertPEM: ptr.To(string(pem.EncodeToMemory(&pem.Block{
+			ClientCertPEM: new(string(pem.EncodeToMemory(&pem.Block{
 				Type:  "CERTIFICATE",
 				Bytes: clientCache.ClientCert.Raw,
 			}))),
-			Username: ptr.To(clientCache.Username),
+			Username: new(clientCache.Username),
 		},
 	}, metav1.ApplyOptions{
 		FieldManager: "moonlight-proxy",

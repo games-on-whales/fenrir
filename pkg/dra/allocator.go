@@ -14,9 +14,9 @@ type Allocator struct {
 	used map[int]struct{}
 }
 
-func NewAllocator(max int) *Allocator {
+func NewAllocator(limit int) *Allocator {
 	return &Allocator{
-		max:  max,
+		max:  limit,
 		used: make(map[int]struct{}),
 	}
 }

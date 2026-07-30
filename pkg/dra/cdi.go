@@ -10,7 +10,10 @@ import (
 	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
-const cdiVersion = "0.8.0"
+const (
+	cdiVersion    = "0.8.0"
+	xdgRuntimeDir = "/run/user/wolf"
+)
 
 type cdiSpec struct {
 	CDIVersion string      `json:"cdiVersion"`
@@ -65,25 +68,25 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 	extraEnv map[string]string,
 ) (string, error) {
 	// TODO: more restrictive permissions??
-	if err := os.MkdirAll(g.cdiDir, 0755); err != nil {
+	if err := os.MkdirAll(g.cdiDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir cdi: %w", err)
 	}
 
 	waylandSockFile := fmt.Sprintf("wayland-%d", idx)
 	hostPath := filepath.Join(g.socketsDir, waylandSockFile)
-	devName := fmt.Sprintf("wayland-claim-%s", claimUID)
+	devName := "wayland-claim-" + claimUID
 
 	env := []string{
 		// UID and PGID can be handled by app spec?
 		// however, they are still defined by the controller settings
 		// I need some guidance over the env vars
 		fmt.Sprintf("WAYLAND_DISPLAY=wayland-%d", idx),
-		"XDG_RUNTIME_DIR=/run/user/wolf",
 		fmt.Sprintf("GAMESCOPE_REFRESH=%d", video.RefreshRate),
 		fmt.Sprintf("GAMESCOPE_WIDTH=%d", video.Width),
 		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", video.Height),
-		fmt.Sprintf("WOLF_SESSION_ID=%s", lobbyID),
-		fmt.Sprintf("WOLF_VIDEO_BUFFER_CAPS=%s", video.VideoProducerBufferCaps),
+		"XDG_RUNTIME_DIR=" + xdgRuntimeDir,
+		"WOLF_SESSION_ID=" + lobbyID,
+		"WOLF_VIDEO_BUFFER_CAPS=" + video.VideoProducerBufferCaps,
 		// TODO pulse audio sinks
 	}
 	for k, v := range extraEnv {
@@ -92,7 +95,7 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 
 	spec := cdiSpec{
 		CDIVersion: cdiVersion,
-		Kind:       fmt.Sprintf("%s/wayland", g.driverName),
+		Kind:       g.driverName + "/wayland",
 		Devices: []cdiDevice{
 			{
 				Name: devName,
@@ -101,13 +104,13 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 					Mounts: []cdiMount{
 						{
 							HostPath:      hostPath,
-							ContainerPath: filepath.Join("/run/user/wolf", waylandSockFile),
+							ContainerPath: filepath.Join(xdgRuntimeDir, waylandSockFile),
 							Options:       []string{"rw", "bind"},
 						},
 						// TODO pulse audio
 						// {
 						// 	HostPath:      hostPath,
-						// 	ContainerPath: filepath.Join("/run/user/wolf", pulseSockFile),
+						// 	ContainerPath: filepath.Join(xdgRuntimeDir, pulseSockFile),
 						// 	Options:       []string{"rw", "bind"},
 						// },
 					},
@@ -123,7 +126,7 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 
 	fileName := fmt.Sprintf("%s-wayland-%s.json", sanitize(g.driverName), claimUID)
 	filePath := filepath.Join(g.cdiDir, fileName)
-	if err := os.WriteFile(filePath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		return "", fmt.Errorf("write CDI spec: %w", err)
 	}
 

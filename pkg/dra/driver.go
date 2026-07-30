@@ -14,13 +14,14 @@ import (
 	"sync"
 	"time"
 
-	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
+
+	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 const (
@@ -130,11 +131,11 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 			var lobbyID string
 			var waylandDisplay string
 			for _, env := range dev.ContainerEdits.Env {
-				if strings.HasPrefix(env, "WOLF_SESSION_ID=") {
-					lobbyID = strings.TrimPrefix(env, "WOLF_SESSION_ID=")
+				if after, ok := strings.CutPrefix(env, "WOLF_SESSION_ID="); ok {
+					lobbyID = after
 				}
-				if strings.HasPrefix(env, "WAYLAND_DISPLAY=") {
-					waylandDisplay = strings.TrimPrefix(env, "WAYLAND_DISPLAY=")
+				if after, ok := strings.CutPrefix(env, "WAYLAND_DISPLAY="); ok {
+					waylandDisplay = after
 				}
 			}
 
@@ -244,7 +245,7 @@ func (d *Driver) prepareResourceClaim(
 
 	if !d.allocator.Available() {
 		klog.InfoS("No wayland sockets available", "uid", uid)
-		return kubeletplugin.PrepareResult{Err: fmt.Errorf("no wayland sockets available")}
+		return kubeletplugin.PrepareResult{Err: errors.New("no wayland sockets available")}
 	}
 	className := getDeviceClassName(claim)
 	var class *resourceapi.DeviceClass
@@ -269,7 +270,7 @@ func (d *Driver) prepareResourceClaim(
 
 	if !d.allocator.Available() {
 		klog.InfoS("No wayland sockets available (after lock)", "uid", uid)
-		return kubeletplugin.PrepareResult{Err: fmt.Errorf("no wayland sockets available")}
+		return kubeletplugin.PrepareResult{Err: errors.New("no wayland sockets available")}
 	}
 
 	req := wolfapi.LobbyCreateRequest{
@@ -306,7 +307,7 @@ func (d *Driver) prepareResourceClaim(
 	lobbyID := resp.LobbyID
 	if lobbyID == "" {
 		klog.ErrorS(nil, "CreateLobby returned empty lobby ID", "claimUID", uid)
-		return kubeletplugin.PrepareResult{Err: fmt.Errorf("create lobby returned empty ID")}
+		return kubeletplugin.PrepareResult{Err: errors.New("create lobby returned empty ID")}
 	}
 	klog.V(2).InfoS("Lobby created", "lobbyID", lobbyID, "claimUID", uid)
 
@@ -385,7 +386,7 @@ func (d *Driver) UnprepareResourceClaims(
 	return results, nil
 }
 
-func (d *Driver) HandleError(ctx context.Context, err error, msg string) {
+func (d *Driver) HandleError(_ context.Context, err error, msg string) {
 	klog.ErrorS(err, "DRA plugin error", "msg", msg)
 	if !errors.Is(err, kubeletplugin.ErrRecoverable) {
 		klog.ErrorS(err, "Fatal DRA plugin error, initiating shutdown")
@@ -416,7 +417,10 @@ func (d *Driver) snapshotSockets() map[int]time.Time {
 // discoverNewWaylandSocket looks for a wayland-N file that is either brand new
 // or has a ModTime newer than the snapshot taken before CreateLobby.
 // this will be removed in the future after wolf returns wayland socket information in the sse
-func (d *Driver) discoverNewWaylandSocket(ctx context.Context, before map[int]time.Time) (int, string, error) {
+func (d *Driver) discoverNewWaylandSocket(
+	ctx context.Context,
+	before map[int]time.Time,
+) (idx int, socketName string, err error) {
 	timeout := time.After(2 * time.Second)
 	tick := time.NewTicker(50 * time.Millisecond)
 	defer tick.Stop()
@@ -426,9 +430,9 @@ func (d *Driver) discoverNewWaylandSocket(ctx context.Context, before map[int]ti
 	for {
 		select {
 		case <-ctx.Done():
-			return 0, "", ctx.Err()
+			return 0, "", fmt.Errorf("context cancelled: %w", ctx.Err())
 		case <-timeout:
-			return 0, "", fmt.Errorf("timeout waiting for wayland socket")
+			return 0, "", errors.New("timeout waiting for wayland socket")
 		case <-tick.C:
 			entries, _ := os.ReadDir(d.socketsDir)
 			for _, e := range entries {
@@ -462,7 +466,6 @@ func (d *Driver) discoverNewWaylandSocket(ctx context.Context, before map[int]ti
 		}
 	}
 }
-
 func socketExists(dir, name string) bool {
 	info, err := os.Stat(filepath.Join(dir, name))
 	return err == nil && info.Mode()&os.ModeSocket != 0
