@@ -1,0 +1,62 @@
+# Direwolf operator or moonlight proxy will be responsible
+# for creating this resource claim
+# I'm not sure yet
+# however, this resource claim here is for testing the dra
+# users generally should not be using this directly
+# but the option is here
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  name: wayland-claim
+  namespace: direwolf-dev
+spec:
+  devices:
+    requests:
+    - name: wayland
+      exactly:
+        deviceClassName: default-wolf
+        # Since we're using consumable capcity,
+        # we need to specify the capacity or
+        # else it'll take the entire device
+        capacity:
+          requests:
+            slots: "1"
+    config:
+    - requests:
+      - wayland
+      opaque:
+        driver: wolf.dra.io
+        parameters:
+          # The parameters here are supposed to be a json object similar
+          # to the lobby creation request from wolf
+          video_settings:
+            width: 1280
+            height: 720
+            refresh_rate: 60
+            video_producer_buffer_caps: "video/x-raw(memory:DMABuf), drm-format={NV12,YV12,YU12,P012,YUYV,YU24,AB24,AR24,XB24,XR24}"
+          audio_settings:
+            channel_count: 2
+          client_settings:
+            h_scroll_acceleration: 1
+            mouse_acceleration: 1
+            run_gid: 1000
+            run_uid: 1000
+            v_scroll_acceleration: 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: wolf-consumer
+  namespace: direwolf-dev
+spec:
+  containers:
+  - name: app
+    image: busybox:latest
+    command: ["sh", "-c", "echo '--- ENV ---'; env | grep -E 'WAYLAND|GAMESCOPE|XDG|WOLF'; echo '--- MOUNTS ---'; cat /proc/self/mounts | grep wolf; sleep 3600"]
+    resources:
+      claims:
+      - name: wayland
+  resourceClaims:
+  - name: wayland
+    resourceClaimName: wayland-claim

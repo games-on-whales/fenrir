@@ -58,7 +58,7 @@ spec:
       serviceAccountName: wolf-dra
       volumes:
       - emptyDir: {}
-        name: wolf-cfg
+        name: wolf-sock
       - name: plugins-dir
         hostPath:
           path: /var/lib/kubelet/plugins
@@ -119,7 +119,7 @@ spec:
           value: /etc/wolf/server.key
         volumeMounts:
         - mountPath: /etc/wolf
-          name: wolf-cfg
+          name: wolf-sock
         - name: plugins-dir
           mountPath: /var/lib/kubelet/plugins
         - name: plugins-registry
@@ -150,7 +150,7 @@ spec:
         - name: sockets-dir
           mountPath: /var/run/wolf-sockets
         - mountPath: /etc/wolf
-          name: wolf-cfg
+          name: wolf-sock
         resources:
           limits:
             cpu: "2"
