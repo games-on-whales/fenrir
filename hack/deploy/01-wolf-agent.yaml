@@ -19,6 +19,9 @@ rules:
     resources: ["resourceclaims", "resourceclaimtemplates", "deviceclasses"]
     verbs: ["get", "list", "watch"]
   - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/status"]
+    verbs: ["patch", "update"]
+  - apiGroups: ["resource.k8s.io"]
     resources: ["deviceclasses"]
     verbs: ["get"]
   # Needed by kubeletplugin to read node info
@@ -38,6 +41,37 @@ subjects:
   - kind: ServiceAccount
     name: wolf-dra
     namespace: direwolf-dev
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wolf-agent
+  namespace: direwolf-dev
+  labels:
+    app: wolf-agent
+spec:
+  type: LoadBalancer
+  selector:
+    app: "wolf-agent-dev"
+  ports:
+    - name: https
+      protocol: TCP
+      port: 47984
+    - name: http
+      protocol: TCP
+      port: 47989
+    - name: rtsp
+      protocol: TCP
+      port: 48010
+    - name: control
+      protocol: UDP
+      port: 47999
+    - name: videortp
+      protocol: UDP
+      port: 48100
+    - name: audiortp
+      protocol: UDP
+      port: 48200
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -146,6 +180,10 @@ spec:
           value: UTC
         - name: WOLF_SOCKET_PATH
           value: /etc/wolf/wolf.sock
+        - name: WOLF_USE_RTSP_FAKE_IP
+          value: "TRUE"
+        - name: RTSP_FAKE_IP
+          value: "10.89.1.240"
         volumeMounts:
         - name: sockets-dir
           mountPath: /var/run/wolf-sockets
