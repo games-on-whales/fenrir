@@ -116,7 +116,7 @@ func main() {
 		klog.InfoS("Shutting down", "signal", s)
 		cancel(nil)
 	}()
-
+	go driver.RunClaimWatcher(ctx)
 	pluginDir := filepath.Join(kubeletplugin.KubeletPluginsDir, driverName)
 	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
 		klog.Fatal("Failed to create plugin directory: ", err)
