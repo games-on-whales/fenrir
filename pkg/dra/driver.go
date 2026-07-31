@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,8 +17,11 @@ import (
 
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
 
@@ -344,6 +348,11 @@ func (d *Driver) prepareResourceClaim(
 
 	klog.InfoS("Claim prepared", "claimUID", uid, "waylandIndex", idx, "cdi", cdiID)
 
+	// update status with the lobby id
+	if err := d.patchDeviceStatus(ctx, claim, lobbyID, []string{}); err != nil {
+		klog.ErrorS(err, "Failed to patch claim device status", "claimUID", uid)
+	}
+
 	return kubeletplugin.PrepareResult{
 		Devices: []kubeletplugin.Device{
 			{
@@ -483,4 +492,264 @@ func getDeviceClassName(claim *resourceapi.ResourceClaim) string {
 		}
 	}
 	return ""
+}
+
+// deviceStatusData is the shape we store in status.devices[].data.
+type deviceStatusData struct {
+	LobbyID    string   `json:"lobby_id"`
+	SessionIDs []string `json:"session_ids"`
+}
+
+// findOurAllocation returns this driver's allocation result, if any.
+func (d *Driver) findOurAllocation(claim *resourceapi.ResourceClaim) *resourceapi.DeviceRequestAllocationResult {
+	if claim.Status.Allocation == nil {
+		return nil
+	}
+	for i := range claim.Status.Allocation.Devices.Results {
+		if r := &claim.Status.Allocation.Devices.Results[i]; r.Driver == d.driverName {
+			return r
+		}
+	}
+	return nil
+}
+
+// extractDriverData returns this driver's status.data, if present and valid.
+func (d *Driver) extractDriverData(claim *resourceapi.ResourceClaim) *deviceStatusData {
+	for i := range claim.Status.Devices {
+		dev := &claim.Status.Devices[i]
+		if dev.Driver != d.driverName || dev.Data == nil || len(dev.Data.Raw) == 0 {
+			continue
+		}
+		var dd deviceStatusData
+		if err := json.Unmarshal(dev.Data.Raw, &dd); err != nil {
+			klog.V(2).ErrorS(err, "Failed to unmarshal device status data", "claim", claim.Name)
+			return nil
+		}
+		return &dd
+	}
+	return nil
+}
+
+// patchDeviceStatus updates status.devices with driver-specific data.
+func (d *Driver) patchDeviceStatus(
+	ctx context.Context,
+	claim *resourceapi.ResourceClaim,
+	lobbyID string,
+	sessionIDs []string,
+) error {
+	r := d.findOurAllocation(claim)
+	if r == nil {
+		return nil
+	}
+
+	raw, err := json.Marshal(deviceStatusData{
+		LobbyID:    lobbyID,
+		SessionIDs: sessionIDs,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal device status data: %w", err)
+	}
+
+	status := resourceapi.AllocatedDeviceStatus{
+		Driver: r.Driver,
+		Pool:   r.Pool,
+		Device: r.Device,
+		Data:   &runtime.RawExtension{Raw: raw},
+	}
+	if r.ShareID != nil {
+		s := string(*r.ShareID)
+		status.ShareID = &s
+	}
+
+	patch := struct {
+		Status struct {
+			Devices []resourceapi.AllocatedDeviceStatus `json:"devices"`
+		} `json:"status"`
+	}{
+		Status: struct {
+			Devices []resourceapi.AllocatedDeviceStatus `json:"devices"`
+		}{
+			Devices: []resourceapi.AllocatedDeviceStatus{status},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal patch: %w", err)
+	}
+
+	_, err = d.kubeClient.ResourceV1().ResourceClaims(claim.Namespace).Patch(
+		ctx, claim.Name, types.MergePatchType, patchBytes,
+		metav1.PatchOptions{}, "status",
+	)
+	if err != nil {
+		return fmt.Errorf("failed to patch lobby id into resourceClaim status: %w", err)
+	}
+	return nil
+}
+
+// RunClaimWatcher starts a background informer that reacts to session list
+// changes in ResourceClaim status.devices[].data.
+func (d *Driver) RunClaimWatcher(ctx context.Context) {
+	lw := &cache.ListWatch{
+		ListFunc: func(opts metav1.ListOptions) (runtime.Object, error) {
+			return d.kubeClient.ResourceV1().ResourceClaims(metav1.NamespaceAll).List(ctx, opts)
+		},
+		WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
+			return d.kubeClient.ResourceV1().ResourceClaims(metav1.NamespaceAll).Watch(ctx, opts)
+		},
+	}
+
+	// Set resync to 0: we only want to trigger on actual API updates, no point in periodic resyncs.
+	informer := cache.NewSharedInformer(lw, &resourceapi.ResourceClaim{}, 0)
+	_, err := informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		UpdateFunc: func(oldObj, newObj any) {
+			go d.handleClaimUpdate(ctx, oldObj, newObj)
+		},
+	})
+	if err != nil {
+		klog.Errorf("failed to add event handler: %v", err)
+		return
+	}
+
+	klog.InfoS("Starting ResourceClaim session watcher")
+	informer.Run(ctx.Done())
+}
+
+func (d *Driver) handleClaimUpdate(ctx context.Context, oldObj, newObj any) {
+	newClaim, ok := newObj.(*resourceapi.ResourceClaim)
+	if !ok {
+		klog.Errorf("expected *resourceapi.ResourceClaim, got %T", newObj)
+		return
+	}
+	// Fast path: instantly ignore claims this driver instance hasn't prepared.
+	if _, ok := d.state.Get(string(newClaim.UID)); !ok {
+		return
+	}
+
+	newData := d.extractDriverData(newClaim)
+	if newData == nil || newData.LobbyID == "" {
+		return
+	}
+
+	oldClaim, ok := oldObj.(*resourceapi.ResourceClaim)
+	if !ok {
+		klog.Errorf("expected *resourceapi.ResourceClaim, got %T", oldObj)
+		return
+	}
+
+	var oldSessions []string
+	if oldData := d.extractDriverData(oldClaim); oldData != nil {
+		oldSessions = oldData.SessionIDs
+	}
+
+	d.syncSessions(ctx, newClaim, newData.LobbyID, oldSessions, newData.SessionIDs)
+}
+
+func sliceToSet(ss []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(ss))
+	for _, s := range ss {
+		out[s] = struct{}{}
+	}
+	return out
+}
+
+// syncSessions reconciles Wolf lobby membership with a desired session list.
+// It validates each session ID against Wolf's active sessions (via ListSessions),
+// prevents duplicate joins by using the claim's status diff, and removes
+// failed, unavailable, or duplicate session IDs from the ResourceClaim status.
+func (d *Driver) syncSessions(
+	ctx context.Context,
+	claim *resourceapi.ResourceClaim,
+	lobbyID string,
+	oldSessions, newSessions []string,
+) {
+	// Fetch all available sessions from Wolf
+	wolfSessions, err := d.wolfClient.ListSessions(ctx)
+	if err != nil {
+		klog.Warningf("ListSessions failed, skipping sync: %v", err)
+		return
+	}
+
+	// Build a set of valid session client IDs.
+	// In Wolf, the ClientID is the Moonlight session ID.
+	availableSet := make(map[string]struct{}, len(wolfSessions))
+	for _, s := range wolfSessions {
+		if s.ClientID != "" {
+			availableSet[s.ClientID] = struct{}{}
+		}
+	}
+
+	// Use sets to deduplicate and easily diff old vs new
+	oldSet := sliceToSet(oldSessions)
+	newSet := sliceToSet(newSessions)
+
+	// Track whether the session list in the claim needs to be patched.
+	// This happens if there were duplicates in the new sessions, or if
+	// some sessions were unavailable or failed to join.
+	needsPatch := len(newSet) != len(newSessions)
+
+	validNewSessions := make([]string, 0, len(newSet))
+
+	// Process desired sessions: join newly added ones
+	for sid := range newSet {
+		// Validate the session exists in Wolf's active session list.
+		if _, available := availableSet[sid]; !available {
+			klog.Warningf("Session %s not found in available sessions, removing from claim", sid)
+			needsPatch = true
+			// If it was previously joined, attempt to leave the lobby.
+			if _, wasInOld := oldSet[sid]; wasInOld {
+				if err := d.wolfClient.LeaveLobby(ctx, wolfapi.LeaveLobbyRequest{
+					LobbyID:            lobbyID,
+					MoonlightSessionID: sid,
+				}); err != nil {
+					klog.Warningf("LeaveLobby failed for unavailable session: lobby=%s session=%s err=%v",
+						lobbyID, sid, err)
+				} else {
+					klog.V(2).Infof("Session %s left lobby %s (unavailable)", sid, lobbyID)
+				}
+			}
+			continue
+		}
+
+		// Only attempt to join sessions that are newly added.
+		// This prevents duplicate joins since we rely on the claim's status diff.
+		if _, wasInOld := oldSet[sid]; !wasInOld {
+			if err := d.wolfClient.JoinLobby(ctx, wolfapi.JoinLobbyRequest{
+				LobbyID:            lobbyID,
+				MoonlightSessionID: sid,
+			}); err != nil {
+				klog.Warningf("JoinLobby failed: lobby=%s session=%s err=%v", lobbyID, sid, err)
+				needsPatch = true
+				continue // Don't add to validNewSessions since it failed to join
+			}
+			klog.V(2).Infof("Session %s joined lobby %s", sid, lobbyID)
+		}
+
+		validNewSessions = append(validNewSessions, sid)
+	}
+
+	// Process removed sessions: leave the lobby
+	for sid := range oldSet {
+		if _, stillInNew := newSet[sid]; stillInNew {
+			continue
+		}
+		if err := d.wolfClient.LeaveLobby(ctx, wolfapi.LeaveLobbyRequest{
+			LobbyID:            lobbyID,
+			MoonlightSessionID: sid,
+		}); err != nil {
+			klog.Warningf("LeaveLobby failed: lobby=%s session=%s err=%v", lobbyID, sid, err)
+		} else {
+			klog.V(2).Infof("Session %s left lobby %s", sid, lobbyID)
+		}
+	}
+
+	// If we found duplicates, unavailable sessions, or failed joins,
+	// patch the claim to reflect the actual valid session list.
+	if needsPatch {
+		sort.Strings(validNewSessions)
+		klog.Infof("Patching claim %s to update session_ids: %v", claim.UID, validNewSessions)
+		if err := d.patchDeviceStatus(ctx, claim, lobbyID, validNewSessions); err != nil {
+			klog.Warningf("Failed to patch claim after filtering sessions: %v", err)
+		}
+	}
 }
