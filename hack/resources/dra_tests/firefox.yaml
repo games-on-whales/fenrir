@@ -8,7 +8,7 @@
 apiVersion: resource.k8s.io/v1
 kind: ResourceClaim
 metadata:
-  name: firefox-wayland-claim
+  name: firefox-lobby-claim
   namespace: direwolf-dev
 spec:
   devices:
@@ -63,7 +63,7 @@ spec:
         value: "1"
     resources:
       claims:
-      - name: wayland
+      - name: lobby
       limits:
         devic.es/gpu: "1"
         cpu: 2
@@ -73,5 +73,5 @@ spec:
         cpu: 2
         memory: 4G
   resourceClaims:
-  - name: wayland
-    resourceClaimName: firefox-wayland-claim
+  - name: lobby
+    resourceClaimName: firefox-lobby-claim
