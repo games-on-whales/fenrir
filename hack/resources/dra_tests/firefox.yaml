@@ -13,7 +13,7 @@ metadata:
 spec:
   devices:
     requests:
-    - name: wayland
+    - name: lobby
       exactly:
         deviceClassName: default-wolf
         # Since we're using consumable capcity,
@@ -24,7 +24,7 @@ spec:
             slots: "1"
     config:
     - requests:
-      - wayland
+      - lobby
       opaque:
         driver: wolf.dra.io
         parameters:

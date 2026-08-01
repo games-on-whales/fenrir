@@ -38,8 +38,8 @@ func main() {
 	socketsDir := getEnv("SOCKETS_DIR", "/var/run/wolf-sockets")
 	wolfSockPath := getEnv("WOLF_SOCKET_PATH", "/var/run/wolf.sock")
 	cdiDir := getEnv("CDI_DIR", "/var/run/cdi")
-	maxWayland := getEnvInt("MAX_WAYLAND_SOCKETS", 10)
-	// maximum time to wait for wayland sock creation
+	maxLobbies := getEnvInt("MAX_LOBBIES", 10)
+	// maximum time to wait for lobby creation
 	queueTimeoutSec := getEnvInt("QUEUE_TIMEOUT_SECONDS", 30)
 	enableSSE := getEnv("WOLF_DRA_ENABLE_SSE", "false") == "true"
 
@@ -62,7 +62,7 @@ func main() {
 		"socketsDir", socketsDir,
 		"wolfSockPath", wolfSockPath,
 		"cdiDir", cdiDir,
-		"maxWaylandSockets", maxWayland,
+		"maxLobbies", maxLobbies,
 		"queueTimeout", queueTimeoutSec,
 		"enableSSE", enableSSE,
 		"logLevel", logLevel,
@@ -90,7 +90,7 @@ func main() {
 	queueTimeout := time.Duration(queueTimeoutSec) * time.Second
 	driver, err := dra.NewDriver(
 		driverName, nodeName, socketsDir, wolfSockPath, cdiDir,
-		maxWayland, queueTimeout, nil, cs,
+		maxLobbies, queueTimeout, nil, cs,
 	)
 	if err != nil {
 		klog.Fatal("Failed to create driver: ", err)
@@ -145,13 +145,13 @@ func main() {
 					{
 						Devices: []resourceapi.Device{
 							{
-								Name:                     "wayland-pool",
+								Name:                     "lobby-pool",
 								AllowMultipleAllocations: new(true),
 								Capacity: map[resourceapi.QualifiedName]resourceapi.DeviceCapacity{
-									"slots": {Value: resource.MustParse(strconv.Itoa(maxWayland))},
+									"slots": {Value: resource.MustParse(strconv.Itoa(maxLobbies))},
 								},
 								Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-									"wayland.dra.io/type": {StringValue: new("wayland")},
+									"wolf.dra.io/type": {StringValue: new("lobby")},
 								},
 							},
 						},
@@ -164,7 +164,7 @@ func main() {
 	if err := helper.PublishResources(ctx, driverResources); err != nil {
 		klog.Fatal("Failed to publish resources: ", err)
 	}
-	klog.InfoS("Published wayland pool", "slots", maxWayland)
+	klog.InfoS("Published lobby pool", "slots", maxLobbies)
 
 	if enableSSE {
 		go runSSE(ctx, wolfSockPath)

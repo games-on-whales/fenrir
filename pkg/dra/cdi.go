@@ -56,12 +56,12 @@ func NewCDIGenerator(driverName, cdiDir, socketsDir string) *CDIGenerator {
 // DeviceID returns the CDI device ID for a claim. It is deterministic and
 // based solely on the claim UID, so it is stable across re-preparations.
 func (g *CDIGenerator) DeviceID(claimUID string) string {
-	return fmt.Sprintf("%s/wayland=wayland-claim-%s", g.driverName, claimUID)
+	return fmt.Sprintf("%s/lobby=lobby-claim-%s", g.driverName, claimUID)
 }
 
-// GenerateWaylandCDI creates a CDI device for a specific wayland-N socket.
+// GenerateLobbyCDI creates a CDI device for a specific wayland-N socket.
 // extraEnv are extra driver specific env vars merged on top of the standard env vars.
-func (g *CDIGenerator) GenerateWaylandCDI(
+func (g *CDIGenerator) GenerateLobbyCDI(
 	claimUID string,
 	idx int,
 	lobbyID string,
@@ -75,7 +75,7 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 
 	waylandSockFile := fmt.Sprintf("wayland-%d", idx)
 
-	devName := "wayland-claim-" + claimUID
+	devName := "lobby-claim-" + claimUID
 
 	env := []string{
 		// UID and PGID can be handled by app spec?
@@ -99,7 +99,7 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 
 	spec := cdiSpec{
 		CDIVersion: cdiVersion,
-		Kind:       g.driverName + "/wayland",
+		Kind:       g.driverName + "/lobby",
 		Devices: []cdiDevice{
 			{
 				Name: devName,
@@ -142,7 +142,7 @@ func (g *CDIGenerator) GenerateWaylandCDI(
 func (g *CDIGenerator) DeleteCDISpecs(claimUID string) error {
 	waylandFile := fmt.Sprintf("%s-wayland-%s.json", sanitize(g.driverName), claimUID)
 	if err := os.Remove(filepath.Join(g.cdiDir, waylandFile)); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove wayland CDI: %w", err)
+		return fmt.Errorf("remove lobby CDI: %w", err)
 	}
 	// PulseAudio CDI will be added here later.
 	return nil
