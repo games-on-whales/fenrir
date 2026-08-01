@@ -15,7 +15,7 @@ import (
 type WolfDriverConfig struct {
 	SocketsDir          string            `json:"socketsDir,omitempty"`
 	WolfSocketPath      string            `json:"wolfSocketPath,omitempty"`
-	MaxWaylandSockets   int               `json:"maxWaylandSockets,omitempty"`
+	MaxLobbies          int               `json:"maxLobbies,omitempty"`
 	QueueTimeoutSeconds int               `json:"queueTimeoutSeconds,omitempty"`
 	ExtraEnv            map[string]string `json:"extraEnv,omitempty"`
 }
@@ -27,8 +27,8 @@ func (c *WolfDriverConfig) Defaults() *WolfDriverConfig {
 	if c.WolfSocketPath == "" {
 		c.WolfSocketPath = "/var/run/wolf.sock"
 	}
-	if c.MaxWaylandSockets == 0 {
-		c.MaxWaylandSockets = 10
+	if c.MaxLobbies == 0 {
+		c.MaxLobbies = 10
 	}
 	if c.QueueTimeoutSeconds == 0 {
 		c.QueueTimeoutSeconds = 30

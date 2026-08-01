@@ -127,10 +127,10 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 			}
 
 			dev := spec.Devices[0]
-			if !strings.HasPrefix(dev.Name, "wayland-claim-") {
+			if !strings.HasPrefix(dev.Name, "lobby-claim-") {
 				continue
 			}
-			claimUID := strings.TrimPrefix(dev.Name, "wayland-claim-")
+			claimUID := strings.TrimPrefix(dev.Name, "lobby-claim-")
 
 			var lobbyID string
 			var waylandDisplay string
@@ -234,7 +234,7 @@ func (d *Driver) prepareResourceClaim(
 				Devices: []kubeletplugin.Device{
 					{
 						PoolName:     d.nodeName,
-						DeviceName:   "wayland-pool",
+						DeviceName:   "lobby-pool",
 						CDIDeviceIDs: []string{d.cdiGen.DeviceID(uidStr)},
 					},
 				},
@@ -337,7 +337,7 @@ func (d *Driver) prepareResourceClaim(
 		CreatedAt:         time.Now(),
 	})
 
-	cdiID, err := d.cdiGen.GenerateWaylandCDI(uidStr, idx, lobbyID, params.VideoSettings, d.extraEnv)
+	cdiID, err := d.cdiGen.GenerateLobbyCDI(uidStr, idx, lobbyID, params.VideoSettings, d.extraEnv)
 	if err != nil {
 		klog.ErrorS(err, "CDI generation failed", "claimUID", uid)
 		_ = d.wolfClient.StopLobby(ctx, wolfapi.StopLobbyRequest{LobbyID: lobbyID})
@@ -357,7 +357,7 @@ func (d *Driver) prepareResourceClaim(
 		Devices: []kubeletplugin.Device{
 			{
 				PoolName:     d.nodeName,
-				DeviceName:   "wayland-pool",
+				DeviceName:   "lobby-pool",
 				CDIDeviceIDs: []string{cdiID},
 			},
 		},
@@ -714,6 +714,9 @@ func (d *Driver) syncSessions(
 		// Only attempt to join sessions that are newly added.
 		// This prevents duplicate joins since we rely on the claim's status diff.
 		if _, wasInOld := oldSet[sid]; !wasInOld {
+			// Not sure if I should put a retry here or not
+			// In case the session is not ready or haven't been created
+			// This is to be handled during the operator updates alongside session stuff
 			if err := d.wolfClient.JoinLobby(ctx, wolfapi.JoinLobbyRequest{
 				LobbyID:            lobbyID,
 				MoonlightSessionID: sid,
