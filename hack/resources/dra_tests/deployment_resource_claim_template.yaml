@@ -7,13 +7,13 @@
 apiVersion: resource.k8s.io/v1
 kind: ResourceClaimTemplate
 metadata:
-  name: wayland-claim-template
+  name: lobby-claim-template
   namespace: direwolf-dev
 spec:
   spec:
     devices:
       requests:
-      - name: wayland
+      - name: lobby
         exactly:
           deviceClassName: default-wolf
           capacity:
@@ -21,9 +21,9 @@ spec:
               slots: "1"
       config:
       - requests:
-        - wayland
+        - lobby
         opaque:
-          driver: wayland.dra.io
+          driver: wolf.dra.io
           # The parameters here are supposed to be a json object similar
           # to the lobby creation request from wolf
           parameters:
@@ -57,7 +57,7 @@ spec:
         command: ["sh", "-c", "echo '--- ENV ---'; env | grep -E 'WAYLAND|GAMESCOPE|XDG|WOLF'; echo '--- MOUNTS ---'; cat /proc/self/mounts | grep wolf; sleep 3600"]
         resources:
           claims:
-          - name: wayland
+          - name: lobby
       resourceClaims:
-      - name: wayland
-        resourceClaimTemplateName: wayland-claim-template
+      - name: lobby
+        resourceClaimTemplateName: lobby-claim-template
