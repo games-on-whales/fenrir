@@ -109,6 +109,14 @@ spec:
         hostPath:
           path: /var/run/cdi
           type: DirectoryOrCreate
+      - name: wolf-cfg
+        configMap:
+          name: wolf-cfg
+          defaultMode: 0755
+      - name: direwolf-certs
+        configMap:
+          name: direwolf-certs
+          defaultMode: 0600
       containers:
       # TODO change this to wolf-dra once development is underway 
       - image: wolf-agent-dev
@@ -148,9 +156,9 @@ spec:
         - name: WOLF_DRA_ENABLE_SSE
           value: "false"
         - name: TLS_CERT
-          value: /etc/wolf/server.crt
+          value: /etc/wolf/cfg/server.crt
         - name: TLS_KEY
-          value: /etc/wolf/server.key
+          value: /etc/wolf/cfg/server.key
         volumeMounts:
         - mountPath: /etc/wolf
           name: wolf-sock
@@ -162,6 +170,14 @@ spec:
           mountPath: /var/run/wolf-sockets
         - name: cdi-dir
           mountPath: /var/run/cdi
+        - name: direwolf-certs
+          mountPath: /etc/wolf/cfg/server.crt
+          subPath: server.crt
+          readOnly: true
+        - name: direwolf-certs
+          mountPath: /etc/wolf/cfg/server.key
+          subPath: server.key
+          readOnly: true
       ## The stable image as of time of this commit
       - image: ghcr.io/games-on-whales/wolf:sha-d6d41de
         name: wolf
@@ -189,6 +205,18 @@ spec:
           mountPath: /var/run/wolf-sockets
         - mountPath: /etc/wolf
           name: wolf-sock
+        - name: wolf-cfg
+          mountPath: /etc/wolf/cfg/config.toml
+          subPath: config.toml
+          readOnly: false
+        - name: direwolf-certs
+          mountPath: /etc/wolf/cfg/server.crt
+          subPath: server.crt
+          readOnly: true
+        - name: direwolf-certs
+          mountPath: /etc/wolf/cfg/server.key
+          subPath: server.key
+          readOnly: true
         resources:
           limits:
             cpu: "2"
