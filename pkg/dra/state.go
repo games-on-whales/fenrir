@@ -9,6 +9,7 @@ import (
 type WolfResourceState struct {
 	ClaimUID          string
 	LobbyID           string
+	LobbyName         string
 	WaylandIndex      int
 	WaylandSocketName string
 	// PulseSinkName     string // TODO PulseAudio
