@@ -276,10 +276,21 @@ func (d *Driver) prepareResourceClaim(
 		klog.InfoS("No wayland sockets available (after lock)", "uid", uid)
 		return kubeletplugin.PrepareResult{Err: errors.New("no wayland sockets available")}
 	}
-
+	podName := ""
+	for _, ref := range claim.Status.ReservedFor {
+		if ref.Resource == "pods" {
+			podName = ref.Name
+			break
+		}
+	}
+	if podName == "" {
+		klog.Warningf("Claim %s/%s has no pod reservation yet, using claim name as fallback", claim.Namespace, claim.Name)
+		podName = claim.Name
+	}
+	lobbyName := fmt.Sprintf("%s-%s", claim.Namespace, podName)
 	req := wolfapi.LobbyCreateRequest{
 		ProfileID:              "default",
-		Name:                   fmt.Sprintf("%s%s", lobbyNamePrefix, uidStr),
+		Name:                   lobbyName,
 		StopWhenEveryoneLeaves: false,
 		ClientSettings:         params.ClientSettings,
 		// TODO: implement later
@@ -332,6 +343,7 @@ func (d *Driver) prepareResourceClaim(
 	d.state.Set(uidStr, &WolfResourceState{
 		ClaimUID:          uidStr,
 		LobbyID:           lobbyID,
+		LobbyName:         lobbyName,
 		WaylandIndex:      idx,
 		WaylandSocketName: sockName,
 		CreatedAt:         time.Now(),
