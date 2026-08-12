@@ -34,12 +34,12 @@ type Session struct {
 type ClientSettings struct {
 	ControllersOverride []string `json:"controllers_override"`
 	// TODO: Float is a lossy type. Consider using decimal?
-	HScrollAcceleration float64 `json:"h_scroll_acceleration"`
-	MouseAcceleration   float64 `json:"mouse_acceleration"`
-	RunGID              int     `json:"run_gid"`
-	RunUID              int     `json:"run_uid"`
-	VScrollAcceleration float64 `json:"v_scroll_acceleration"`
-	// MotionControllerOverride ControllerType `motion_controller_override`
+	HScrollAcceleration      float64 `json:"h_scroll_acceleration"`
+	MouseAcceleration        float64 `json:"mouse_acceleration"`
+	RunGID                   int     `json:"run_gid"`
+	RunUID                   int     `json:"run_uid"`
+	VScrollAcceleration      float64 `json:"v_scroll_acceleration"`
+	MotionControllerOverride string  `json:"motion_controller_override,omitempty"`
 }
 
 type StopSessionRequest struct {
