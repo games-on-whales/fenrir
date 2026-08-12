@@ -1,6 +1,7 @@
 package dra
 
 import (
+	"maps"
 	"sync"
 )
 
@@ -74,9 +75,5 @@ func (a *Allocator) Max() int {
 func (a *Allocator) Used() map[int]struct{} {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	out := make(map[int]struct{}, len(a.used))
-	for k := range a.used {
-		out[k] = struct{}{}
-	}
-	return out
+	return maps.Clone(a.used)
 }

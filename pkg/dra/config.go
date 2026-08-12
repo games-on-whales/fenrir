@@ -1,6 +1,7 @@
 package dra
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,18 +22,10 @@ type WolfDriverConfig struct {
 }
 
 func (c *WolfDriverConfig) Defaults() *WolfDriverConfig {
-	if c.SocketsDir == "" {
-		c.SocketsDir = "/var/run/wolf-sockets"
-	}
-	if c.WolfSocketPath == "" {
-		c.WolfSocketPath = "/var/run/wolf.sock"
-	}
-	if c.MaxLobbies == 0 {
-		c.MaxLobbies = 10
-	}
-	if c.QueueTimeoutSeconds == 0 {
-		c.QueueTimeoutSeconds = 30
-	}
+	c.SocketsDir = cmp.Or(c.SocketsDir, "/var/run/wolf-sockets")
+	c.WolfSocketPath = cmp.Or(c.WolfSocketPath, "/var/run/wolf.sock")
+	c.MaxLobbies = cmp.Or(c.MaxLobbies, 10)
+	c.QueueTimeoutSeconds = cmp.Or(c.QueueTimeoutSeconds, 30)
 	return c
 }
 
@@ -43,6 +36,9 @@ type ClaimParams struct {
 	VideoSettings  wolfapi.LobbyVideoSettings `json:"video_settings"`
 	AudioSettings  wolfapi.LobbyAudioSettings `json:"audio_settings"`
 	ClientSettings wolfapi.ClientSettings     `json:"client_settings"`
+	PinRequired    bool                       `json:"pin_required,omitempty"`
+	Pin            []int                      `json:"pin,omitempty"`
+	MultiUser      bool                       `json:"multi_user,omitempty"`
 }
 
 // ParseClaimParams extracts video/audio settings (should it include more?) from the claim's
@@ -103,7 +99,7 @@ func ParseClaimParams(claim *resourceapi.ResourceClaim, class *resourceapi.Devic
 			params.VideoSettings.WaylandRenderNode = ""
 		}
 	}
-	// do i need to set this?
+	// This is Acquired from the DeviceClass
 	if params.VideoSettings.RunnerRenderNode != "" {
 		if _, err := os.Stat(params.VideoSettings.RunnerRenderNode); err != nil {
 			klog.Warningf("RunnerRenderNode %q does not exist, falling back to default", params.VideoSettings.RunnerRenderNode)
@@ -130,80 +126,32 @@ func ParseClaimParams(claim *resourceapi.ResourceClaim, class *resourceapi.Devic
 func mergeClaimParams(base, override *ClaimParams) {
 	klog.Infof("resource class params: %v", base)
 	klog.Infof("device class params: %v", override)
-	if override.VideoSettings.Width != 0 {
-		base.VideoSettings.Width = override.VideoSettings.Width
-	}
-	if override.VideoSettings.Height != 0 {
-		base.VideoSettings.Height = override.VideoSettings.Height
-	}
-	if override.VideoSettings.RefreshRate != 0 {
-		base.VideoSettings.RefreshRate = override.VideoSettings.RefreshRate
-	}
-	if override.VideoSettings.WaylandRenderNode != "" {
-		base.VideoSettings.WaylandRenderNode = override.VideoSettings.WaylandRenderNode
-	}
-	if override.VideoSettings.RunnerRenderNode != "" {
-		base.VideoSettings.RunnerRenderNode = override.VideoSettings.RunnerRenderNode
-	}
-	if override.VideoSettings.VideoProducerBufferCaps != "" {
-		base.VideoSettings.VideoProducerBufferCaps = override.VideoSettings.VideoProducerBufferCaps
-	}
-	if override.AudioSettings.ChannelCount != 0 {
-		base.AudioSettings.ChannelCount = override.AudioSettings.ChannelCount
-	}
-	if override.ClientSettings.HScrollAcceleration != 0 {
-		base.ClientSettings.HScrollAcceleration = override.ClientSettings.HScrollAcceleration
-	}
-	if override.ClientSettings.MouseAcceleration != 0 {
-		base.ClientSettings.MouseAcceleration = override.ClientSettings.MouseAcceleration
-	}
-	if override.ClientSettings.RunGID != 0 {
-		base.ClientSettings.RunGID = override.ClientSettings.RunGID
-	}
-	if override.ClientSettings.RunUID != 0 {
-		base.ClientSettings.RunUID = override.ClientSettings.RunUID
-	}
-	if override.ClientSettings.VScrollAcceleration != 0 {
-		base.ClientSettings.VScrollAcceleration = override.ClientSettings.VScrollAcceleration
-	}
+	// applyDefaults fills in sensible defaults for any missing fields.
+	base.VideoSettings.Width = cmp.Or(override.VideoSettings.Width, base.VideoSettings.Width)
+	base.VideoSettings.Height = cmp.Or(override.VideoSettings.Height, base.VideoSettings.Height)
+	base.VideoSettings.RefreshRate = cmp.Or(override.VideoSettings.RefreshRate, base.VideoSettings.RefreshRate)
+	base.VideoSettings.WaylandRenderNode = cmp.Or(override.VideoSettings.WaylandRenderNode, base.VideoSettings.WaylandRenderNode)
+	base.VideoSettings.RunnerRenderNode = cmp.Or(override.VideoSettings.RunnerRenderNode, base.VideoSettings.RunnerRenderNode)
+	base.VideoSettings.VideoProducerBufferCaps = cmp.Or(override.VideoSettings.VideoProducerBufferCaps, base.VideoSettings.VideoProducerBufferCaps)
+	base.AudioSettings.ChannelCount = cmp.Or(override.AudioSettings.ChannelCount, base.AudioSettings.ChannelCount)
+	base.ClientSettings.HScrollAcceleration = cmp.Or(override.ClientSettings.HScrollAcceleration, base.ClientSettings.HScrollAcceleration)
+	base.ClientSettings.MouseAcceleration = cmp.Or(override.ClientSettings.MouseAcceleration, base.ClientSettings.MouseAcceleration)
+	base.ClientSettings.RunGID = cmp.Or(override.ClientSettings.RunGID, base.ClientSettings.RunGID)
+	base.ClientSettings.RunUID = cmp.Or(override.ClientSettings.RunUID, base.ClientSettings.RunUID)
+	base.ClientSettings.VScrollAcceleration = cmp.Or(override.ClientSettings.VScrollAcceleration, base.ClientSettings.VScrollAcceleration)
 }
 
-// applyDefaults fills in sensible defaults for any missing fields.
 func (p *ClaimParams) applyDefaults() {
-	if p.VideoSettings.Width == 0 {
-		p.VideoSettings.Width = 1920
-	}
-	if p.VideoSettings.Height == 0 {
-		p.VideoSettings.Height = 1080
-	}
-	if p.VideoSettings.RefreshRate == 0 {
-		p.VideoSettings.RefreshRate = 60
-	}
-	if p.VideoSettings.WaylandRenderNode == "" {
-		p.VideoSettings.WaylandRenderNode = "/dev/dri/renderD128"
-	}
-	if p.VideoSettings.RunnerRenderNode == "" {
-		p.VideoSettings.RunnerRenderNode = "/dev/dri/renderD128"
-	}
-	if p.VideoSettings.VideoProducerBufferCaps == "" {
-		p.VideoSettings.VideoProducerBufferCaps = "video/x-raw(memory:DMABuf), drm-format={NV12,YV12,YU12,P012,YUYV,YU24,AB24,AR24,XB24,XR24}"
-	}
-	if p.AudioSettings.ChannelCount == 0 {
-		p.AudioSettings.ChannelCount = 2
-	}
-	if p.ClientSettings.HScrollAcceleration == 0 {
-		p.ClientSettings.HScrollAcceleration = 1
-	}
-	if p.ClientSettings.MouseAcceleration == 0 {
-		p.ClientSettings.MouseAcceleration = 1
-	}
-	if p.ClientSettings.RunGID == 0 {
-		p.ClientSettings.RunGID = 1000
-	}
-	if p.ClientSettings.RunUID == 0 {
-		p.ClientSettings.RunUID = 1000
-	}
-	if p.ClientSettings.VScrollAcceleration == 0 {
-		p.ClientSettings.VScrollAcceleration = 1
-	}
+	p.VideoSettings.Width = cmp.Or(p.VideoSettings.Width, 1920)
+	p.VideoSettings.Height = cmp.Or(p.VideoSettings.Height, 1080)
+	p.VideoSettings.RefreshRate = cmp.Or(p.VideoSettings.RefreshRate, 60)
+	p.VideoSettings.WaylandRenderNode = cmp.Or(p.VideoSettings.WaylandRenderNode, "/dev/dri/renderD128")
+	p.VideoSettings.RunnerRenderNode = cmp.Or(p.VideoSettings.RunnerRenderNode, "/dev/dri/renderD128")
+	p.VideoSettings.VideoProducerBufferCaps = cmp.Or(p.VideoSettings.VideoProducerBufferCaps, "video/x-raw(memory:DMABuf), drm-format={NV12,YV12,YU12,P012,YUYV,YU24,AB24,AR24,XB24,XR24}")
+	p.AudioSettings.ChannelCount = cmp.Or(p.AudioSettings.ChannelCount, 2)
+	p.ClientSettings.HScrollAcceleration = cmp.Or(p.ClientSettings.HScrollAcceleration, 1)
+	p.ClientSettings.MouseAcceleration = cmp.Or(p.ClientSettings.MouseAcceleration, 1)
+	p.ClientSettings.RunGID = cmp.Or(p.ClientSettings.RunGID, 1000)
+	p.ClientSettings.RunUID = cmp.Or(p.ClientSettings.RunUID, 1000)
+	p.ClientSettings.VScrollAcceleration = cmp.Or(p.ClientSettings.VScrollAcceleration, 1)
 }

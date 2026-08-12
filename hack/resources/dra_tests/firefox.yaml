@@ -30,6 +30,7 @@ spec:
         parameters:
           # The parameters here are supposed to be a json object similar
           # to the lobby creation request from wolf
+          multi_user: true
           video_settings:
             width: 1920
             height: 1080
@@ -47,6 +48,8 @@ spec:
 apiVersion: v1
 kind: Pod
 metadata:
+  # This translates to a lobby named: direwolf-dev-firefox in wolf
+  # basically <namespace name>-<pod name> in case we make fenrir multi namespace
   name: firefox
   namespace: direwolf-dev
 spec:

@@ -91,7 +91,6 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 		"XDG_RUNTIME_DIR=" + xdgRuntimeDir,
 		"WOLF_SESSION_ID=" + lobbyID,
 		"WOLF_VIDEO_BUFFER_CAPS=" + video.VideoProducerBufferCaps,
-		// TODO pulse audio sinks
 	}
 	for k, v := range extraEnv {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
@@ -128,7 +127,7 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 		return "", fmt.Errorf("marshal CDI spec: %w", err)
 	}
 
-	fileName := fmt.Sprintf("%s-wayland-%s.json", sanitize(g.driverName), claimUID)
+	fileName := fmt.Sprintf("%s-lobby-%s.json", sanitize(g.driverName), claimUID)
 	filePath := filepath.Join(g.cdiDir, fileName)
 	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		return "", fmt.Errorf("write CDI spec: %w", err)
@@ -140,8 +139,8 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 // DeleteCDISpecs removes all CDI files for a claim.
 // a missing file is not an error.
 func (g *CDIGenerator) DeleteCDISpecs(claimUID string) error {
-	waylandFile := fmt.Sprintf("%s-wayland-%s.json", sanitize(g.driverName), claimUID)
-	if err := os.Remove(filepath.Join(g.cdiDir, waylandFile)); err != nil && !os.IsNotExist(err) {
+	lobbyFile := fmt.Sprintf("%s-lobby-%s.json", sanitize(g.driverName), claimUID)
+	if err := os.Remove(filepath.Join(g.cdiDir, lobbyFile)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove lobby CDI: %w", err)
 	}
 	// PulseAudio CDI will be added here later.

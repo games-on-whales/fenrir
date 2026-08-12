@@ -1,6 +1,8 @@
 package dra
 
 import (
+	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -12,8 +14,7 @@ type WolfResourceState struct {
 	LobbyName         string
 	WaylandIndex      int
 	WaylandSocketName string
-	// PulseSinkName     string // TODO PulseAudio
-	CreatedAt time.Time
+	CreatedAt         time.Time
 }
 
 // State is a thread-safe in-memory registry keyed by claim UID.
@@ -52,11 +53,7 @@ func (s *State) Delete(claimUID string) {
 func (s *State) List() []*WolfResourceState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]*WolfResourceState, 0, len(s.claims))
-	for _, v := range s.claims {
-		out = append(out, v)
-	}
-	return out
+	return slices.Collect(maps.Values(s.claims))
 }
 
 // UsedWaylandIndices returns the set of wayland indices currently in use.
