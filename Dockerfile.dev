@@ -3,7 +3,10 @@ FROM golang:1.26
 
 # Install Delve for debugging and Air for live-reloading
 RUN go install github.com/air-verse/air@latest
-
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
 # Set up the working directory inside the container
 WORKDIR /app
 

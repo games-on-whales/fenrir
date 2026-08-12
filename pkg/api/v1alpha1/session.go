@@ -51,6 +51,8 @@ type SessionSpec struct {
 
 	// Wolf-specific config for the session
 	Config SessionInfo `json:"config"`
+	// Lobbyname is used for binding session to a node's lobby
+	LobbyName string `json:"lobbyName"`
 }
 
 // SessionStatus is the session State machine

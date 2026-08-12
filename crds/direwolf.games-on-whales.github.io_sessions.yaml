@@ -98,6 +98,9 @@ spec:
                 required:
                 - name
                 type: object
+              lobbyName:
+                description: Lobbyname is used for binding session to a node's lobby
+                type: string
               pairingReference:
                 properties:
                   name:
@@ -116,6 +119,7 @@ spec:
             - config
             - gameReference
             - gateway
+            - lobbyName
             - pairingReference
             - profileReference
             type: object
