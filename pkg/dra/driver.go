@@ -28,10 +28,6 @@ import (
 	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
-const (
-	lobbyNamePrefix = "dra-"
-)
-
 // Driver implements kubeletplugin.DRAPlugin.
 type Driver struct {
 	driverName   string
