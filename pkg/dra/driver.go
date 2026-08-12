@@ -289,11 +289,11 @@ func (d *Driver) prepareResourceClaim(
 		Name:                   lobbyName,
 		StopWhenEveryoneLeaves: false,
 		ClientSettings:         params.ClientSettings,
-		// TODO: implement later
-		// once we figure out the best method to pass parameters
-		// PinRequired:            params.PinRequired,
-		// Pin:                    params.Pin,
-		// MultiUser:              params.MultiUser,
+		// TODO Pin Handling
+		// Probably after the DRA is fully operational
+		PinRequired: params.PinRequired,
+		Pin:         params.Pin,
+		MultiUser:   params.MultiUser,
 		Runner: wolfapi.Runner{
 			Type:   "process",
 			RunCmd: "sleep inf",

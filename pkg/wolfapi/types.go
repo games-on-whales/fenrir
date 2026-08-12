@@ -122,7 +122,7 @@ type LobbyCreateRequest struct {
 	ProfileID              string             `json:"profile_id"`
 	Name                   string             `json:"name"`
 	IconPNGPath            string             `json:"icon_png_path,omitempty"`
-	PinRequired            *bool              `json:"pin_required"`
+	PinRequired            bool               `json:"pin_required"`
 	Pin                    []int              `json:"pin"`
 	MultiUser              bool               `json:"multi_user"`
 	StopWhenEveryoneLeaves bool               `json:"stop_when_everyone_leaves"`
