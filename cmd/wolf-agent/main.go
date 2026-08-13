@@ -17,12 +17,16 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
 
 	"games-on-whales.github.io/direwolf/pkg/controllers"
 	"games-on-whales.github.io/direwolf/pkg/dra"
+	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
+	informers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
@@ -87,6 +91,12 @@ func main() {
 		klog.Fatal("Failed to create clientset: ", err)
 	}
 
+	// Create direwolf clientset for Session CRD informers (Phase 2)
+	dwClient, err := direwolf.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatal("Failed to create direwolf clientset: ", err)
+	}
+
 	queueTimeout := time.Duration(queueTimeoutSec) * time.Second
 	driver, err := dra.NewDriver(
 		driverName, nodeName, socketsDir, wolfSockPath, cdiDir,
@@ -116,6 +126,25 @@ func main() {
 		klog.InfoS("Shutting down", "signal", s)
 		cancel(nil)
 	}()
+	factory := informers.NewSharedInformerFactory(dwClient, 0)
+	sessionInformer := factory.Direwolf().V1alpha1().Sessions().Informer()
+	sessionLister := factory.Direwolf().V1alpha1().Sessions().Lister()
+	sessionWorkqueue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[string](),
+	)
+
+	sessionInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			driver.HandleSessionAdd(ctx, obj)
+		},
+		DeleteFunc: func(obj any) {
+			driver.HandleSessionDelete(ctx, obj)
+		},
+	})
+
+	driver.SetSessionInformer(sessionInformer, sessionLister, sessionWorkqueue)
+	go factory.Start(ctx.Done())
+
 	go driver.RunClaimWatcher(ctx)
 	pluginDir := filepath.Join(kubeletplugin.KubeletPluginsDir, driverName)
 	if err := os.MkdirAll(pluginDir, 0o755); err != nil {

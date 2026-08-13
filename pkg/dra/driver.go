@@ -17,14 +17,18 @@ import (
 
 	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
 
+	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	v1alpha1lister "games-on-whales.github.io/direwolf/pkg/generated/listers/api/v1alpha1"
 	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
@@ -42,12 +46,16 @@ type Driver struct {
 
 	wolfClient wolfapi.Client
 
-	createLobbyMu sync.Mutex // TODO: Remove after implementing socket information in the SSE
+	socketMu sync.Mutex // protects socket allocation + lobby session ops
 
 	queueTimeout time.Duration
 	extraEnv     map[string]string
 
 	cancelCtx context.CancelCauseFunc
+
+	sessionInformer  cache.SharedIndexInformer
+	sessionLister    v1alpha1lister.SessionLister
+	sessionWorkqueue workqueue.TypedRateLimitingInterface[string]
 }
 
 func NewDriver(
@@ -96,6 +104,18 @@ func (d *Driver) SetCancelFunc(fn context.CancelCauseFunc) {
 	d.cancelCtx = fn
 }
 
+// SetSessionInformer wires the Session CRD informer into the driver.
+// Called from main after the informer factory has been initialised.
+func (d *Driver) SetSessionInformer(
+	informer cache.SharedIndexInformer,
+	lister v1alpha1lister.SessionLister,
+	queue workqueue.TypedRateLimitingInterface[string],
+) {
+	d.sessionInformer = informer
+	d.sessionLister = lister
+	d.sessionWorkqueue = queue
+}
+
 // ReconcileWithWolf rebuilds in-memory state by comparing existing CDI
 // files on disk with Wolf's active lobbies. This is called at startup
 // to recover from driver crashes and prevent dropping active streams.
@@ -127,15 +147,29 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 				continue
 			}
 			claimUID := strings.TrimPrefix(dev.Name, "lobby-claim-")
-
+			// restore wolf state on wolf-dra crash
 			var lobbyID string
 			var waylandDisplay string
+			var lobbyName string
+			// TODO: Look for a better way to find these
+			// instead of looking into env vars
+			var ClaimName string
+			var ClaimNamespace string
 			for _, env := range dev.ContainerEdits.Env {
 				if after, ok := strings.CutPrefix(env, "WOLF_SESSION_ID="); ok {
 					lobbyID = after
 				}
 				if after, ok := strings.CutPrefix(env, "WAYLAND_DISPLAY="); ok {
 					waylandDisplay = after
+				}
+				if after, ok := strings.CutPrefix(env, "WOLF_LOBBY_NAME="); ok {
+					lobbyName = after
+				}
+				if after, ok := strings.CutPrefix(env, "CLAIM_NAME="); ok {
+					ClaimName = after
+				}
+				if after, ok := strings.CutPrefix(env, "NAMESPACE="); ok {
+					ClaimNamespace = after
 				}
 			}
 
@@ -151,7 +185,10 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 
 			cdiClaims[claimUID] = &WolfResourceState{
 				ClaimUID:          claimUID,
+				ClaimName:         ClaimName,
+				ClaimNamespace:    ClaimNamespace,
 				LobbyID:           lobbyID,
+				LobbyName:         lobbyName,
 				WaylandIndex:      idx,
 				WaylandSocketName: waylandDisplay,
 				CreatedAt:         time.Now(),
@@ -265,8 +302,8 @@ func (d *Driver) prepareResourceClaim(
 	}
 	// we create a lock to monitor the wayland socket creation inside of the directory
 	// not the best method, but it'll do for now
-	d.createLobbyMu.Lock()
-	defer d.createLobbyMu.Unlock()
+	d.socketMu.Lock()
+	defer d.socketMu.Unlock()
 
 	if !d.allocator.Available() {
 		klog.InfoS("No wayland sockets available (after lock)", "uid", uid)
@@ -335,17 +372,20 @@ func (d *Driver) prepareResourceClaim(
 	}
 
 	d.allocator.MarkUsed(idx)
-
-	d.state.Set(uidStr, &WolfResourceState{
+	wolfState := &WolfResourceState{
 		ClaimUID:          uidStr,
+		ClaimName:         claim.Name,
+		ClaimNamespace:    claim.Namespace,
 		LobbyID:           lobbyID,
 		LobbyName:         lobbyName,
 		WaylandIndex:      idx,
 		WaylandSocketName: sockName,
 		CreatedAt:         time.Now(),
-	})
+	}
+	d.state.Set(uidStr, wolfState)
 
-	cdiID, err := d.cdiGen.GenerateLobbyCDI(uidStr, idx, lobbyID, params.VideoSettings, d.extraEnv)
+	go d.processPendingSessionsForLobby(context.WithoutCancel(ctx), lobbyName, uidStr)
+	cdiID, err := d.cdiGen.GenerateLobbyCDI(wolfState, idx, params.VideoSettings, d.extraEnv)
 	if err != nil {
 		klog.ErrorS(err, "CDI generation failed", "claimUID", uid)
 		_ = d.wolfClient.StopLobby(ctx, wolfapi.StopLobbyRequest{LobbyID: lobbyID})
@@ -372,6 +412,8 @@ func (d *Driver) prepareResourceClaim(
 	}
 }
 
+// TODO: close all sessions on the pod before unpreparing it.
+
 func (d *Driver) UnprepareResourceClaims(
 	ctx context.Context,
 	claims []kubeletplugin.NamespacedObject,
@@ -382,6 +424,13 @@ func (d *Driver) UnprepareResourceClaims(
 	for _, claim := range claims {
 		uid := string(claim.UID)
 		klog.InfoS("Unpreparing claim", "uid", uid)
+
+		for _, ss := range d.state.GetSessionsForClaim(uid) {
+			klog.InfoS("Cleaning up session for unprepared claim", "sessionUID", ss.SessionUID, "claimUID", uid)
+			d.state.DeleteSession(ss.SessionUID)
+			d.allocator.Release(ss.WaylandIndex)
+			// Wolf StopLobby below will terminate the actual stream; we just free local state.
+		}
 
 		if err := d.cdiGen.DeleteCDISpecs(uid); err != nil {
 			klog.ErrorS(err, "Failed to delete CDI specs", "uid", uid)
@@ -595,6 +644,32 @@ func (d *Driver) patchDeviceStatus(
 	return nil
 }
 
+// updateClaimStatusForClaimUID recomputes the session list for a claim and patches its status.
+func (d *Driver) updateClaimStatusForClaimUID(ctx context.Context, claimUID string) error {
+	st, ok := d.state.Get(claimUID)
+	if !ok {
+		return nil
+	}
+	if st.ClaimName == "" || st.ClaimNamespace == "" {
+		return nil
+	}
+
+	claim, err := d.kubeClient.ResourceV1().ResourceClaims(st.ClaimNamespace).Get(ctx, st.ClaimName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get claim for status update: %w", err)
+	}
+
+	sessions := d.state.GetSessionsForClaim(claimUID)
+	sessionIDs := make([]string, 0, len(sessions))
+	for _, ss := range sessions {
+		if ss.WolfSessionID != "" {
+			sessionIDs = append(sessionIDs, ss.WolfSessionID)
+		}
+	}
+
+	return d.patchDeviceStatus(ctx, claim, st.LobbyID, sessionIDs)
+}
+
 // RunClaimWatcher starts a background informer that reacts to session list
 // changes in ResourceClaim status.devices[].data.
 func (d *Driver) RunClaimWatcher(ctx context.Context) {
@@ -665,6 +740,7 @@ func sliceToSet(ss []string) map[string]struct{} {
 // It validates each session ID against Wolf's active sessions (via ListSessions),
 // prevents duplicate joins by using the claim's status diff, and removes
 // failed, unavailable, or duplicate session IDs from the ResourceClaim status.
+// TODO: find a better way to prevent duplication
 func (d *Driver) syncSessions(
 	ctx context.Context,
 	claim *resourceapi.ResourceClaim,
@@ -695,12 +771,12 @@ func (d *Driver) syncSessions(
 	// This happens if there were duplicates in the new sessions, or if
 	// some sessions were unavailable or failed to join.
 	needsPatch := len(newSet) != len(newSessions)
-
 	validNewSessions := make([]string, 0, len(newSet))
 
 	// Process desired sessions: join newly added ones
 	for sid := range newSet {
-		// Validate the session exists in Wolf's active session list.
+		// Session no longer exists in Wolf
+		// remove it from status.
 		if _, available := availableSet[sid]; !available {
 			klog.Warningf("Session %s not found in available sessions, removing from claim", sid)
 			needsPatch = true
@@ -716,6 +792,13 @@ func (d *Driver) syncSessions(
 					klog.V(2).Infof("Session %s left lobby %s (unavailable)", sid, lobbyID)
 				}
 			}
+			continue
+		}
+
+		// Already managed by the Session informer skip duplicate JoinLobby,
+		// but keep it in validNewSessions so we don't patch it out.
+		if _, managed := d.state.GetSessionByWolfID(sid); managed {
+			validNewSessions = append(validNewSessions, sid)
 			continue
 		}
 
@@ -744,6 +827,10 @@ func (d *Driver) syncSessions(
 		if _, stillInNew := newSet[sid]; stillInNew {
 			continue
 		}
+		// Already gone from Wolf (e.g., informer's leaveSession already stopped it).
+		if _, available := availableSet[sid]; !available {
+			continue
+		}
 		if err := d.wolfClient.LeaveLobby(ctx, wolfapi.LeaveLobbyRequest{
 			LobbyID:            lobbyID,
 			MoonlightSessionID: sid,
@@ -762,5 +849,220 @@ func (d *Driver) syncSessions(
 		if err := d.patchDeviceStatus(ctx, claim, lobbyID, validNewSessions); err != nil {
 			klog.Warningf("Failed to patch claim after filtering sessions: %v", err)
 		}
+	}
+}
+
+// Session CRD event handlers
+
+// HandleSessionAdd is called by the Session informer when a Session CRD is added.
+func (d *Driver) HandleSessionAdd(ctx context.Context, obj any) {
+	session, ok := obj.(*direwolfv1alpha1.Session)
+	if !ok {
+		klog.Errorf("expected *v1alpha1.Session, got %T", obj)
+		return
+	}
+
+	if session.Spec.LobbyName == "" {
+		return
+	}
+
+	// Ignore if already active (informer resync, duplicate event, etc.).
+	if _, active := d.state.GetSession(string(session.UID)); active {
+		return
+	}
+
+	claimUID, ok := d.state.GetClaimByLobbyName(session.Spec.LobbyName)
+	if ok {
+		d.addSessionToLobby(ctx, claimUID, session)
+	} else {
+		d.state.AddPending(string(session.UID))
+		klog.V(2).InfoS("Session pending, no matching lobby yet",
+			"sessionUID", session.UID, "lobbyName", session.Spec.LobbyName)
+	}
+}
+
+// HandleSessionDelete is called by the Session informer when a Session CRD is deleted.
+func (d *Driver) HandleSessionDelete(ctx context.Context, obj any) {
+	session, ok := obj.(*direwolfv1alpha1.Session)
+	if !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			klog.Errorf("expected *v1alpha1.Session or DeletedFinalStateUnknown, got %T", obj)
+			return
+		}
+		session, ok = tombstone.Obj.(*direwolfv1alpha1.Session)
+		if !ok {
+			klog.Errorf("expected *v1alpha1.Session in tombstone, got %T", tombstone.Obj)
+			return
+		}
+	}
+
+	d.leaveSession(ctx, string(session.UID))
+}
+
+// addSessionToLobby creates a Wolf session, joins it to the claim's lobby,
+// records local state, and updates the ResourceClaim status.
+func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session *direwolfv1alpha1.Session) {
+	d.socketMu.Lock()
+	defer d.socketMu.Unlock()
+
+	claimState, ok := d.state.Get(claimUID)
+	if !ok {
+		klog.InfoS("Claim no longer managed, dropping session",
+			"sessionUID", session.UID, "claimUID", claimUID)
+		d.state.RemovePending(string(session.UID))
+		return
+	}
+
+	idx, ok := d.allocator.Allocate()
+	if !ok {
+		klog.ErrorS(nil, "No wayland sockets available for session",
+			"sessionUID", session.UID, "claimUID", claimUID)
+		return
+	}
+
+	wolfSession := wolfapi.Session{
+		ClientIP:         session.Spec.Config.ClientIP,
+		AESKey:           session.Spec.Config.AESKey,
+		AESIV:            session.Spec.Config.AESIV,
+		VideoWidth:       session.Spec.Config.VideoWidth,
+		VideoHeight:      session.Spec.Config.VideoHeight,
+		VideoRefreshRate: session.Spec.Config.VideoRefreshRate,
+		RTSPFakeIP:       "10.96.64.123",
+		ClientSettings: wolfapi.ClientSettings{
+			ControllersOverride:      []string{"XBOX"},
+			MotionControllerOverride: "AUTO",
+			HScrollAcceleration:      1,
+			MouseAcceleration:        1,
+			RunGID:                   1000,
+			RunUID:                   1000,
+			VScrollAcceleration:      1,
+		},
+	}
+	// Derive audio channel count from surround flags if present, else default to stereo.
+	if session.Spec.Config.SurroundAudioFlags > 0 {
+		wolfSession.AudioChannelCount = session.Spec.Config.SurroundAudioFlags
+	} else {
+		wolfSession.AudioChannelCount = 2
+	}
+
+	wolfSessionID, err := d.wolfClient.AddSession(ctx, wolfSession)
+	if err != nil {
+		klog.ErrorS(err, "AddSession failed", "sessionUID", session.UID)
+		d.allocator.Release(idx)
+		return
+	}
+	// TODO: add a lookup to ensure that the session isn't double joining into the lobby
+	// it's not that big of a deal, it's just something to check.
+	if err := d.wolfClient.JoinLobby(ctx, wolfapi.JoinLobbyRequest{
+		LobbyID:            claimState.LobbyID,
+		MoonlightSessionID: wolfSessionID,
+	}); err != nil {
+		klog.ErrorS(err, "JoinLobby failed", "sessionUID", session.UID,
+			"lobbyID", claimState.LobbyID, "wolfSessionID", wolfSessionID)
+		_ = d.wolfClient.StopSession(ctx, wolfSessionID)
+		d.allocator.Release(idx)
+		return
+	}
+
+	d.state.AddSession(&SessionState{
+		ClaimUID:      claimUID,
+		SessionUID:    string(session.UID),
+		SessionName:   session.Name,
+		LobbyName:     session.Spec.LobbyName,
+		WolfSessionID: wolfSessionID,
+		WaylandIndex:  idx,
+		WaylandSocket: fmt.Sprintf("wayland-%d", idx),
+		CreatedAt:     time.Now(),
+	})
+
+	if err := d.updateClaimStatusForClaimUID(ctx, claimUID); err != nil {
+		klog.ErrorS(err, "Failed to update claim status after adding session",
+			"claimUID", claimUID, "sessionUID", session.UID)
+	}
+
+	d.state.RemovePending(string(session.UID))
+	klog.InfoS("Session added to lobby",
+		"sessionUID", session.UID,
+		"wolfSessionID", wolfSessionID,
+		"lobbyID", claimState.LobbyID,
+		"waylandIndex", idx)
+}
+
+// leaveSession stops a Wolf session, removes it from the lobby, releases its
+// wayland index, and updates the ResourceClaim status.
+func (d *Driver) leaveSession(ctx context.Context, sessionUID string) {
+	ss, ok := d.state.GetSession(sessionUID)
+	if !ok {
+		// Not active — might just be pending.
+		d.state.RemovePending(sessionUID)
+		klog.V(2).InfoS("Removed pending session", "sessionUID", sessionUID)
+		return
+	}
+
+	claimState, claimOK := d.state.Get(ss.ClaimUID)
+	if claimOK {
+		if err := d.wolfClient.LeaveLobby(ctx, wolfapi.LeaveLobbyRequest{
+			LobbyID:            claimState.LobbyID,
+			MoonlightSessionID: ss.WolfSessionID,
+		}); err != nil {
+			klog.ErrorS(err, "LeaveLobby failed", "sessionUID", sessionUID,
+				"wolfSessionID", ss.WolfSessionID, "lobbyID", claimState.LobbyID)
+		}
+
+		if err := d.wolfClient.StopSession(ctx, ss.WolfSessionID); err != nil {
+			klog.ErrorS(err, "StopSession failed", "sessionUID", sessionUID,
+				"wolfSessionID", ss.WolfSessionID)
+		}
+	}
+
+	d.allocator.Release(ss.WaylandIndex)
+	d.state.DeleteSession(sessionUID)
+
+	if claimOK {
+		if err := d.updateClaimStatusForClaimUID(ctx, ss.ClaimUID); err != nil {
+			klog.ErrorS(err, "Failed to update claim status after removing session",
+				"claimUID", ss.ClaimUID, "sessionUID", sessionUID)
+		}
+	}
+
+	klog.InfoS("Session left lobby", "sessionUID", sessionUID,
+		"wolfSessionID", ss.WolfSessionID, "lobbyID", claimState.LobbyID)
+}
+
+// processPendingSessionsForLobby iterates over the pending set and adopts any
+// sessions whose LobbyName matches the newly-created lobby.
+func (d *Driver) processPendingSessionsForLobby(ctx context.Context, lobbyName, claimUID string) {
+	pending := d.state.GetPendingList()
+	if len(pending) == 0 {
+		return
+	}
+
+	for _, sessionUID := range pending {
+		// Lister caches by namespace/name; we must list all and match by UID.
+		allSessions, err := d.sessionLister.List(labels.Everything())
+		if err != nil {
+			klog.ErrorS(err, "Failed to list sessions from cache", "sessionUID", sessionUID)
+			continue
+		}
+
+		var session *direwolfv1alpha1.Session
+		for _, s := range allSessions {
+			if string(s.UID) == sessionUID {
+				session = s
+				break
+			}
+		}
+		if session == nil {
+			klog.V(2).InfoS("Pending session not found in cache, skipping", "sessionUID", sessionUID)
+			continue
+		}
+
+		if session.Spec.LobbyName != lobbyName {
+			continue
+		}
+
+		d.addSessionToLobby(ctx, claimUID, session)
+		// On success addSessionToLobby removes from pending; on error it stays
 	}
 }

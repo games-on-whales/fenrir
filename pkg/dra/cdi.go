@@ -62,9 +62,8 @@ func (g *CDIGenerator) DeviceID(claimUID string) string {
 // GenerateLobbyCDI creates a CDI device for a specific wayland-N socket.
 // extraEnv are extra driver specific env vars merged on top of the standard env vars.
 func (g *CDIGenerator) GenerateLobbyCDI(
-	claimUID string,
+	wolfState *WolfResourceState,
 	idx int,
-	lobbyID string,
 	video wolfapi.LobbyVideoSettings,
 	extraEnv map[string]string,
 ) (string, error) {
@@ -75,7 +74,7 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 
 	waylandSockFile := fmt.Sprintf("wayland-%d", idx)
 
-	devName := "lobby-claim-" + claimUID
+	devName := "lobby-claim-" + wolfState.ClaimUID
 
 	env := []string{
 		// UID and PGID can be handled by app spec?
@@ -85,11 +84,14 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 		fmt.Sprintf("GAMESCOPE_REFRESH=%d", video.RefreshRate),
 		fmt.Sprintf("GAMESCOPE_WIDTH=%d", video.Width),
 		fmt.Sprintf("GAMESCOPE_HEIGHT=%d", video.Height),
-		"PULSE_SOURCE=virtual_sink_" + lobbyID + ".monitor",
-		"PULSE_SINK=virtual_sink_" + lobbyID,
+		"PULSE_SOURCE=virtual_sink_" + wolfState.LobbyID + ".monitor",
+		"PULSE_SINK=virtual_sink_" + wolfState.LobbyID,
 		"PULSE_SERVER=" + xdgRuntimeDir + pulseSockFile,
 		"XDG_RUNTIME_DIR=" + xdgRuntimeDir,
-		"WOLF_SESSION_ID=" + lobbyID,
+		"WOLF_SESSION_ID=" + wolfState.LobbyID,
+		"WOLF_LOBBY_NAME=" + wolfState.LobbyName,
+		"CLAIM_NAME=" + wolfState.ClaimName,
+		"NAMESPACE=" + wolfState.ClaimNamespace,
 		"WOLF_VIDEO_BUFFER_CAPS=" + video.VideoProducerBufferCaps,
 	}
 	for k, v := range extraEnv {
@@ -127,13 +129,13 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 		return "", fmt.Errorf("marshal CDI spec: %w", err)
 	}
 
-	fileName := fmt.Sprintf("%s-lobby-%s.json", sanitize(g.driverName), claimUID)
+	fileName := fmt.Sprintf("%s-lobby-%s.json", sanitize(g.driverName), wolfState.ClaimUID)
 	filePath := filepath.Join(g.cdiDir, fileName)
 	if err := os.WriteFile(filePath, data, 0o600); err != nil {
 		return "", fmt.Errorf("write CDI spec: %w", err)
 	}
 
-	return g.DeviceID(claimUID), nil
+	return g.DeviceID(wolfState.ClaimUID), nil
 }
 
 // DeleteCDISpecs removes all CDI files for a claim.
