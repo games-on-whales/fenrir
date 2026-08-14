@@ -78,3 +78,38 @@ spec:
   resourceClaims:
   - name: lobby
     resourceClaimName: firefox-lobby-claim
+---
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: Session
+metadata:
+  name: example-session
+  namespace: direwolf-dev
+  labels:
+    app: direwolf
+spec:
+  profileReference:
+    name: default
+  gameReference:
+    name: videogame
+  pairingReference:
+    name: moonlight-pairing
+  gateway:
+    name: example-gateway
+
+  # Wolf-specific streaming config
+  # passed to wolf
+  config:
+    clientIP: "192.168.1.100"
+    aesKey: "d2F0Y2hZb3VyS2V5SGVyZTEyMw=="
+    aesIV: "d2F0Y2hZb3VySVZIZXJlMTIz"
+    videoWidth: 1920
+    videoHeight: 1080
+    videoRefreshRate: 60
+    surroundAudioFlags: 2
+
+  # The lobby this session should join. The wolf-dra driver watches for
+  # this value and matches it against the lobbies it currently manages.
+  # This is the lobby enabled pod name
+  lobbyName: "firefox"
+
+  # This lobby name has the namespace prepended to it by the DRA: direwolf-dev/firefox
