@@ -397,7 +397,7 @@ func (d *Driver) prepareResourceClaim(
 	klog.InfoS("Claim prepared", "claimUID", uid, "waylandIndex", idx, "cdi", cdiID)
 
 	// update status with the lobby id
-	if err := d.patchDeviceStatus(ctx, claim, lobbyID, []string{}); err != nil {
+	if err := d.patchDeviceStatus(ctx, claim, lobbyID, []SessionStatusInfo{}); err != nil {
 		klog.ErrorS(err, "Failed to patch claim device status", "claimUID", uid)
 	}
 
@@ -551,10 +551,16 @@ func getDeviceClassName(claim *resourceapi.ResourceClaim) string {
 	return ""
 }
 
+type SessionStatusInfo struct {
+	SessionUID    string `json:"sessionUID"`
+	SessionName   string `json:"sessionName"`
+	WolfSessionID string `json:"wolfSessionID"`
+}
+
 // deviceStatusData is the shape we store in status.devices[].data.
 type deviceStatusData struct {
-	LobbyID    string   `json:"lobby_id"`
-	SessionIDs []string `json:"session_ids"`
+	LobbyID  string              `json:"lobby_id"`
+	Sessions []SessionStatusInfo `json:"sessions"`
 }
 
 // findOurAllocation returns this driver's allocation result, if any.
@@ -592,7 +598,7 @@ func (d *Driver) patchDeviceStatus(
 	ctx context.Context,
 	claim *resourceapi.ResourceClaim,
 	lobbyID string,
-	sessionIDs []string,
+	sessions []SessionStatusInfo,
 ) error {
 	r := d.findOurAllocation(claim)
 	if r == nil {
@@ -600,8 +606,8 @@ func (d *Driver) patchDeviceStatus(
 	}
 
 	raw, err := json.Marshal(deviceStatusData{
-		LobbyID:    lobbyID,
-		SessionIDs: sessionIDs,
+		LobbyID:  lobbyID,
+		Sessions: sessions,
 	})
 	if err != nil {
 		return fmt.Errorf("marshal device status data: %w", err)
@@ -660,14 +666,18 @@ func (d *Driver) updateClaimStatusForClaimUID(ctx context.Context, claimUID stri
 	}
 
 	sessions := d.state.GetSessionsForClaim(claimUID)
-	sessionIDs := make([]string, 0, len(sessions))
+	sessionInfos := make([]SessionStatusInfo, 0, len(sessions))
 	for _, ss := range sessions {
 		if ss.WolfSessionID != "" {
-			sessionIDs = append(sessionIDs, ss.WolfSessionID)
+			sessionInfos = append(sessionInfos, SessionStatusInfo{
+				SessionUID:    ss.SessionUID,
+				SessionName:   ss.SessionName,
+				WolfSessionID: ss.WolfSessionID,
+			})
 		}
 	}
 
-	return d.patchDeviceStatus(ctx, claim, st.LobbyID, sessionIDs)
+	return d.patchDeviceStatus(ctx, claim, st.LobbyID, sessionInfos)
 }
 
 // RunClaimWatcher starts a background informer that reacts to session list
@@ -704,16 +714,38 @@ func (d *Driver) handleClaimUpdate(ctx context.Context, oldObj, newObj any) {
 		klog.Errorf("expected *resourceapi.ResourceClaim, got %T", newObj)
 		return
 	}
-	// Fast path: instantly ignore claims this driver instance hasn't prepared.
-	if _, ok := d.state.Get(string(newClaim.UID)); !ok {
-		return
-	}
 
 	newData := d.extractDriverData(newClaim)
 	if newData == nil || newData.LobbyID == "" {
 		return
 	}
 
+	// Phase 5: Cross-node pending cleanup.
+	// If another node manages this claim and has adopted a session we have
+	// pending, remove it from our queue.
+	if _, managed := d.state.Get(string(newClaim.UID)); !managed {
+		pendingList := d.state.GetPendingList()
+		if len(pendingList) == 0 {
+			return
+		}
+		pendingSet := make(map[string]struct{}, len(pendingList))
+		for _, uid := range pendingList {
+			pendingSet[uid] = struct{}{}
+		}
+		for _, s := range newData.Sessions {
+			if s.SessionUID == "" {
+				continue
+			}
+			if _, ok := pendingSet[s.SessionUID]; ok {
+				d.state.RemovePending(s.SessionUID)
+				klog.V(2).InfoS("Removed pending session adopted by another node",
+					"sessionUID", s.SessionUID, "claimUID", newClaim.UID)
+			}
+		}
+		return
+	}
+
+	// --- managed claim path ---
 	oldClaim, ok := oldObj.(*resourceapi.ResourceClaim)
 	if !ok {
 		klog.Errorf("expected *resourceapi.ResourceClaim, got %T", oldObj)
@@ -722,10 +754,17 @@ func (d *Driver) handleClaimUpdate(ctx context.Context, oldObj, newObj any) {
 
 	var oldSessions []string
 	if oldData := d.extractDriverData(oldClaim); oldData != nil {
-		oldSessions = oldData.SessionIDs
+		for _, s := range oldData.Sessions {
+			oldSessions = append(oldSessions, s.WolfSessionID)
+		}
 	}
 
-	d.syncSessions(ctx, newClaim, newData.LobbyID, oldSessions, newData.SessionIDs)
+	var newSessions []string
+	for _, s := range newData.Sessions {
+		newSessions = append(newSessions, s.WolfSessionID)
+	}
+
+	d.syncSessions(ctx, newClaim, newData.LobbyID, oldSessions, newSessions)
 }
 
 func sliceToSet(ss []string) map[string]struct{} {
@@ -741,6 +780,7 @@ func sliceToSet(ss []string) map[string]struct{} {
 // prevents duplicate joins by using the claim's status diff, and removes
 // failed, unavailable, or duplicate session IDs from the ResourceClaim status.
 // TODO: find a better way to prevent duplication
+// TODO: prevent duplication on wolf-dra crash / restart
 func (d *Driver) syncSessions(
 	ctx context.Context,
 	claim *resourceapi.ResourceClaim,
@@ -845,8 +885,20 @@ func (d *Driver) syncSessions(
 	// patch the claim to reflect the actual valid session list.
 	if needsPatch {
 		sort.Strings(validNewSessions)
-		klog.Infof("Patching claim %s to update session_ids: %v", claim.UID, validNewSessions)
-		if err := d.patchDeviceStatus(ctx, claim, lobbyID, validNewSessions); err != nil {
+		sessionInfos := make([]SessionStatusInfo, 0, len(validNewSessions))
+		for _, sid := range validNewSessions {
+			if ss, ok := d.state.GetSessionByWolfID(sid); ok {
+				sessionInfos = append(sessionInfos, SessionStatusInfo{
+					SessionUID:    ss.SessionUID,
+					SessionName:   ss.SessionName,
+					WolfSessionID: ss.WolfSessionID,
+				})
+			} else {
+				sessionInfos = append(sessionInfos, SessionStatusInfo{WolfSessionID: sid})
+			}
+		}
+		klog.Infof("Patching claim %s to update sessions: %v", claim.UID, validNewSessions)
+		if err := d.patchDeviceStatus(ctx, claim, lobbyID, sessionInfos); err != nil {
 			klog.Warningf("Failed to patch claim after filtering sessions: %v", err)
 		}
 	}
@@ -876,7 +928,7 @@ func (d *Driver) HandleSessionAdd(ctx context.Context, obj any) {
 		d.addSessionToLobby(ctx, claimUID, session)
 	} else {
 		d.state.AddPending(string(session.UID))
-		klog.V(2).InfoS("Session pending, no matching lobby yet",
+		klog.V(2).InfoS("Session pending, no matching lobby yet", "sessionName", session.Name,
 			"sessionUID", session.UID, "lobbyName", session.Spec.LobbyName)
 	}
 }
@@ -952,8 +1004,6 @@ func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session
 		d.allocator.Release(idx)
 		return
 	}
-	// TODO: add a lookup to ensure that the session isn't double joining into the lobby
-	// it's not that big of a deal, it's just something to check.
 	if err := d.wolfClient.JoinLobby(ctx, wolfapi.JoinLobbyRequest{
 		LobbyID:            claimState.LobbyID,
 		MoonlightSessionID: wolfSessionID,
@@ -1026,7 +1076,7 @@ func (d *Driver) leaveSession(ctx context.Context, sessionUID string) {
 		}
 	}
 
-	klog.InfoS("Session left lobby", "sessionUID", sessionUID,
+	klog.InfoS("Session left lobby", "SessionName", ss.SessionName, "sessionUID", sessionUID,
 		"wolfSessionID", ss.WolfSessionID, "lobbyID", claimState.LobbyID)
 }
 
