@@ -67,8 +67,7 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 	video wolfapi.LobbyVideoSettings,
 	extraEnv map[string]string,
 ) (string, error) {
-	// TODO: more restrictive permissions??
-	if err := os.MkdirAll(g.cdiDir, 0o755); err != nil {
+	if err := os.MkdirAll(g.cdiDir, 0o700); err != nil {
 		return "", fmt.Errorf("mkdir cdi: %w", err)
 	}
 
@@ -112,7 +111,6 @@ func (g *CDIGenerator) GenerateLobbyCDI(
 							ContainerPath: filepath.Join(xdgRuntimeDir, waylandSockFile),
 							Options:       []string{"rw", "bind"},
 						},
-						// TODO pulse audio
 						{
 							HostPath:      filepath.Join(g.socketsDir, pulseSockFile),
 							ContainerPath: filepath.Join(xdgRuntimeDir, pulseSockFile),

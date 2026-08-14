@@ -147,12 +147,10 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 				continue
 			}
 			claimUID := strings.TrimPrefix(dev.Name, "lobby-claim-")
-			// restore wolf state on wolf-dra crash
+
 			var lobbyID string
 			var waylandDisplay string
 			var lobbyName string
-			// TODO: Look for a better way to find these
-			// instead of looking into env vars
 			var ClaimName string
 			var ClaimNamespace string
 			for _, env := range dev.ContainerEdits.Env {
@@ -198,13 +196,13 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 
 	lobbies, err := d.wolfClient.ListLobbies(ctx)
 	if err != nil {
-		// If this actually happens, wolf has crashed, and we need to restart the pods and clean up the socket files?
 		klog.Warningf("ListLobbies failed during reconciliation: %v. Restoring from CDI files only.", err)
 		for uid, st := range cdiClaims {
 			if _, exists := d.state.Get(uid); !exists {
 				klog.Infof("Recovered state from CDI for claim %s (Wolf unreachable)", uid)
 				d.state.Set(uid, st)
 				d.allocator.MarkUsed(st.WaylandIndex)
+				d.recoverSessionsFromClaimStatus(ctx, uid, st.ClaimName, st.ClaimNamespace, st.LobbyName)
 			}
 		}
 		return
@@ -221,6 +219,7 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 				klog.Infof("Recovered active claim %s (lobby %s, wayland-%d)", uid, st.LobbyID, st.WaylandIndex)
 				d.state.Set(uid, st)
 				d.allocator.MarkUsed(st.WaylandIndex)
+				d.recoverSessionsFromClaimStatus(ctx, uid, st.ClaimName, st.ClaimNamespace, st.LobbyName)
 			}
 		} else {
 			klog.Infof("Cleaning up dead claim %s (lobby %s no longer in Wolf)", uid, st.LobbyID)
@@ -237,7 +236,6 @@ func (d *Driver) ReconcileWithWolf(ctx context.Context) {
 		}
 	}
 }
-
 func (d *Driver) PrepareResourceClaims(
 	ctx context.Context,
 	claims []*resourceapi.ResourceClaim,
@@ -326,11 +324,9 @@ func (d *Driver) prepareResourceClaim(
 		Name:                   lobbyName,
 		StopWhenEveryoneLeaves: false,
 		ClientSettings:         params.ClientSettings,
-		// TODO Pin Handling
-		// Probably after the DRA is fully operational
-		PinRequired: params.PinRequired,
-		Pin:         params.Pin,
-		MultiUser:   params.MultiUser,
+		PinRequired:            params.PinRequired,
+		Pin:                    params.Pin,
+		MultiUser:              params.MultiUser,
 		Runner: wolfapi.Runner{
 			Type:   "process",
 			RunCmd: "sleep inf",
@@ -412,8 +408,7 @@ func (d *Driver) prepareResourceClaim(
 	}
 }
 
-// TODO: close all sessions on the pod before unpreparing it.
-
+// UnprepareResourceClaims removes the lobby wayland socket and all associated sessions from the pod
 func (d *Driver) UnprepareResourceClaims(
 	ctx context.Context,
 	claims []kubeletplugin.NamespacedObject,
@@ -423,13 +418,48 @@ func (d *Driver) UnprepareResourceClaims(
 
 	for _, claim := range claims {
 		uid := string(claim.UID)
-		klog.InfoS("Unpreparing claim", "uid", uid)
+		klog.InfoS("Unpreparing claim", "uid", uid, "ns", claim.Namespace, "name", claim.Name)
 
-		for _, ss := range d.state.GetSessionsForClaim(uid) {
-			klog.InfoS("Cleaning up session for unprepared claim", "sessionUID", ss.SessionUID, "claimUID", uid)
+		// Collect every Wolf session ID that must be stopped.
+		sessionIDs := make(map[string]struct{})
+
+		// 1. Sessions still recorded in the ResourceClaim device status.
+		if claim.Namespace != "" && claim.Name != "" {
+			rc, err := d.kubeClient.ResourceV1().ResourceClaims(claim.Namespace).Get(ctx, claim.Name, metav1.GetOptions{})
+			if err == nil {
+				if data := d.extractDriverData(rc); data != nil {
+					for _, s := range data.Sessions {
+						if s.SessionID != "" {
+							sessionIDs[s.SessionID] = struct{}{}
+						}
+					}
+				}
+			} else {
+				klog.Warningf("Failed to get claim %s/%s for unprepare: %v", claim.Namespace, claim.Name, err)
+			}
+		}
+
+		// 2. Sessions tracked in local state (in case state diverged from status).
+		localSessions := d.state.GetSessionsForClaim(uid)
+		for _, ss := range localSessions {
+			if ss.WolfSessionID != "" {
+				sessionIDs[ss.WolfSessionID] = struct{}{}
+			}
+		}
+
+		// 3. Stop every session before tearing down the lobby.
+		for sid := range sessionIDs {
+			if err := d.wolfClient.StopSession(ctx, sid); err != nil {
+				klog.ErrorS(err, "StopSession failed during unprepare", "sessionID", sid, "claimUID", uid)
+			} else {
+				klog.V(2).InfoS("Stopped session during unprepare", "sessionID", sid, "claimUID", uid)
+			}
+		}
+
+		// 4. Clean up local session state and release their wayland indices.
+		for _, ss := range localSessions {
 			d.state.DeleteSession(ss.SessionUID)
 			d.allocator.Release(ss.WaylandIndex)
-			// Wolf StopLobby below will terminate the actual stream; we just free local state.
 		}
 
 		if err := d.cdiGen.DeleteCDISpecs(uid); err != nil {
@@ -438,7 +468,7 @@ func (d *Driver) UnprepareResourceClaims(
 
 		st, ok := d.state.Get(uid)
 		if !ok {
-			klog.V(2).InfoS("Claim not in state, nothing to unprepare", "uid", uid)
+			klog.V(2).InfoS("Claim not in state, nothing more to unprepare", "uid", uid)
 			results[claim.UID] = nil
 			continue
 		}
@@ -552,9 +582,10 @@ func getDeviceClassName(claim *resourceapi.ResourceClaim) string {
 }
 
 type SessionStatusInfo struct {
-	UID       string `json:"uid"`
-	Name      string `json:"name"`
-	SessionID string `json:"session_id"`
+	UID          string `json:"uid"`
+	Name         string `json:"name"`
+	SessionID    string `json:"session_id"`
+	WaylandIndex int    `json:"wayland_index"`
 }
 
 // deviceStatusData is the shape we store in status.devices[].data.
@@ -670,9 +701,10 @@ func (d *Driver) updateClaimStatusForClaimUID(ctx context.Context, claimUID stri
 	for _, ss := range sessions {
 		if ss.WolfSessionID != "" {
 			sessionInfos = append(sessionInfos, SessionStatusInfo{
-				UID:       ss.SessionUID,
-				Name:      ss.SessionName,
-				SessionID: ss.WolfSessionID,
+				UID:          ss.SessionUID,
+				Name:         ss.SessionName,
+				SessionID:    ss.WolfSessionID,
+				WaylandIndex: ss.WaylandIndex,
 			})
 		}
 	}
@@ -779,7 +811,6 @@ func sliceToSet(ss []string) map[string]struct{} {
 // prevents duplicate joins by using the claim's status diff, and removes
 // failed, unavailable, or duplicate session IDs from the ResourceClaim status.
 // TODO: find a better way to prevent duplication
-// TODO: prevent duplication on wolf-dra crash / restart
 func (d *Driver) syncSessions(
 	ctx context.Context,
 	claim *resourceapi.ResourceClaim,
@@ -888,9 +919,10 @@ func (d *Driver) syncSessions(
 		for _, sid := range validNewSessions {
 			if ss, ok := d.state.GetSessionByWolfID(sid); ok {
 				sessionInfos = append(sessionInfos, SessionStatusInfo{
-					UID:       ss.SessionUID,
-					Name:      ss.SessionName,
-					SessionID: ss.WolfSessionID,
+					UID:          ss.SessionUID,
+					Name:         ss.SessionName,
+					SessionID:    ss.WolfSessionID,
+					WaylandIndex: ss.WaylandIndex,
 				})
 			} else {
 				sessionInfos = append(sessionInfos, SessionStatusInfo{SessionID: sid})
@@ -906,6 +938,8 @@ func (d *Driver) syncSessions(
 // Session CRD event handlers
 
 // HandleSessionAdd is called by the Session informer when a Session CRD is added.
+// TODO: Handle concurrent session adding?
+// it is very unlikely, but the probability is never zero.
 func (d *Driver) HandleSessionAdd(ctx context.Context, obj any) {
 	session, ok := obj.(*direwolfv1alpha1.Session)
 	if !ok {
@@ -982,7 +1016,7 @@ func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session
 		VideoHeight:      session.Spec.Config.VideoHeight,
 		VideoRefreshRate: session.Spec.Config.VideoRefreshRate,
 		// placeholders
-		// these should be acquired from operator
+		// these should be acquired from operator / profile
 		RTSPFakeIP: "10.96.64.123",
 		ClientSettings: wolfapi.ClientSettings{
 			ControllersOverride:      []string{"XBOX"},
@@ -1117,5 +1151,60 @@ func (d *Driver) processPendingSessionsForLobby(ctx context.Context, lobbyName, 
 
 		d.addSessionToLobby(ctx, claimUID, session)
 		// On success addSessionToLobby removes from pending; on error it stays
+	}
+}
+
+// recoverSessionsFromClaimStatus reads the ResourceClaim device status and
+// reconstructs SessionState entries for any sessions still attached to the claim.
+// This prevents the Session informer from re-creating them after a wolf-dra restart.
+func (d *Driver) recoverSessionsFromClaimStatus(ctx context.Context, claimUID, claimName, claimNamespace, lobbyName string) {
+	if claimNamespace == "" || claimName == "" {
+		return
+	}
+
+	claim, err := d.kubeClient.ResourceV1().ResourceClaims(claimNamespace).Get(ctx, claimName, metav1.GetOptions{})
+	if err != nil {
+		klog.Warningf("Failed to get claim %s/%s during session recovery: %v", claimNamespace, claimName, err)
+		return
+	}
+
+	data := d.extractDriverData(claim)
+	if data == nil || len(data.Sessions) == 0 {
+		return
+	}
+
+	for _, s := range data.Sessions {
+		if s.UID == "" || s.SessionID == "" || s.WaylandIndex <= 0 {
+			continue
+		}
+		if _, active := d.state.GetSession(s.UID); active {
+			continue
+		}
+
+		sockName := fmt.Sprintf("wayland-%d", s.WaylandIndex)
+		if !socketExists(d.socketsDir, sockName) {
+			klog.V(2).InfoS("Skipping session recovery, socket missing",
+				"sessionUID", s.UID, "socket", sockName)
+			continue
+		}
+
+		ss := &SessionState{
+			ClaimUID:      claimUID,
+			SessionUID:    s.UID,
+			SessionName:   s.Name,
+			LobbyName:     lobbyName,
+			WolfSessionID: s.SessionID,
+			WaylandIndex:  s.WaylandIndex,
+			WaylandSocket: sockName,
+			CreatedAt:     time.Now(),
+		}
+		d.state.AddSession(ss)
+		d.allocator.MarkUsed(s.WaylandIndex)
+		klog.InfoS("Recovered session from claim status",
+			"sessionUID", s.UID,
+			"sessionName", s.Name,
+			"wolfSessionID", s.SessionID,
+			"waylandIndex", s.WaylandIndex,
+			"claimUID", claimUID)
 	}
 }

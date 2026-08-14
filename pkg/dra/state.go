@@ -20,8 +20,6 @@ type WolfResourceState struct {
 }
 
 // SessionState tracks an active or pending Session CRD.
-// TODO: Add some session recovery to preventt wolf-dra from booting users off sessions
-// then recreating those sessions, only to delete them again.
 type SessionState struct {
 	ClaimUID      string
 	SessionUID    string
