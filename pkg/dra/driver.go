@@ -320,7 +320,7 @@ func (d *Driver) prepareResourceClaim(
 		klog.Warningf("Claim %s/%s has no pod reservation yet, using claim name as fallback", claim.Namespace, claim.Name)
 		podName = claim.Name
 	}
-	lobbyName := fmt.Sprintf("%s-%s", claim.Namespace, podName)
+	lobbyName := claim.Namespace + "/" + podName
 	req := wolfapi.LobbyCreateRequest{
 		ProfileID:              "default",
 		Name:                   lobbyName,
@@ -552,9 +552,9 @@ func getDeviceClassName(claim *resourceapi.ResourceClaim) string {
 }
 
 type SessionStatusInfo struct {
-	SessionUID    string `json:"sessionUID"`
-	SessionName   string `json:"sessionName"`
-	WolfSessionID string `json:"wolfSessionID"`
+	UID       string `json:"uid"`
+	Name      string `json:"name"`
+	SessionID string `json:"session_id"`
 }
 
 // deviceStatusData is the shape we store in status.devices[].data.
@@ -670,9 +670,9 @@ func (d *Driver) updateClaimStatusForClaimUID(ctx context.Context, claimUID stri
 	for _, ss := range sessions {
 		if ss.WolfSessionID != "" {
 			sessionInfos = append(sessionInfos, SessionStatusInfo{
-				SessionUID:    ss.SessionUID,
-				SessionName:   ss.SessionName,
-				WolfSessionID: ss.WolfSessionID,
+				UID:       ss.SessionUID,
+				Name:      ss.SessionName,
+				SessionID: ss.WolfSessionID,
 			})
 		}
 	}
@@ -720,9 +720,8 @@ func (d *Driver) handleClaimUpdate(ctx context.Context, oldObj, newObj any) {
 		return
 	}
 
-	// Phase 5: Cross-node pending cleanup.
-	// If another node manages this claim and has adopted a session we have
-	// pending, remove it from our queue.
+	// If another node manages this claim and has adopted this session
+	// remove it from our queue.
 	if _, managed := d.state.Get(string(newClaim.UID)); !managed {
 		pendingList := d.state.GetPendingList()
 		if len(pendingList) == 0 {
@@ -733,19 +732,19 @@ func (d *Driver) handleClaimUpdate(ctx context.Context, oldObj, newObj any) {
 			pendingSet[uid] = struct{}{}
 		}
 		for _, s := range newData.Sessions {
-			if s.SessionUID == "" {
+			if s.UID == "" {
 				continue
 			}
-			if _, ok := pendingSet[s.SessionUID]; ok {
-				d.state.RemovePending(s.SessionUID)
+			if _, ok := pendingSet[s.UID]; ok {
+				d.state.RemovePending(s.UID)
 				klog.V(2).InfoS("Removed pending session adopted by another node",
-					"sessionUID", s.SessionUID, "claimUID", newClaim.UID)
+					"sessionUID", s.UID, "claimUID", newClaim.UID)
 			}
 		}
 		return
 	}
 
-	// --- managed claim path ---
+	// managed claim path
 	oldClaim, ok := oldObj.(*resourceapi.ResourceClaim)
 	if !ok {
 		klog.Errorf("expected *resourceapi.ResourceClaim, got %T", oldObj)
@@ -755,13 +754,13 @@ func (d *Driver) handleClaimUpdate(ctx context.Context, oldObj, newObj any) {
 	var oldSessions []string
 	if oldData := d.extractDriverData(oldClaim); oldData != nil {
 		for _, s := range oldData.Sessions {
-			oldSessions = append(oldSessions, s.WolfSessionID)
+			oldSessions = append(oldSessions, s.SessionID)
 		}
 	}
 
 	var newSessions []string
 	for _, s := range newData.Sessions {
-		newSessions = append(newSessions, s.WolfSessionID)
+		newSessions = append(newSessions, s.SessionID)
 	}
 
 	d.syncSessions(ctx, newClaim, newData.LobbyID, oldSessions, newSessions)
@@ -889,12 +888,12 @@ func (d *Driver) syncSessions(
 		for _, sid := range validNewSessions {
 			if ss, ok := d.state.GetSessionByWolfID(sid); ok {
 				sessionInfos = append(sessionInfos, SessionStatusInfo{
-					SessionUID:    ss.SessionUID,
-					SessionName:   ss.SessionName,
-					WolfSessionID: ss.WolfSessionID,
+					UID:       ss.SessionUID,
+					Name:      ss.SessionName,
+					SessionID: ss.WolfSessionID,
 				})
 			} else {
-				sessionInfos = append(sessionInfos, SessionStatusInfo{WolfSessionID: sid})
+				sessionInfos = append(sessionInfos, SessionStatusInfo{SessionID: sid})
 			}
 		}
 		klog.Infof("Patching claim %s to update sessions: %v", claim.UID, validNewSessions)
@@ -922,14 +921,15 @@ func (d *Driver) HandleSessionAdd(ctx context.Context, obj any) {
 	if _, active := d.state.GetSession(string(session.UID)); active {
 		return
 	}
+	lobbyName := session.Namespace + "/" + session.Spec.LobbyName
 
-	claimUID, ok := d.state.GetClaimByLobbyName(session.Spec.LobbyName)
+	claimUID, ok := d.state.GetClaimByLobbyName(lobbyName)
 	if ok {
 		d.addSessionToLobby(ctx, claimUID, session)
 	} else {
 		d.state.AddPending(string(session.UID))
 		klog.V(2).InfoS("Session pending, no matching lobby yet", "sessionName", session.Name,
-			"sessionUID", session.UID, "lobbyName", session.Spec.LobbyName)
+			"sessionUID", session.UID, "lobbyName", lobbyName)
 	}
 }
 
@@ -974,13 +974,16 @@ func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session
 	}
 
 	wolfSession := wolfapi.Session{
+		// TODO: after profile informer add clientID
 		ClientIP:         session.Spec.Config.ClientIP,
 		AESKey:           session.Spec.Config.AESKey,
 		AESIV:            session.Spec.Config.AESIV,
 		VideoWidth:       session.Spec.Config.VideoWidth,
 		VideoHeight:      session.Spec.Config.VideoHeight,
 		VideoRefreshRate: session.Spec.Config.VideoRefreshRate,
-		RTSPFakeIP:       "10.96.64.123",
+		// placeholders
+		// these should be acquired from operator
+		RTSPFakeIP: "10.96.64.123",
 		ClientSettings: wolfapi.ClientSettings{
 			ControllersOverride:      []string{"XBOX"},
 			MotionControllerOverride: "AUTO",
@@ -1019,7 +1022,7 @@ func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session
 		ClaimUID:      claimUID,
 		SessionUID:    string(session.UID),
 		SessionName:   session.Name,
-		LobbyName:     session.Spec.LobbyName,
+		LobbyName:     claimState.LobbyName,
 		WolfSessionID: wolfSessionID,
 		WaylandIndex:  idx,
 		WaylandSocket: fmt.Sprintf("wayland-%d", idx),
@@ -1107,8 +1110,8 @@ func (d *Driver) processPendingSessionsForLobby(ctx context.Context, lobbyName, 
 			klog.V(2).InfoS("Pending session not found in cache, skipping", "sessionUID", sessionUID)
 			continue
 		}
-
-		if session.Spec.LobbyName != lobbyName {
+		sessionLobbyName := session.Namespace + "/" + session.Spec.LobbyName
+		if sessionLobbyName != lobbyName {
 			continue
 		}
 
