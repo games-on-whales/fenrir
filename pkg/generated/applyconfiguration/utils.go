@@ -76,10 +76,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SessionSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionStatus"):
 		return &apiv1alpha1.SessionStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicies"):
-		return &apiv1alpha1.SidecarPoliciesApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicy"):
-		return &apiv1alpha1.SidecarPolicyApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
 		return &apiv1alpha1.WolfConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):

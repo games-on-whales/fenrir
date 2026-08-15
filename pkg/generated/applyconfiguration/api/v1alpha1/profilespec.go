@@ -18,23 +18,9 @@ limitations under the License.
 
 package v1alpha1
 
-import (
-	v1 "k8s.io/api/core/v1"
-)
-
 // ProfileSpecApplyConfiguration represents a declarative configuration of the ProfileSpec type for use
 // with apply.
 type ProfileSpecApplyConfiguration struct {
-	// Resources defines the maximum resource requests and limits that the app
-	// container can have. If an app requests exceeds these values,
-	// the app will fail to start.
-	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
-	// Volumes defines the volumes that can be mounted by the session's pods.
-	Volumes []v1.Volume `json:"volumes,omitempty"`
-	// SidecarPolicies defines the resource requests and limits for the injected
-	// sidecar containers. If a policy for a sidecar is not defined here, the
-	// operator will use its own built-in default values.
-	SidecarPolicies *SidecarPoliciesApplyConfiguration `json:"sidecarPolicies,omitempty"`
 	// Apps defines the list of apps available to this profile.
 	Apps []GameReferenceApplyConfiguration `json:"apps,omitempty"`
 	// Pairings defines the list of paired moonlight clients that can access this profile.
@@ -46,32 +32,6 @@ type ProfileSpecApplyConfiguration struct {
 // apply.
 func ProfileSpec() *ProfileSpecApplyConfiguration {
 	return &ProfileSpecApplyConfiguration{}
-}
-
-// WithResources sets the Resources field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Resources field is set to the value of the last call.
-func (b *ProfileSpecApplyConfiguration) WithResources(value v1.ResourceRequirements) *ProfileSpecApplyConfiguration {
-	b.Resources = &value
-	return b
-}
-
-// WithVolumes adds the given value to the Volumes field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the Volumes field.
-func (b *ProfileSpecApplyConfiguration) WithVolumes(values ...v1.Volume) *ProfileSpecApplyConfiguration {
-	for i := range values {
-		b.Volumes = append(b.Volumes, values[i])
-	}
-	return b
-}
-
-// WithSidecarPolicies sets the SidecarPolicies field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the SidecarPolicies field is set to the value of the last call.
-func (b *ProfileSpecApplyConfiguration) WithSidecarPolicies(value *SidecarPoliciesApplyConfiguration) *ProfileSpecApplyConfiguration {
-	b.SidecarPolicies = value
-	return b
 }
 
 // WithApps adds the given value to the Apps field in the declarative configuration
