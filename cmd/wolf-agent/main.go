@@ -137,6 +137,9 @@ func main() {
 		AddFunc: func(obj any) {
 			driver.HandleSessionAdd(ctx, obj)
 		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			driver.HandleSessionUpdate(ctx, newObj)
+		},
 		DeleteFunc: func(obj any) {
 			driver.HandleSessionDelete(ctx, obj)
 		},

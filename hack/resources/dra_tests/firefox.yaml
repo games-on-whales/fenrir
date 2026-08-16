@@ -53,6 +53,8 @@ metadata:
   name: firefox
   namespace: direwolf-dev
 spec:
+  # for fast termination
+  terminationGracePeriodSeconds: 1
   containers:
   - name: app
     image: ghcr.io/games-on-whales/firefox:edge

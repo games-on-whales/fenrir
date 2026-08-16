@@ -989,6 +989,10 @@ func (d *Driver) HandleSessionDelete(ctx context.Context, obj any) {
 // addSessionToLobby creates a Wolf session, joins it to the claim's lobby,
 // records local state, and updates the ResourceClaim status.
 func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session *direwolfv1alpha1.Session) {
+	if _, active := d.state.GetSession(string(session.UID)); active {
+		d.state.RemovePending(string(session.UID))
+		return
+	}
 	d.socketMu.Lock()
 	defer d.socketMu.Unlock()
 
@@ -1206,5 +1210,43 @@ func (d *Driver) recoverSessionsFromClaimStatus(ctx context.Context, claimUID, c
 			"wolfSessionID", s.SessionID,
 			"waylandIndex", s.WaylandIndex,
 			"claimUID", claimUID)
+	}
+}
+
+// HandleSessionUpdate reacts to Session CRD updates. The only transition we
+// care about is the initial patch of LobbyName by the session controller
+// (empty → non-empty). Everything else is ignored.
+func (d *Driver) HandleSessionUpdate(ctx context.Context, newObj any) {
+	newSession, ok := newObj.(*direwolfv1alpha1.Session)
+	if !ok {
+		klog.Errorf("expected *v1alpha1.Session, got %T", newObj)
+		return
+	}
+	klog.Infof("Detected Change in %s", newSession.Name)
+	// We can only change lobby name for now
+	// until I figure out how wolf changes the stream quality
+	// without tearing down the lobby
+	if newSession.Spec.LobbyName == "" {
+		klog.Infof("New Lobby Name Empty, skipping... : %s", newSession.Spec.LobbyName)
+		return
+	}
+
+	// Already active (e.g. handled by a previous resync or race).
+	if _, active := d.state.GetSession(string(newSession.UID)); active {
+		klog.Infof("Session: %s is active, skipping...", newSession.Name)
+		return
+	}
+
+	lobbyName := newSession.Namespace + "/" + newSession.Spec.LobbyName
+	claimUID, ok := d.state.GetClaimByLobbyName(lobbyName)
+	if ok {
+		klog.Infof("Updating State with new session: %s", newSession.Name)
+		d.addSessionToLobby(ctx, claimUID, newSession)
+	} else {
+		d.state.AddPending(string(newSession.UID))
+		klog.V(2).InfoS("Session pending after LobbyName patch",
+			"sessionName", newSession.Name,
+			"sessionUID", newSession.UID,
+			"lobbyName", lobbyName)
 	}
 }
