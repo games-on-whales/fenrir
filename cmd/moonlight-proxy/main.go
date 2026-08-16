@@ -99,6 +99,7 @@ func main() {
 		sessionLister,
 		podLister,
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
+		direwolfClient.DirewolfV1alpha1().Lobbies(*namespace),
 		moonlight.RESTServerOptions{
 			Port:         *port,
 			SecurePort:   *securePort,

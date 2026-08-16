@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/ptr"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
@@ -57,7 +58,7 @@ type RESTServer struct {
 	SessionLister  generic.NamespacedLister[*direwolfv1alpha1.Session]
 
 	SessionClient v1alpha1client.SessionInterface
-
+	LobbyClient   v1alpha1client.LobbyInterface
 	RESTServerOptions
 }
 
@@ -69,6 +70,7 @@ func NewRESTServer(
 	sessionLister generic.NamespacedLister[*direwolfv1alpha1.Session],
 	podsLister generic.NamespacedLister[*corev1.Pod],
 	sessionClient v1alpha1client.SessionInterface,
+	lobbyClient v1alpha1client.LobbyInterface,
 	opts RESTServerOptions,
 ) *RESTServer {
 	ps := &RESTServer{
@@ -81,6 +83,7 @@ func NewRESTServer(
 		SessionLister:     sessionLister,
 		PodLister:         podsLister,
 		SessionClient:     sessionClient,
+		LobbyClient:       lobbyClient,
 		RESTServerOptions: opts,
 	}
 
@@ -560,7 +563,64 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, 403, fmt.Errorf("no available profile contains app %s", app.Name))
 		return
 	}
+	// Determine default lobby name for this profile+app
+	lobbyName := fmt.Sprintf("%s-%s", targetProfile.Name, app.Name)
 
+	// Ensure lobby exists; create it if missing
+	lobby, err := s.LobbyClient.Get(r.Context(), lobbyName, metav1.GetOptions{})
+	if err != nil {
+		if !kerrors.IsNotFound(err) {
+			writeErrorResponse(w, 500, fmt.Errorf("failed to check lobby: %w", err))
+			return
+		}
+		channels := surroundFlags
+		if channels <= 0 {
+			channels = 2
+		}
+		lobby = &direwolfv1alpha1.Lobby{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      lobbyName,
+				Namespace: pairing.Namespace,
+				Labels: map[string]string{
+					direwolfv1alpha1.LabelApp:     app.Name,
+					direwolfv1alpha1.LabelProfile: targetProfile.Name,
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion:         direwolfv1alpha1.GroupVersion.String(),
+						Kind:               "Profile",
+						Name:               targetProfile.Name,
+						UID:                targetProfile.UID,
+						Controller:         ptr.To(true),
+						BlockOwnerDeletion: ptr.To(true),
+					},
+				},
+			},
+			Spec: direwolfv1alpha1.LobbySpec{
+				AppReference:     corev1.LocalObjectReference{Name: app.Name},
+				ProfileReference: corev1.LocalObjectReference{Name: targetProfile.Name},
+				VideoSettings: direwolfv1alpha1.LobbyVideoSettings{
+					Width: width, Height: height, RefreshRate: refreshRate,
+				},
+				AudioSettings: direwolfv1alpha1.LobbyAudioSettings{
+					ChannelCount: channels,
+				},
+				MultiUser:              true,
+				StopWhenEveryoneLeaves: false,
+			},
+		}
+		lobby, err = s.LobbyClient.Create(r.Context(), lobby, metav1.CreateOptions{})
+		if err != nil {
+			writeErrorResponse(w, 500, fmt.Errorf("failed to create lobby: %w", err))
+			return
+		}
+	}
+
+	// Existing session teardown before launching
+	if err := s.stopSessionsForProfile(r.Context(), targetProfile, false); err != nil && !kerrors.IsNotFound(err) {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %w", err))
+		return
+	}
 	//!TOOD: May want to wait here, since we need the Service to stop pointing
 	// at the old pod. It is very likely to happen before operator syncs and
 	// can create session, but perhaps should still check after operator returns
@@ -584,6 +644,16 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 				},
 				Annotations: map[string]string{
 					direwolfv1alpha1.LabelPairing: pairing.Name,
+				},
+				OwnerReferences: []metav1.OwnerReference{
+					{
+						APIVersion:         direwolfv1alpha1.GroupVersion.String(),
+						Kind:               "Profile",
+						Name:               targetProfile.Name,
+						UID:                targetProfile.UID,
+						Controller:         ptr.To(true),
+						BlockOwnerDeletion: ptr.To(true),
+					},
 				},
 			},
 			Spec: direwolfv1alpha1.SessionSpec{
@@ -649,11 +719,14 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// TODO: SOON
 func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Wolf API current cannot support a "resume" to reuse the existing
 	// display/controllers. So we relaunch instead :(
 	s.launchHandler(w, r)
 }
+
+// CancelHandler checks if the lobby owner cancels, then it'll delete the session + lobby
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	profiles, ok := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile)
 	if !ok || profiles == nil {
@@ -663,18 +736,60 @@ func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 
 	anyErr := false
 	for _, profile := range profiles {
-		if err := s.stopSessionsForProfile(r.Context(), profile, true); err != nil && !kerrors.IsNotFound(err) {
+		// 1. Delete all sessions belonging to this profile
+		sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
+			direwolfv1alpha1.LabelProfile: profile.Name,
+		}))
+		if err != nil {
+			klog.Errorf("Failed to list sessions for profile %s: %v", profile.Name, err)
 			anyErr = true
+			continue
+		}
+		for _, sess := range sessions {
+			if err := s.SessionClient.Delete(r.Context(), sess.Name, metav1.DeleteOptions{}); err != nil && !kerrors.IsNotFound(err) {
+				klog.Errorf("Failed to delete session %s: %v", sess.Name, err)
+				anyErr = true
+			}
+		}
+
+		// 2. Delete all lobbies where this profile is the controller owner
+		// (i.e. the primary session is gone, so tear down the lobby and its guests)
+		lobbies, err := s.LobbyClient.List(r.Context(), metav1.ListOptions{
+			LabelSelector: labels.SelectorFromSet(labels.Set{
+				direwolfv1alpha1.LabelProfile: profile.Name,
+			}).String(),
+		})
+		if err != nil {
+			klog.Errorf("Failed to list lobbies for profile %s: %v", profile.Name, err)
+			anyErr = true
+			continue
+		}
+		for _, lobby := range lobbies.Items {
+			isOwner := false
+			for _, ref := range lobby.OwnerReferences {
+				if ref.Kind == "Profile" && ref.Name == profile.Name && ref.Controller != nil && *ref.Controller {
+					isOwner = true
+					break
+				}
+			}
+			if !isOwner {
+				continue
+			}
+			if err := s.LobbyClient.Delete(r.Context(), lobby.Name, metav1.DeleteOptions{}); err != nil && !kerrors.IsNotFound(err) {
+				klog.Errorf("Failed to delete lobby %s: %v", lobby.Name, err)
+				anyErr = true
+			} else {
+				klog.Infof("Deleted lobby %s/%s (primary session cancelled)", lobby.Namespace, lobby.Name)
+			}
 		}
 	}
 
 	if anyErr {
-		writeErrorResponse(w, 500, errors.New("failed to cancel one or more sessions"))
+		writeErrorResponse(w, 500, errors.New("failed to cancel one or more sessions or lobbies"))
 		return
 	}
 	sendXML(w, Response{StatusCode: 200})
 }
-
 func (s *RESTServer) stopSessionsForProfile(ctx context.Context, profile *direwolfv1alpha1.Profile, shouldWait bool) error {
 	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
 		direwolfv1alpha1.LabelProfile: profile.Name,

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -15,6 +16,7 @@ import (
 	// "github.com/pelletier/go-toml/v2"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	resourceapi "k8s.io/api/resource/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -25,6 +27,7 @@ import (
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	v1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	resourcev1ac "k8s.io/client-go/applyconfigurations/resource/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
@@ -47,6 +50,20 @@ type SessionControllerOptions struct {
 	WolfAgentImage           string
 	WolfAgentImagePullPolicy string // for debug / local testing / slow internet connections
 	LBSharingKey             string
+}
+
+type WolfDRAInfo struct {
+	NodeName     string
+	InternalIP   string
+	ExternalIP   string
+	AgentPodName string
+	AgentPodNS   string
+	PoolName     string
+}
+type NodeIPInfo struct {
+	NodeName   string
+	InternalIP string
+	ExternalIP string
 }
 
 // SessionController manages the lifecycle of a streaming session for
@@ -78,6 +95,9 @@ type SessionController struct {
 	controller            generic.Controller[*direwolfv1alpha1.Session]
 	statefulSetController generic.Controller[*appsv1.StatefulSet]
 	SessionControllerOptions
+
+	LobbyClient v1alpha1client.LobbyInterface
+	wolfDRAInfo map[string]WolfDRAInfo // nodeName -> info
 }
 
 // NewSessionController creates a new session controller.
@@ -86,6 +106,7 @@ func NewSessionController(
 	tcpRouteClient gatewayv1.TCPRouteInterface,
 	udpRouteClient gatewayv1.UDPRouteInterface,
 	sessionClient v1alpha1client.SessionInterface,
+	lobbyClient v1alpha1client.LobbyInterface,
 	sessionInformer generic.Informer[*direwolfv1alpha1.Session],
 	appInformer generic.Informer[*direwolfv1alpha1.App],
 	profileInformer generic.Informer[*direwolfv1alpha1.Profile],
@@ -97,11 +118,13 @@ func NewSessionController(
 		TCPRouteClient:           tcpRouteClient,
 		UDPRouteClient:           udpRouteClient,
 		SessionClient:            sessionClient,
+		LobbyClient:              lobbyClient,
 		SessionInformer:          sessionInformer,
 		AppInformer:              appInformer,
 		ProfileInformer:          profileInformer,
 		trackedSessions:          make(map[profileGame]sets.Set[string]),
 		trackedGames:             make(map[string]profileGame),
+		wolfDRAInfo:              make(map[string]WolfDRAInfo),
 		SessionControllerOptions: options,
 	}
 
@@ -142,7 +165,8 @@ func (c *SessionController) Run(ctx context.Context) error {
 	if !cache.WaitForCacheSync(sessionCtx.Done(), c.SessionInformer.HasSynced) {
 		return errors.New("failed to sync session informer")
 	}
-
+	// Log DRA agent topology after caches are synced
+	c.discoverWolfDRAInfo(sessionCtx)
 	// Build initial listing of sessions
 	sessions, err := c.SessionInformer.List(labels.Everything())
 	if err != nil {
@@ -305,6 +329,18 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		})
 	}
 
+	// Node placement discovery via ResourceClaim (no pod listing needed)
+	if nodeName, err := c.getSessionNodeFromClaim(context.TODO(), newObj); err == nil {
+		klog.Infof("Session %s/%s allocated to node %s", namespace, name, nodeName)
+		if info, ok := c.wolfDRAInfo[nodeName]; ok {
+			klog.Infof("Session %s/%s node IP info: InternalIP=%s ExternalIP=%s",
+				namespace, name, info.InternalIP, info.ExternalIP)
+		} else {
+			klog.V(2).Infof("Session %s/%s node %s not yet in IP cache", namespace, name, nodeName)
+		}
+	} else {
+		klog.V(2).Infof("Could not determine node for session %s/%s from claim: %v", namespace, name, err)
+	}
 	if streamError := c.reconcileActiveStreams(context.TODO(), newObj); streamError != nil {
 		klog.Errorf("Failed to reconcile active streams: %s", streamError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
@@ -451,48 +487,43 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 	if session.Status.ServiceName == "" {
 		return errors.New("waiting for ServiceName")
 	}
-
+	claimName, err := c.reconcileResourceClaim(ctx, session)
+	if err != nil {
+		return fmt.Errorf("resource claim reconciliation failed: %w", err)
+	}
 	// Get the profile object to access resource policies
 	profile, err := c.ProfileInformer.Namespaced(session.Namespace).Get(session.Spec.ProfileReference.Name)
 	if err != nil {
 		return fmt.Errorf("failed to get profile %s: %w", session.Spec.ProfileReference.Name, err)
 	}
 
-	pg := profileGame{
-		Game:    session.Spec.GameReference.Name,
-		Profile: session.Spec.ProfileReference.Name,
+	lobbyName := session.Spec.LobbyName
+	if lobbyName == "" {
+		lobbyName = c.statefulSetName(session)
+	}
+	lobby, err := c.LobbyClient.Get(ctx, lobbyName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get lobby %s for statefulset ownership: %w", lobbyName, err)
 	}
 
-	var owners []metav1.OwnerReference
-	var ownerApply []*metav1ac.OwnerReferenceApplyConfiguration
-	if sessions, ok := c.trackedSessions[pg]; ok {
-		for name := range sessions {
-			sess, err := c.SessionClient.Get(ctx, name, metav1.GetOptions{})
-			if err != nil {
-				if kerrors.IsNotFound(err) {
-					// Session is gone, clean it from tracking
-					klog.Warningf("Session %s/%s not found, skipping owner ref", session.Namespace, name)
-					continue
-				}
-				klog.Errorf("Failed to get session %s/%s: %s", session.Namespace, name, err)
-				continue
-			}
-
-			owner := metav1.OwnerReference{
-				APIVersion: direwolfv1alpha1.GroupVersion.String(),
-				Kind:       "Session",
-				Name:       name,
-				UID:        sess.UID,
-				Controller: new(true),
-			}
-			owners = append(owners, owner)
-			ownerApply = append(ownerApply, metav1ac.OwnerReference().
-				WithName(name).
-				WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
-				WithKind("Session").
-				WithUID(sess.UID).
-				WithController(true))
-		}
+	owners := []metav1.OwnerReference{
+		{
+			APIVersion:         direwolfv1alpha1.GroupVersion.String(),
+			Kind:               "Lobby",
+			Name:               lobby.Name,
+			UID:                lobby.UID,
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		},
+	}
+	ownerApply := []*metav1ac.OwnerReferenceApplyConfiguration{
+		metav1ac.OwnerReference().
+			WithName(lobby.Name).
+			WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
+			WithKind("Lobby").
+			WithUID(lobby.UID).
+			WithController(true).
+			WithBlockOwnerDeletion(true),
 	}
 
 	// If statefulset already exists, just skip
@@ -505,7 +536,6 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 		if existingStatefulSet.DeletionTimestamp != nil {
 			return fmt.Errorf("statefulset %s/%s is being deleted, will retry", session.Namespace, statefulSetName)
 		}
-
 		klog.Infof("StatefulSet %s/%s already exists, just updating metadata", session.Namespace, statefulSetName)
 		if _, err := c.K8sClient.AppsV1().StatefulSets(session.Namespace).Apply(
 			ctx,
@@ -530,44 +560,9 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 	if err != nil {
 		return fmt.Errorf("failed to get app: %w", err)
 	}
-	// Prepare environment variables for the wolf container
-	// commenting these out was the main reason nvidia stuff wasn't working.
-	// specifically the NVIDIA_VISIBLE_DEVICES
-	// I need a better method of injecting env vars / configs to the pod
-	// TODO better env var handling in DRA
-	wolfEnvVars := map[string]string{
-		"PUID":            "1000",
-		"PGID":            "1000",
-		"UNAME":           "ubuntu",
-		"XDG_RUNTIME_DIR": "/tmp/.X11-unix", //nolint
-		"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
-		// "HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
-		"WOLF_SOCKET_PATH": "/etc/wolf/wolf.sock",
-		// Keeping those for later
-		// "GST_VAAPI_ALL_DRIVERS":      "1",
-		// "GST_DEBUG":                  "2",
-		// "__GL_SYNC_TO_VBLANK":        "0",
-		// "NVIDIA_VISIBLE_DEVICES":     "all",
-		// "NVIDIA_DRIVER_CAPABILITIES": "all",
-		// "LIBVA_DRIVER_NAME":          "nvidia",
-		// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
-	}
-
-	// Check if runtime variables are defined in the App spec and override defaults
-	// TODO: Remove all of these
-	if app.Spec.WolfConfig.RuntimeVariables != nil {
-		runtimeVars := app.Spec.WolfConfig.RuntimeVariables
-		if runtimeVars.TimeZone != "" {
-			wolfEnvVars["TZ"] = runtimeVars.TimeZone
-		}
-		if runtimeVars.RenderNode != "" {
-			wolfEnvVars["WOLF_RENDER_NODE"] = runtimeVars.RenderNode
-		}
-	}
-
-	if session.Spec.Config.ClientIP != "" {
-		wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = session.Spec.Config.ClientIP
-	}
+	// TODO: add teardown timer
+	// terminationGracePeriodSeconds?
+	// Alternatively, tell moonlight to report session / lobby termination instead of pod termination
 	var podToCreate corev1.PodTemplateSpec
 	if len(app.Spec.Template.Spec.Containers) > 0 {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
@@ -581,27 +576,6 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 	podToCreate.Labels["app"] = "direwolf-worker" //nolint
 	podToCreate.Labels[direwolfv1alpha1.LabelApp] = session.Spec.GameReference.Name
 	podToCreate.Labels[direwolfv1alpha1.LabelProfile] = session.Spec.ProfileReference.Name
-
-	// Inject volume mounts into existing containers
-	for i := range podToCreate.Spec.Containers {
-		podToCreate.Spec.Containers[i].VolumeMounts = append(podToCreate.Spec.Containers[i].VolumeMounts,
-			corev1.VolumeMount{
-				Name:      "wolf-runtime", //nolint
-				MountPath: "/tmp/.X11-unix",
-			},
-			// corev1.VolumeMount{
-			// 	Name:      "wolf-data",
-			// 	MountPath: "/home/retro",
-			// 	SubPath:   "state/" + app.Name,
-			// },
-		)
-	}
-
-	// Prepare sidecar policies
-	var podHostIPC bool // Variable to track if HostIPC should be enabled for the pod
-
-	// Apply HostIPC setting to the pod spec if requested by any sidecar policy
-	podToCreate.Spec.HostIPC = podHostIPC
 
 	// Build VolumeClaimTemplates from app spec with Profile ownership for GC
 	var volumeClaimTemplates []corev1.PersistentVolumeClaim
@@ -630,23 +604,22 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 
 		volumeClaimTemplates = append(volumeClaimTemplates, claim)
 	}
-
-	// Assemble pod volumes
-	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
-		corev1.Volume{
-			Name: "wolf-cfg",
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
-			},
+	// Inject DRA ResourceClaim into pod template using the exact v0.36.3 field names
+	podToCreate.Spec.ResourceClaims = []corev1.PodResourceClaim{
+		{
+			Name:              "lobby",
+			ResourceClaimName: &claimName,
 		},
-		corev1.Volume{
-			Name: "wolf-runtime", //nolint
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
+	}
+	// Should this actually be included here?
+	for i := range podToCreate.Spec.Containers {
+		podToCreate.Spec.Containers[i].Resources.Claims = append(
+			podToCreate.Spec.Containers[i].Resources.Claims,
+			corev1.ResourceClaim{
+				Name: "lobby",
 			},
-		},
-	)
-
+		)
+	}
 	// Create StatefulSet scaled to 1 for this pod
 	statefulSet := appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
@@ -700,7 +673,15 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 	if err != nil {
 		return fmt.Errorf("failed to apply statefulset: %w", err)
 	}
-
+	// Apply the LobbyName into the session, for the dra to pick it up
+	if session.Spec.LobbyName == "" {
+		session.Spec.LobbyName = statefulSetName + "-0"
+		if _, err := c.SessionClient.Update(ctx, session, metav1.UpdateOptions{
+			FieldManager: "direwolf-session-controller",
+		}); err != nil {
+			return fmt.Errorf("failed to update session with LobbyName: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -876,4 +857,227 @@ func (c *SessionController) reconcileActiveStreams(
 	)
 
 	return nil
+}
+
+// discoverWolfDRAInfo lists all wolf.dra.io ResourceSlices, logs node and
+// device information, resolves node IPs, and correlates agent pods on that node.
+// TODO: add
+func (c *SessionController) discoverWolfDRAInfo(ctx context.Context) {
+	klog.Info("Discovering wolf.dra.io DRA agents...")
+
+	slices, err := c.K8sClient.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		klog.Errorf("Failed to list ResourceSlices: %v", err)
+		return
+	}
+
+	agentPods, err := c.K8sClient.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		LabelSelector: "app=wolf-agent",
+	})
+	if err != nil {
+		klog.Warningf("Failed to list wolf-agent pods: %v", err)
+	}
+	nodeToAgent := make(map[string]corev1.Pod)
+	for _, pod := range agentPods.Items {
+		if pod.Spec.NodeName != "" {
+			nodeToAgent[pod.Spec.NodeName] = pod
+		}
+	}
+
+	c.wolfDRAInfo = make(map[string]WolfDRAInfo)
+
+	found := false
+	for _, slice := range slices.Items {
+		if slice.Spec.Driver != "wolf.dra.io" {
+			continue
+		}
+		found = true
+
+		if slice.Spec.NodeName == nil {
+			continue
+		}
+		nodeName := *slice.Spec.NodeName
+
+		klog.Infof("=== Wolf DRA Agent ===")
+		klog.Infof("ResourceSlice: %s", slice.Name)
+		klog.Infof("Node:          %s", nodeName)
+		klog.Infof("Driver:        %s", slice.Spec.Driver)
+		klog.Infof("Pool:          %s (gen: %d, slices: %d)",
+			slice.Spec.Pool.Name,
+			slice.Spec.Pool.Generation,
+			slice.Spec.Pool.ResourceSliceCount,
+		)
+
+		for i, dev := range slice.Spec.Devices {
+			klog.Infof("Device[%d]:    %s", i, dev.Name)
+			klog.Infof("  Details:     %+v", dev)
+		}
+
+		info := WolfDRAInfo{
+			NodeName: nodeName,
+			PoolName: slice.Spec.Pool.Name,
+		}
+
+		node, err := c.K8sClient.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
+		if err != nil {
+			klog.Errorf("Failed to get node %s: %v", nodeName, err)
+		} else {
+			for _, addr := range node.Status.Addresses {
+				klog.Infof("Node Address [%s]: %s", addr.Type, addr.Address)
+				switch addr.Type {
+				case corev1.NodeInternalIP:
+					info.InternalIP = addr.Address
+				case corev1.NodeExternalIP:
+					info.ExternalIP = addr.Address
+				}
+			}
+		}
+
+		if agent, ok := nodeToAgent[nodeName]; ok {
+			info.AgentPodName = agent.Name
+			info.AgentPodNS = agent.Namespace
+			klog.Infof("Agent Pod:     %s/%s", agent.Namespace, agent.Name)
+			klog.Infof("  Pod IP:      %s", agent.Status.PodIP)
+			klog.Infof("  Host IP:     %s", agent.Status.HostIP)
+			klog.Infof("  Phase:       %s", agent.Status.Phase)
+		}
+
+		c.wolfDRAInfo[nodeName] = info
+	}
+
+	if !found {
+		klog.Warning("No wolf.dra.io ResourceSlices found in cluster")
+	}
+}
+
+// getSessionNodeFromClaim finds the ResourceClaim reserved for this session's
+// pod and returns the node name from the allocation result (pool) or nodeSelector.
+func (c *SessionController) getSessionNodeFromClaim(ctx context.Context, session *direwolfv1alpha1.Session) (string, error) {
+	statefulSetName := c.statefulSetName(session)
+	podName := statefulSetName + "-0"
+
+	claims, err := c.K8sClient.ResourceV1().ResourceClaims(session.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return "", fmt.Errorf("list resource claims: %w", err)
+	}
+
+	for _, claim := range claims.Items {
+		for _, ref := range claim.Status.ReservedFor {
+			if ref.Resource == "pods" && ref.Name == podName {
+				if claim.Status.Allocation != nil {
+					// wolf.dra.io uses the node name as the pool name
+					for _, res := range claim.Status.Allocation.Devices.Results {
+						if res.Driver == "wolf.dra.io" && res.Pool != "" {
+							return res.Pool, nil
+						}
+					}
+					// Fallback: nodeSelector matchFields
+					if claim.Status.Allocation.NodeSelector != nil {
+						for _, term := range claim.Status.Allocation.NodeSelector.NodeSelectorTerms {
+							for _, expr := range term.MatchFields {
+								if expr.Key == "metadata.name" && len(expr.Values) > 0 {
+									return expr.Values[0], nil
+								}
+							}
+						}
+					}
+				}
+				return "", fmt.Errorf("claim %s reserved for pod %s but allocation not ready", claim.Name, podName)
+			}
+		}
+	}
+
+	return "", fmt.Errorf("no resource claim reserved for pod %s", podName)
+}
+
+func (c *SessionController) reconcileResourceClaim(ctx context.Context, session *direwolfv1alpha1.Session) (string, error) {
+	claimName := c.statefulSetName(session) + "-lobby-claim"
+
+	lobbyName := session.Spec.LobbyName
+	if lobbyName == "" {
+		lobbyName = c.statefulSetName(session)
+	}
+	lobby, err := c.LobbyClient.Get(ctx, lobbyName, metav1.GetOptions{})
+	if err != nil {
+		return "", fmt.Errorf("get lobby %s for resource claim ownership: %w", lobbyName, err)
+	}
+
+	channelCount := session.Spec.Config.SurroundAudioFlags
+	if channelCount <= 0 {
+		channelCount = 2
+	}
+	// TODO: Make a struct for this in type.go for this
+	params := struct {
+		VideoSettings  wolfapi.LobbyVideoSettings `json:"video_settings"`
+		AudioSettings  wolfapi.LobbyAudioSettings `json:"audio_settings"`
+		ClientSettings wolfapi.ClientSettings     `json:"client_settings"`
+		MultiUser      bool                       `json:"multi_user"`
+	}{
+		VideoSettings: wolfapi.LobbyVideoSettings{
+			Width:       session.Spec.Config.VideoWidth,
+			Height:      session.Spec.Config.VideoHeight,
+			RefreshRate: session.Spec.Config.VideoRefreshRate,
+		},
+		AudioSettings: wolfapi.LobbyAudioSettings{
+			ChannelCount: channelCount,
+		},
+		// TODO: Figure out what to do with this
+		ClientSettings: wolfapi.ClientSettings{
+			HScrollAcceleration: 1,
+			MouseAcceleration:   1,
+			RunGID:              1000,
+			RunUID:              1000,
+			VScrollAcceleration: 1,
+		},
+		MultiUser: true,
+	}
+	rawParams, err := json.Marshal(params)
+	if err != nil {
+		return "", fmt.Errorf("marshal opaque params: %w", err)
+	}
+
+	_, err = c.K8sClient.ResourceV1().ResourceClaims(session.Namespace).Apply(
+		ctx,
+		resourcev1ac.ResourceClaim(claimName, session.Namespace).
+			WithLabels(map[string]string{
+				direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
+				direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
+			}).
+			WithOwnerReferences(metav1ac.OwnerReference().
+				WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
+				WithKind("Lobby").
+				WithName(lobby.Name).
+				WithUID(lobby.UID).
+				WithController(true).
+				WithBlockOwnerDeletion(true)).
+			WithSpec(resourcev1ac.ResourceClaimSpec().
+				WithDevices(resourcev1ac.DeviceClaim().
+					WithConfig(resourcev1ac.DeviceClaimConfiguration().
+						WithOpaque(resourcev1ac.OpaqueDeviceConfiguration().
+							WithDriver("wolf.dra.io").
+							WithParameters(runtime.RawExtension{Raw: rawParams})).
+						WithRequests("lobby")).
+					WithRequests(resourcev1ac.DeviceRequest().
+						WithName("lobby").
+						WithExactly(resourcev1ac.ExactDeviceRequest().
+							WithAllocationMode("ExactCount").
+							WithCount(1).
+							WithDeviceClassName("default-wolf").
+							WithCapacity(
+								resourcev1ac.CapacityRequirements().
+									WithRequests(map[resourceapi.QualifiedName]resource.Quantity{
+										"slots": resource.MustParse("1"),
+									}),
+							))))),
+		metav1.ApplyOptions{
+			FieldManager: "direwolf-session-controller",
+			Force:        true,
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("apply resource claim %s: %w", claimName, err)
+	}
+
+	klog.Infof("Applied ResourceClaim %s/%s for session %s", session.Namespace, claimName, session.Name)
+	return claimName, nil
 }
