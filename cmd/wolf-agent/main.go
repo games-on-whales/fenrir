@@ -100,7 +100,7 @@ func main() {
 	queueTimeout := time.Duration(queueTimeoutSec) * time.Second
 	driver, err := dra.NewDriver(
 		driverName, nodeName, socketsDir, wolfSockPath, cdiDir,
-		maxLobbies, queueTimeout, nil, cs,
+		maxLobbies, queueTimeout, nil, cs, dwClient,
 	)
 	if err != nil {
 		klog.Fatal("Failed to create driver: ", err)
@@ -148,7 +148,6 @@ func main() {
 	driver.SetSessionInformer(sessionInformer, sessionLister, sessionWorkqueue)
 	go factory.Start(ctx.Done())
 
-	go driver.RunClaimWatcher(ctx)
 	pluginDir := filepath.Join(kubeletplugin.KubeletPluginsDir, driverName)
 	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
 		klog.Fatal("Failed to create plugin directory: ", err)
@@ -175,6 +174,8 @@ func main() {
 			nodeName: {
 				Slices: []resourceslice.Slice{
 					{
+						// TODO: include more node identifiable information
+						// instead of having the direwolf operator figure it out
 						Devices: []resourceapi.Device{
 							{
 								Name:                     "lobby-pool",

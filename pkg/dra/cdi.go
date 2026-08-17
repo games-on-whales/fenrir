@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
@@ -149,4 +151,83 @@ func (g *CDIGenerator) DeleteCDISpecs(claimUID string) error {
 
 func sanitize(s string) string {
 	return strings.ReplaceAll(s, "/", "-")
+}
+
+// ListLobbySpecs reads all lobby-claim CDI files and returns recovered
+// WolfResourceState entries keyed by claim UID.
+func (g *CDIGenerator) ListLobbySpecs() map[string]*WolfResourceState {
+	out := make(map[string]*WolfResourceState)
+
+	files, err := os.ReadDir(g.cdiDir)
+	if err != nil {
+		return out
+	}
+
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+		if st := g.parseLobbySpec(file.Name()); st != nil {
+			out[st.ClaimUID] = st
+		}
+	}
+	return out
+}
+
+func (g *CDIGenerator) parseLobbySpec(filename string) *WolfResourceState {
+	data, err := os.ReadFile(filepath.Join(g.cdiDir, filename))
+	if err != nil {
+		return nil
+	}
+
+	var spec cdiSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil
+	}
+	if len(spec.Devices) == 0 {
+		return nil
+	}
+
+	dev := spec.Devices[0]
+	if !strings.HasPrefix(dev.Name, "lobby-claim-") {
+		return nil
+	}
+	claimUID := strings.TrimPrefix(dev.Name, "lobby-claim-")
+
+	var lobbyID, waylandDisplay, lobbyName, claimName, claimNS string
+	for _, env := range dev.ContainerEdits.Env {
+		switch {
+		case strings.HasPrefix(env, "WOLF_SESSION_ID="):
+			lobbyID = strings.TrimPrefix(env, "WOLF_SESSION_ID=")
+		case strings.HasPrefix(env, "WAYLAND_DISPLAY="):
+			waylandDisplay = strings.TrimPrefix(env, "WAYLAND_DISPLAY=")
+		case strings.HasPrefix(env, "WOLF_LOBBY_NAME="):
+			lobbyName = strings.TrimPrefix(env, "WOLF_LOBBY_NAME=")
+		case strings.HasPrefix(env, "CLAIM_NAME="):
+			claimName = strings.TrimPrefix(env, "CLAIM_NAME=")
+		case strings.HasPrefix(env, "NAMESPACE="):
+			claimNS = strings.TrimPrefix(env, "NAMESPACE=")
+		}
+	}
+
+	if lobbyID == "" || waylandDisplay == "" {
+		return nil
+	}
+
+	idxStr := strings.TrimPrefix(waylandDisplay, "wayland-")
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil {
+		return nil
+	}
+
+	return &WolfResourceState{
+		ClaimUID:          claimUID,
+		ClaimName:         claimName,
+		ClaimNamespace:    claimNS,
+		LobbyID:           lobbyID,
+		LobbyName:         lobbyName,
+		WaylandIndex:      idx,
+		WaylandSocketName: waylandDisplay,
+		CreatedAt:         time.Now(),
+	}
 }

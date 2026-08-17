@@ -29,6 +29,7 @@ type SessionState struct {
 	WaylandIndex  int
 	WaylandSocket string
 	CreatedAt     time.Time
+	JoinedLobby   bool
 }
 
 // State is a thread-safe in-memory registry keyed by claim UID.
