@@ -81,6 +81,7 @@ const (
 	StreamSessionEventType WolfEventType = "wolf::core::events::StreamSession"
 	VideoSessionEventType  WolfEventType = "wolf::core::events::VideoSession"
 	AudioSessionEventType  WolfEventType = "wolf::core::events::AudioSession"
+	CreateLobbyEventType   WolfEventType = "wolf::core::events::CreateLobbyEvent"
 )
 
 type PauseStreamEvent struct {
@@ -102,6 +103,9 @@ type VideoSessionEvent struct {
 
 type AudioSessionEvent struct {
 	SessionID string `json:"session_id"`
+}
+type CreateLobbyEvent struct {
+	ID string `json:"id"`
 }
 
 // Lobby types

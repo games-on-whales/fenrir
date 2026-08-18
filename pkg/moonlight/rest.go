@@ -229,6 +229,7 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// TODO: implement this instead of hard code it
+	// This could help in multi-node direwolf?
 	root := ServerInfoResponse{
 		Response: Response{
 			StatusCode: 200,

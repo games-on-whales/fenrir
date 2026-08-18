@@ -92,7 +92,7 @@ func main() {
 		gatewayClient.GatewayV1().TCPRoutes(*namespace),
 		gatewayClient.GatewayV1().UDPRoutes(*namespace),
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
-		direwolfClient.DirewolfV1alpha1().Lobbies(*namespace), // <-- add this
+		direwolfClient.DirewolfV1alpha1().Lobbies(*namespace),
 		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
 		generic.NewInformer[*direwolfv1alpha1.Profile](profileInformer),

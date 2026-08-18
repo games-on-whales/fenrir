@@ -43,7 +43,7 @@
           "type": "boolean"
         },
         "profileReference": {
-          "description": "Reference to the User who owns the lobby",
+          "description": "Reference to the User who owns the lobby\nShould I remove this? The lobby owner is the profile\nmeaning that we have a kubernetes native reference to the owner profile",
           "properties": {
             "name": {
               "default": "",

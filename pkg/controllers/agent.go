@@ -11,6 +11,8 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
+// TODO: Figure out what to do with this
+
 // Agent represents the controller that runs inside the Pod itself
 type Agent struct {
 	WolfClient wolfapi.Client
