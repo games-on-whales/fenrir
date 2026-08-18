@@ -203,11 +203,12 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 	if pairing := r.Context().Value(pairingContextKey{}); pairing != nil {
 		pairStatus = 1
 
+		// In pkg/moonlight/rest.go -> serverInfoHandler()
+
 		if profiles, ok := r.Context().Value(profilesContextKey{}).([]*direwolfv1alpha1.Profile); ok {
 			// Check pods for any of the available profiles
 			for _, profile := range profiles {
 				pods, err := s.PodLister.List(labels.SelectorFromSet(labels.Set{
-					// TODO use the const instead
 					direwolfv1alpha1.LabelProfile: profile.Name,
 				}))
 				if err != nil {
@@ -215,14 +216,22 @@ func (s *RESTServer) serverInfoHandler(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				if len(pods) > 0 {
-					serverStatus = "SUNSHINE_SERVER_BUSY"
-					currentApp, err := s.AppLister.Get(pods[0].Labels[direwolfv1alpha1.LabelApp])
-					if err != nil {
-						writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %w", err))
-						return
+				// Look for a pod that is NOT currently terminating
+				for _, pod := range pods {
+					if pod.DeletionTimestamp == nil {
+						// We found an actively running pod
+						serverStatus = "SUNSHINE_SERVER_BUSY"
+						currentApp, err := s.AppLister.Get(pod.Labels[direwolfv1alpha1.LabelApp])
+						if err != nil {
+							writeErrorResponse(w, 500, fmt.Errorf("failed to get app: %w", err))
+							return
+						}
+						currentGame = strconv.Itoa(currentApp.Spec.ID)
+						break
 					}
-					currentGame = strconv.Itoa(currentApp.Spec.ID)
+				}
+
+				if serverStatus == "SUNSHINE_SERVER_BUSY" {
 					break
 				}
 			}
@@ -466,69 +475,77 @@ func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// 2025/03/03 11:34:48 HTTP/2.0 GET /launch map[additionalStates:[1] appid:[firefox] localAudioPlayMode:[0] mode:[1920x1080x60] rikey:[773448F67992470C5C62848D361E1025] rikeyid:[1311662065] sops:[0] surroundAudioInfo:[196610] uniqueid:[0123456789ABCDEF]] 127.0.0.1:65314
+// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
 func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
-	clientIP := strings.Split(r.RemoteAddr, ":")[0]
+	s.launchOrResume(w, r, false)
+}
 
-	// 2025/03/03 11:34:48 HTTP/2.0 GET /launch map[additionalStates:[1] appid:[firefox] localAudioPlayMode:[0] mode:[1920x1080x60] rikey:[773448F67992470C5C62848D361E1025] rikeyid:[1311662065] sops:[0] surroundAudioInfo:[196610] uniqueid:[0123456789ABCDEF]] 127.0.0.1:65314
-	// 2025/03/03 11:34:48 &{GET /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 HTTP/2.0 2 0 map[Accept:[*/*] Accept-Encoding:[gzip, deflate, br] Accept-Language:[en-US,en;q=0.9] User-Agent:[Moonlight/1243 CFNetwork/1568.100.1 Darwin/24.0.0]] 0x14000296570 <nil> 0 [] false 127.0.0.1:47984 map[] <nil> map[] 127.0.0.1:65314 /launch?uniqueid=0123456789ABCDEF&appid=firefox&mode=1920x1080x60&additionalStates=1&sops=0&rikey=773448F67992470C5C62848D361E1025&rikeyid=1311662065&localAudioPlayMode=0&surroundAudioInfo=196610 0x1400016a540 <nil> /launch 0x140001ce0f0 0x14000186540 [] map[]}
-	appID := r.URL.Query().Get("appid")
+// "https://10.89.1.240:47984/resume?uniqueid=0123456789ABCDEF&uuid=d9de400f24f846478ec9e4ae8f8aeafd&appid=2&mode=2560x1440x60&additionalStates=1&sops=1&rikey=REDACTED&rikeyid=REDACTED&localAudioPlayMode=1&surroundAudioInfo=196610&remoteControllersBitmap=0&gcmap=0&gcpersist=0&corever=1"
+
+func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
+	s.launchOrResume(w, r, true)
+}
+
+type launchParams struct {
+	appID, rikey, rikeyID, clientIP           string
+	width, height, refreshRate, surroundFlags int
+}
+
+func parseLaunchParams(r *http.Request) (launchParams, error) {
+	p := launchParams{
+		appID:    r.URL.Query().Get("appid"),
+		rikey:    r.URL.Query().Get("rikey"),
+		rikeyID:  r.URL.Query().Get("rikeyid"),
+		clientIP: strings.Split(r.RemoteAddr, ":")[0],
+	}
+	if p.appID == "" {
+		return p, errors.New("appid required")
+	}
+	if p.rikey == "" {
+		return p, errors.New("rikey required")
+	}
+	if p.rikeyID == "" {
+		return p, errors.New("rikeyid required")
+	}
+
 	mode := r.URL.Query().Get("mode")
-	rikey := r.URL.Query().Get("rikey")
-	rikeyID := r.URL.Query().Get("rikeyid")
-	surroundAudioInfo := r.URL.Query().Get("surroundAudioInfo")
-
-	if appID == "" {
-		writeErrorResponse(w, 400, errors.New("appid required"))
-		return
-	}
-
-	if rikey == "" {
-		writeErrorResponse(w, 400, errors.New("rikey required"))
-		return
-	}
-
-	if rikeyID == "" {
-		writeErrorResponse(w, 400, errors.New("rikeyid required"))
-		return
-	}
-
 	if mode == "" {
 		mode = "1920x1080x60"
 	}
-
 	splitMode := strings.Split(mode, "x")
 	if len(splitMode) != 3 {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
-		return
+		return p, fmt.Errorf("invalid mode: %s", mode)
+	}
+	if p.width, _ = strconv.Atoi(splitMode[0]); p.width == 0 {
+		return p, fmt.Errorf("invalid mode: %s", mode)
+	}
+	if p.height, _ = strconv.Atoi(splitMode[1]); p.height == 0 {
+		return p, fmt.Errorf("invalid mode: %s", mode)
+	}
+	if p.refreshRate, _ = strconv.Atoi(splitMode[2]); p.refreshRate == 0 {
+		return p, fmt.Errorf("invalid mode: %s", mode)
 	}
 
-	width, err := strconv.Atoi(splitMode[0])
-	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
-		return
-	}
-
-	height, err := strconv.Atoi(splitMode[1])
-	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
-	}
-
-	refreshRate, err := strconv.Atoi(splitMode[2])
-	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid mode: %s", mode))
-	}
-
+	surroundAudioInfo := r.URL.Query().Get("surroundAudioInfo")
 	if surroundAudioInfo == "" {
 		surroundAudioInfo = "196610"
 	}
+	var err error
+	if p.surroundFlags, err = strconv.Atoi(surroundAudioInfo); err != nil {
+		return p, fmt.Errorf("invalid surroundAudioInfo: %s", surroundAudioInfo)
+	}
+	return p, nil
+}
 
-	surroundFlags, err := strconv.Atoi(surroundAudioInfo)
+func (s *RESTServer) launchOrResume(w http.ResponseWriter, r *http.Request, isResume bool) {
+	params, err := parseLaunchParams(r)
 	if err != nil {
-		writeErrorResponse(w, 400, fmt.Errorf("invalid surroundAudioInfo: %s", surroundAudioInfo))
+		writeErrorResponse(w, 400, err)
 		return
 	}
 
-	app, err := s.getAppByID(appID)
+	app, err := s.getAppByID(params.appID)
 	if err != nil {
 		writeErrorResponse(w, 404, fmt.Errorf("app not found: %w", err))
 		return
@@ -539,7 +556,6 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "profiles not found or invalid type in context", http.StatusInternalServerError)
 		return
 	}
-
 	pairing, ok := r.Context().Value(pairingContextKey{}).(*direwolfv1alpha1.Pairing)
 	if !ok || pairing == nil {
 		http.Error(w, "pairing not found or invalid type in context", http.StatusInternalServerError)
@@ -559,7 +575,6 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
 	if targetProfile == nil {
 		writeErrorResponse(w, 403, fmt.Errorf("no available profile contains app %s", app.Name))
 		return
@@ -567,147 +582,152 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	// Determine default lobby name for this profile+app
 	lobbyName := fmt.Sprintf("%s-%s", targetProfile.Name, app.Name)
 
-	// Ensure lobby exists; create it if missing
-	lobby, err := s.LobbyClient.Get(r.Context(), lobbyName, metav1.GetOptions{})
-	if err != nil {
-		if !kerrors.IsNotFound(err) {
-			writeErrorResponse(w, 500, fmt.Errorf("failed to check lobby: %w", err))
-			return
-		}
-		channels := surroundFlags
-		if channels <= 0 {
-			channels = 2
-		}
-		lobby = &direwolfv1alpha1.Lobby{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      lobbyName,
-				Namespace: pairing.Namespace,
-				Labels: map[string]string{
-					direwolfv1alpha1.LabelApp:     app.Name,
-					direwolfv1alpha1.LabelProfile: targetProfile.Name,
-				},
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion:         direwolfv1alpha1.GroupVersion.String(),
-						Kind:               "Profile",
-						Name:               targetProfile.Name,
-						UID:                targetProfile.UID,
-						Controller:         ptr.To(true),
-						BlockOwnerDeletion: ptr.To(true),
+	// Launch only: ensure the lobby exists before tearing down old sessions.
+	if !isResume {
+		if _, err := s.LobbyClient.Get(r.Context(), lobbyName, metav1.GetOptions{}); err != nil {
+			if !kerrors.IsNotFound(err) {
+				writeErrorResponse(w, 500, fmt.Errorf("failed to check lobby: %w", err))
+				return
+			}
+			channels := params.surroundFlags
+			if channels <= 0 {
+				channels = 2
+			}
+			lobby := &direwolfv1alpha1.Lobby{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      lobbyName,
+					Namespace: pairing.Namespace,
+					Labels: map[string]string{
+						direwolfv1alpha1.LabelApp:     app.Name,
+						direwolfv1alpha1.LabelProfile: targetProfile.Name,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         direwolfv1alpha1.GroupVersion.String(),
+							Kind:               "Profile",
+							Name:               targetProfile.Name,
+							UID:                targetProfile.UID,
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
+						},
 					},
 				},
-			},
-			Spec: direwolfv1alpha1.LobbySpec{
-				AppReference:     corev1.LocalObjectReference{Name: app.Name},
-				ProfileReference: corev1.LocalObjectReference{Name: targetProfile.Name},
-				VideoSettings: direwolfv1alpha1.LobbyVideoSettings{
-					Width: width, Height: height, RefreshRate: refreshRate,
+				Spec: direwolfv1alpha1.LobbySpec{
+					AppReference:     corev1.LocalObjectReference{Name: app.Name},
+					ProfileReference: corev1.LocalObjectReference{Name: targetProfile.Name},
+					VideoSettings: direwolfv1alpha1.LobbyVideoSettings{
+						Width:       params.width,
+						Height:      params.height,
+						RefreshRate: params.refreshRate,
+					},
+					AudioSettings: direwolfv1alpha1.LobbyAudioSettings{
+						ChannelCount: channels,
+					},
+					MultiUser:              true,
+					StopWhenEveryoneLeaves: false,
 				},
-				AudioSettings: direwolfv1alpha1.LobbyAudioSettings{
-					ChannelCount: channels,
-				},
-				MultiUser:              true,
-				StopWhenEveryoneLeaves: false,
-			},
-		}
-		lobby, err = s.LobbyClient.Create(r.Context(), lobby, metav1.CreateOptions{})
-		if err != nil {
-			writeErrorResponse(w, 500, fmt.Errorf("failed to create lobby: %w", err))
-			return
+			}
+			if _, err := s.LobbyClient.Create(r.Context(), lobby, metav1.CreateOptions{}); err != nil {
+				writeErrorResponse(w, 500, fmt.Errorf("failed to create lobby: %w", err))
+				return
+			}
 		}
 	}
 
-	// Existing session teardown before launching
-	if err := s.stopSessionsForProfile(r.Context(), targetProfile, false); err != nil && !kerrors.IsNotFound(err) {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %w", err))
-		return
-	}
-	//!TOOD: May want to wait here, since we need the Service to stop pointing
-	// at the old pod. It is very likely to happen before operator syncs and
-	// can create session, but perhaps should still check after operator returns
-	// the session URL.
+	// Existing session teardown before launching or resuming.
 	if err := s.stopSessionsForProfile(r.Context(), targetProfile, false); err != nil && !kerrors.IsNotFound(err) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %w", err))
 		return
 	}
 
-	klog.Infof("Launching app %s for profile %s", app.Name, targetProfile.Name)
-	session, err := s.SessionClient.Create(
-		r.Context(),
-		&direwolfv1alpha1.Session{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: fmt.Sprintf("%s-%s-", targetProfile.Name, app.Name),
-				Namespace:    pairing.Namespace,
-				Labels: map[string]string{
-					"direwolf":                    "true",
-					direwolfv1alpha1.LabelApp:     app.Name,
-					direwolfv1alpha1.LabelProfile: targetProfile.Name,
-				},
-				Annotations: map[string]string{
-					direwolfv1alpha1.LabelPairing: pairing.Name,
-				},
-				OwnerReferences: []metav1.OwnerReference{
-					{
-						APIVersion:         direwolfv1alpha1.GroupVersion.String(),
-						Kind:               "Profile",
-						Name:               targetProfile.Name,
-						UID:                targetProfile.UID,
-						Controller:         ptr.To(true),
-						BlockOwnerDeletion: ptr.To(true),
-					},
-				},
+	fieldManager := "direwolf-launch"
+	if isResume {
+		fieldManager = "direwolf-resume"
+		klog.Infof("Resuming app %s for profile %s in lobby %s", app.Name, targetProfile.Name, lobbyName)
+	} else {
+		klog.Infof("Launching app %s for profile %s", app.Name, targetProfile.Name)
+	}
+
+	session := &direwolfv1alpha1.Session{
+		ObjectMeta: metav1.ObjectMeta{
+			GenerateName: fmt.Sprintf("%s-%s-", targetProfile.Name, app.Name),
+			Namespace:    pairing.Namespace,
+			Labels: map[string]string{
+				"direwolf":                    "true",
+				direwolfv1alpha1.LabelApp:     app.Name,
+				direwolfv1alpha1.LabelProfile: targetProfile.Name,
 			},
-			Spec: direwolfv1alpha1.SessionSpec{
-				GameReference: direwolfv1alpha1.GameReference{
-					Name: app.Name,
-				},
-				PairingReference: direwolfv1alpha1.PairingReference{
-					Name: pairing.Name,
-				},
-				ProfileReference: direwolfv1alpha1.ProfileReference{
-					Name: targetProfile.Name,
-				},
-				//!TODO: Unused. v1alpha2 Gateway types are not widely supported
-				GatewayReference: direwolfv1alpha1.GatewayReference{
-					Name:      "unused",
-					Namespace: "unused",
-				},
-				Config: direwolfv1alpha1.SessionInfo{
-					ClientIP:           clientIP,
-					AESIV:              rikeyID,
-					AESKey:             rikey,
-					SurroundAudioFlags: surroundFlags,
-					VideoWidth:         width,
-					VideoHeight:        height,
-					VideoRefreshRate:   refreshRate,
+			Annotations: map[string]string{
+				direwolfv1alpha1.LabelPairing: pairing.Name,
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				{
+					APIVersion:         direwolfv1alpha1.GroupVersion.String(),
+					Kind:               "Profile",
+					Name:               targetProfile.Name,
+					UID:                targetProfile.UID,
+					Controller:         ptr.To(true),
+					BlockOwnerDeletion: ptr.To(true),
 				},
 			},
 		},
-		metav1.CreateOptions{
-			FieldManager: "direwolf-launch",
+		Spec: direwolfv1alpha1.SessionSpec{
+			GameReference: direwolfv1alpha1.GameReference{
+				Name: app.Name,
+			},
+			PairingReference: direwolfv1alpha1.PairingReference{
+				Name: pairing.Name,
+			},
+			ProfileReference: direwolfv1alpha1.ProfileReference{
+				Name: targetProfile.Name,
+			},
+			//!TODO: Unused. v1alpha2 Gateway types are not widely supported
+			GatewayReference: direwolfv1alpha1.GatewayReference{
+				Name:      "unused",
+				Namespace: "unused",
+			},
+			Config: direwolfv1alpha1.SessionInfo{
+				ClientIP:           params.clientIP,
+				AESIV:              params.rikeyID,
+				AESKey:             params.rikey,
+				SurroundAudioFlags: params.surroundFlags,
+				VideoWidth:         params.width,
+				VideoHeight:        params.height,
+				VideoRefreshRate:   params.refreshRate,
+			},
 		},
-	)
+	}
+	if isResume {
+		session.Spec.LobbyName = lobbyName + "-0"
+	}
+
+	session, err = s.SessionClient.Create(r.Context(), session, metav1.CreateOptions{
+		FieldManager: fieldManager,
+	})
 	if err != nil {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to create session: %w", err))
 		return
 	}
 
-	// Wait for session to be created by the direwolf controller
+	// 3. Wait for session to be processed by the direwolf controller and return URL
 	var streamURL string
 	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 25*time.Second, true, func(ctx context.Context) (bool, error) {
-		session, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
+		sess, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, fmt.Errorf("failed to get sessions: %w", err)
 		}
-
-		if session.Status.StreamURL == "" {
+		if sess.Status.StreamURL == "" {
 			return false, nil
 		}
-		streamURL = session.Status.StreamURL
+		streamURL = sess.Status.StreamURL
 		return true, nil
 	})
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %w", err))
+		verb := "launch"
+		if isResume {
+			verb = "resume"
+		}
+		writeErrorResponse(w, 500, fmt.Errorf("failed to %s app: %w", verb, err))
 		return
 	}
 
@@ -718,13 +738,6 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		RTSPSessionURL: streamURL,
 		GameSession:    1,
 	})
-}
-
-// TODO: SOON
-func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: Wolf API current cannot support a "resume" to reuse the existing
-	// display/controllers. So we relaunch instead :(
-	s.launchHandler(w, r)
 }
 
 // CancelHandler checks if the lobby owner cancels, then it'll delete the session + lobby
@@ -754,7 +767,6 @@ func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// 2. Delete all lobbies where this profile is the controller owner
-		// (i.e. the primary session is gone, so tear down the lobby and its guests)
 		lobbies, err := s.LobbyClient.List(r.Context(), metav1.ListOptions{
 			LabelSelector: labels.SelectorFromSet(labels.Set{
 				direwolfv1alpha1.LabelProfile: profile.Name,
@@ -783,6 +795,32 @@ func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 				klog.Infof("Deleted lobby %s/%s (primary session cancelled)", lobby.Namespace, lobby.Name)
 			}
 		}
+	}
+
+	// 3. WAIT for pods to actually be cleaned up before returning success.
+	// This ensures /serverinfo reports SUNSHINE_SERVER_FREE when Moonlight
+	// checks it immediately after /cancel returns.
+	err := wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, 15*time.Second, true,
+		func(_ context.Context) (bool, error) {
+			pods, err := s.PodLister.List(labels.Everything())
+			if err != nil {
+				return false, fmt.Errorf("failed to list pods: %w", err)
+			}
+			// Check if any pod belongs to any of the user's profiles
+			for _, pod := range pods {
+				for _, profile := range profiles {
+					if pod.Labels[direwolfv1alpha1.LabelProfile] == profile.Name {
+						return false, nil // Pod still exists
+					}
+				}
+			}
+			return true, nil // All pods cleaned up
+		},
+	)
+	if err != nil {
+		klog.Errorf("Timed out waiting for pod cleanup after cancel: %v", err)
+		// Don't fail the request — the deletion was issued, cleanup will
+		// eventually happen. But log it for debugging.
 	}
 
 	if anyErr {
