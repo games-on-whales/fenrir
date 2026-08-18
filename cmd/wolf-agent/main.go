@@ -38,7 +38,11 @@ func main() {
 		klog.Fatal("NODE_NAME environment variable is required")
 	}
 	podUID := os.Getenv("POD_UID")
-
+	podName := os.Getenv("POD_NAME")
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	if podName == "" || podNamespace == "" {
+		klog.Warning("POD_NAME or POD_NAMESPACE not set; ResourceSlice will not carry agent pod info")
+	}
 	socketsDir := getEnv("SOCKETS_DIR", "/var/run/wolf-sockets")
 	wolfSockPath := getEnv("WOLF_SOCKET_PATH", "/var/run/wolf.sock")
 	cdiDir := getEnv("CDI_DIR", "/var/run/cdi")
@@ -167,6 +171,10 @@ func main() {
 	if err != nil {
 		klog.Fatal("Failed to start kubelet plugin: ", err)
 	}
+	internalIP, externalIP := driver.GetNodeIPs(ctx)
+	klog.InfoS("Resolved node IPs for ResourceSlice",
+		"internalIP", internalIP, "externalIP", externalIP,
+		"agentPod", podNamespace+"/"+podName)
 
 	// ---- consumable capacity pool ----
 	driverResources := resourceslice.DriverResources{
@@ -184,7 +192,11 @@ func main() {
 									"slots": {Value: resource.MustParse(strconv.Itoa(maxLobbies))},
 								},
 								Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
-									"wolf.dra.io/type": {StringValue: new("lobby")},
+									"wolf.dra.io/type":              {StringValue: new("lobby")},
+									"wolf.dra.io/nodeInternalIP":    {StringValue: new(internalIP)},
+									"wolf.dra.io/nodeExternalIP":    {StringValue: new(externalIP)},
+									"wolf.dra.io/agentPodName":      {StringValue: new(podName)},
+									"wolf.dra.io/agentPodNamespace": {StringValue: new(podNamespace)},
 								},
 							},
 						},

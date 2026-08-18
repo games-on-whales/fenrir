@@ -74,6 +74,8 @@ type SessionStatus struct {
 
 	StatefulSetName string `json:"statefulSetName,omitempty"`
 	ServiceName     string `json:"serviceName,omitempty"`
+	NodeName        string `json:"nodeName,omitempty"`
+	StreamStarted   bool   `json:"streamStarted,omitempty"`
 }
 
 // SessionList is a list containing the sessions

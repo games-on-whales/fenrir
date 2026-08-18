@@ -188,6 +188,8 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              nodeName:
+                type: string
               ports:
                 description: The ports allocated to the session on the shared gateway.
                 properties:
@@ -208,6 +210,8 @@ spec:
                 type: string
               statefulSetName:
                 type: string
+              streamStarted:
+                type: boolean
               streamURL:
                 type: string
               wolfSessionID:

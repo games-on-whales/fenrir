@@ -47,11 +47,12 @@ type Driver struct {
 
 	wolfClient wolfapi.Client
 
-	socketMu     sync.Mutex // protects socket allocation + lobby session ops
-	nodeIPMu     sync.Mutex
-	cachedNodeIP string
-	queueTimeout time.Duration
-	extraEnv     map[string]string
+	socketMu         sync.Mutex // protects socket allocation + lobby session ops
+	nodeIPMu         sync.Mutex
+	cachedInternalIP string
+	cachedExternalIP string
+	queueTimeout     time.Duration
+	extraEnv         map[string]string
 
 	cancelCtx context.CancelCauseFunc
 
@@ -576,32 +577,29 @@ func (d *Driver) patchDeviceStatus(
 
 // Session CRD event handlers
 
-// getNodeIP returns this node's InternalIP, falling back to ExternalIP.
-func (d *Driver) getNodeIP(ctx context.Context) string {
+// GetNodeIPs returns this node's InternalIP and ExternalIP, cached after
+// the first lookup. Exposed so the agent can publish them on the
+// ResourceSlice and the session controller can read them from there.
+func (d *Driver) GetNodeIPs(ctx context.Context) (internal, external string) {
 	d.nodeIPMu.Lock()
 	defer d.nodeIPMu.Unlock()
-	if d.cachedNodeIP != "" {
-		return d.cachedNodeIP
-	}
 
-	node, err := d.kubeClient.CoreV1().Nodes().Get(ctx, d.nodeName, metav1.GetOptions{})
-	if err != nil {
-		klog.Warningf("Failed to get node %s for RTSPFakeIP: %v", d.nodeName, err)
-		return ""
-	}
-	for _, addr := range node.Status.Addresses {
-		if addr.Type == corev1.NodeInternalIP {
-			d.cachedNodeIP = addr.Address
-			return d.cachedNodeIP
+	if d.cachedInternalIP == "" && d.cachedExternalIP == "" {
+		node, err := d.kubeClient.CoreV1().Nodes().Get(ctx, d.nodeName, metav1.GetOptions{})
+		if err != nil {
+			klog.Warningf("Failed to get node %s for IP discovery: %v", d.nodeName, err)
+			return "", ""
+		}
+		for _, addr := range node.Status.Addresses {
+			switch addr.Type {
+			case corev1.NodeInternalIP:
+				d.cachedInternalIP = addr.Address
+			case corev1.NodeExternalIP:
+				d.cachedExternalIP = addr.Address
+			}
 		}
 	}
-	for _, addr := range node.Status.Addresses {
-		if addr.Type == corev1.NodeExternalIP {
-			d.cachedNodeIP = addr.Address
-			return d.cachedNodeIP
-		}
-	}
-	return ""
+	return d.cachedInternalIP, d.cachedExternalIP
 }
 
 // buildWolfSession converts the Session CRD config into a wolfapi.Session.
@@ -659,7 +657,8 @@ func (d *Driver) addSessionToLobby(ctx context.Context, claimUID string, session
 	}
 
 	// Resolve the node IP so RTSPFakeIP matches what Moonlight connects to.
-	rtspFakeIP := d.getNodeIP(ctx)
+	internalIP, _ := d.GetNodeIPs(ctx)
+	rtspFakeIP := internalIP
 	if rtspFakeIP == "" {
 		rtspFakeIP = session.Spec.Config.ClientIP
 		if rtspFakeIP == "" {
