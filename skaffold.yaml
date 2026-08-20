@@ -57,7 +57,7 @@ build:
             dest: .
 ## To prevent skaffold from copying into the non active profile
 profiles:
-  - name: full
+  - name: single
     patches:
       - op: remove
         path: /manifests/rawYaml/2
