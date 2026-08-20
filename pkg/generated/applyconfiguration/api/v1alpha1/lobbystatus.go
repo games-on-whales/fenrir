@@ -34,8 +34,12 @@ type LobbyStatusApplyConfiguration struct {
 	LobbyNode       *string `json:"lobbyNode,omitempty"`
 	StatefulSetName *string `json:"statefulSetName,omitempty"`
 	ServiceName     *string `json:"serviceName,omitempty"`
-	// The ports allocated to the lobby on the shared gateway.
-	Ports *SessionPortsApplyConfiguration `json:"ports,omitempty"`
+	// NodeName is the Kubernetes node the lobby pod was scheduled to.
+	NodeName *string `json:"nodeName,omitempty"`
+	// PodName is the actual StatefulSet pod (e.g. "profile-app-0").
+	PodName *string `json:"podName,omitempty"`
+	// StatefulSetReady is true when the lobby's pod is running and ready.
+	StatefulSetReady *bool `json:"statefulSetReady,omitempty"`
 }
 
 // LobbyStatusApplyConfiguration constructs a declarative configuration of the LobbyStatus type for use with
@@ -97,10 +101,26 @@ func (b *LobbyStatusApplyConfiguration) WithServiceName(value string) *LobbyStat
 	return b
 }
 
-// WithPorts sets the Ports field in the declarative configuration to the given value
+// WithNodeName sets the NodeName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Ports field is set to the value of the last call.
-func (b *LobbyStatusApplyConfiguration) WithPorts(value *SessionPortsApplyConfiguration) *LobbyStatusApplyConfiguration {
-	b.Ports = value
+// If called multiple times, the NodeName field is set to the value of the last call.
+func (b *LobbyStatusApplyConfiguration) WithNodeName(value string) *LobbyStatusApplyConfiguration {
+	b.NodeName = &value
+	return b
+}
+
+// WithPodName sets the PodName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PodName field is set to the value of the last call.
+func (b *LobbyStatusApplyConfiguration) WithPodName(value string) *LobbyStatusApplyConfiguration {
+	b.PodName = &value
+	return b
+}
+
+// WithStatefulSetReady sets the StatefulSetReady field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StatefulSetReady field is set to the value of the last call.
+func (b *LobbyStatusApplyConfiguration) WithStatefulSetReady(value bool) *LobbyStatusApplyConfiguration {
+	b.StatefulSetReady = &value
 	return b
 }

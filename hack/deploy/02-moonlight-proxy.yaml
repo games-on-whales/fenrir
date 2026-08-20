@@ -1,4 +1,6 @@
 ---
+# TODO: FIgure out a better way for ip address handling
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,6 +14,7 @@ metadata:
     "metallb.universe.tf/allow-shared-ip": "direwolf"
 spec:
   type: LoadBalancer
+  loadBalancerIP: 10.89.1.240
   selector:
     app: direwolf
     component: moonlight-proxy
@@ -117,7 +120,7 @@ rules:
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["direwolf.games-on-whales.github.io"]
-  resources: ["pairings", "sessions"]
+  resources: ["pairings", "sessions", "lobbies"]
   verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

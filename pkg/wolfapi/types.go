@@ -82,6 +82,7 @@ const (
 	VideoSessionEventType  WolfEventType = "wolf::core::events::VideoSession"
 	AudioSessionEventType  WolfEventType = "wolf::core::events::AudioSession"
 	CreateLobbyEventType   WolfEventType = "wolf::core::events::CreateLobbyEvent"
+	LeaveLobbyEvent        WolfEventType = "wolf::core::events::LeaveLobbyEvent"
 )
 
 type PauseStreamEvent struct {

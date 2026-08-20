@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
@@ -607,8 +606,8 @@ func (s *RESTServer) launchOrResume(w http.ResponseWriter, r *http.Request, isRe
 							Kind:               "Profile",
 							Name:               targetProfile.Name,
 							UID:                targetProfile.UID,
-							Controller:         ptr.To(true),
-							BlockOwnerDeletion: ptr.To(true),
+							Controller:         new(true),
+							BlockOwnerDeletion: new(true),
 						},
 					},
 				},
@@ -666,8 +665,8 @@ func (s *RESTServer) launchOrResume(w http.ResponseWriter, r *http.Request, isRe
 					Kind:               "Profile",
 					Name:               targetProfile.Name,
 					UID:                targetProfile.UID,
-					Controller:         ptr.To(true),
-					BlockOwnerDeletion: ptr.To(true),
+					Controller:         new(true),
+					BlockOwnerDeletion: new(true),
 				},
 			},
 		},

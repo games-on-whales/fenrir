@@ -57,6 +57,10 @@ build:
             dest: .
 ## To prevent skaffold from copying into the non active profile
 profiles:
+  - name: full
+    patches:
+      - op: remove
+        path: /manifests/rawYaml/2
   - name: operator
     patches:
       - op: remove
@@ -74,6 +78,8 @@ profiles:
     patches:
       - op: remove
         path: /build/artifacts/2
+      - op: remove
+        path: /manifests/rawYaml/2
       - op: remove
         path: /manifests/rawYaml/2
 # This should be launched from a separate instance, since it requires rebuilding everytime

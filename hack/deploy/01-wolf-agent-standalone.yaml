@@ -5,6 +5,8 @@ metadata:
   name: wolf-dra
   namespace: direwolf-dev
 ---
+# TODO: Figure out the minimum viable permissions
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -21,6 +23,9 @@ rules:
   - apiGroups: ["direwolf.games-on-whales.github.io"]
     resources: ["sessions"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["direwolf.games-on-whales.github.io"]
+    resources: ["sessions/status"]
+    verbs: ["update", "patch"]
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceclaims/status"]
     verbs: ["patch", "update"]
@@ -52,20 +57,24 @@ metadata:
   namespace: direwolf-dev
   labels:
     app: wolf-agent
+  annotations:
+    "lbipam.cilium.io/sharing-key": "direwolf"
+    "metallb.universe.tf/allow-shared-ip": "direwolf"
 spec:
   type: LoadBalancer
+  loadBalancerIP: 10.89.1.240
   selector:
     app: "wolf-agent-dev"
   ports:
-    - name: https
-      protocol: TCP
-      port: 47984
-    - name: http
-      protocol: TCP
-      port: 47989
     - name: rtsp
       protocol: TCP
       port: 48010
+    - name: rtsp-2
+      protocol: UDP
+      port: 48010
+    - name: idk
+      protocol: UDP
+      port: 48000
     - name: control
       protocol: UDP
       port: 47999
@@ -157,8 +166,8 @@ spec:
           value: "10"
         - name: QUEUE_TIMEOUT_SECONDS
           value: "30"
-        - name: WOLF_DRA_ENABLE_SSE
-          value: "false"
+        # - name: WOLF_DRA_ENABLE_SSE
+        #   value: "true"
         - name: TLS_CERT
           value: /etc/wolf/cfg/server.crt
         - name: TLS_KEY
@@ -186,24 +195,62 @@ spec:
       - image: ghcr.io/games-on-whales/wolf:sha-d6d41de
         name: wolf
         imagePullPolicy: IfNotPresent
+        ports:
+          - name: https
+            protocol: TCP
+            containerPort: 47984
+            hostPort: 47984
+          - name: http
+            protocol: TCP
+            containerPort: 47989
+            hostPort: 47989
+          - name: rtsp
+            containerPort: 48010
+            hostPort: 48010
+            protocol: TCP
+          - name: idc
+            containerPort: 48010
+            hostPort: 48010
+            protocol: UDP
+          - name: idk
+            containerPort: 48000
+            hostPort: 48000
+            protocol: UDP
+          - name: control
+            containerPort: 47999
+            hostPort: 47999
+            protocol: UDP
+          - name: videortp
+            containerPort: 48100
+            hostPort: 48100
+            protocol: UDP
+          - name: audiortp
+            containerPort: 48200
+            hostPort: 48200
+            protocol: UDP
         env:
         - name: WOLF_RENDER_NODE
           value: /dev/dri/renderD128
         # I remember this being important but I do not remember why
         # will rediscover this later.
-        - name: WOLF_STREAM_CLIENT_IP
-          value: 10.244.1.1
+        # This got removed from wolf
+        # - name: WOLF_STREAM_CLIENT_IP
+        #   value: "10.89.1.1"
         # This is where the wayland & pulseaudio sockets will be created
         - name: XDG_RUNTIME_DIR
           value: /var/run/wolf-sockets
+        # - name: WOLF_LOG_LEVEL
+        #   value: DEBUG
+        # - name: RUST_LOG
+        #   value: INFO
         - name: TZ
           value: UTC
         - name: WOLF_SOCKET_PATH
           value: /etc/wolf/wolf.sock
-        - name: WOLF_USE_RTSP_FAKE_IP
-          value: "TRUE"
-        - name: RTSP_FAKE_IP
-          value: "10.89.1.240"
+        # - name: WOLF_USE_RTSP_FAKE_IP
+        #   value: "TRUE"
+        # - name: RTSP_FAKE_IP
+        #   value: "10.244.1.1"
         volumeMounts:
         - name: sockets-dir
           mountPath: /var/run/wolf-sockets

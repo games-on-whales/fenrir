@@ -21,6 +21,9 @@ rules:
   - apiGroups: ["direwolf.games-on-whales.github.io"]
     resources: ["sessions"]
     verbs: ["get", "list", "watch"]
+  - apiGroups: ["direwolf.games-on-whales.github.io"]
+    resources: ["sessions/status"]
+    verbs: ["update", "patch"]
   - apiGroups: ["resource.k8s.io"]
     resources: ["resourceclaims/status"]
     verbs: ["patch", "update"]
@@ -44,37 +47,37 @@ subjects:
   - kind: ServiceAccount
     name: wolf-dra
     namespace: direwolf-dev
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: wolf-agent
-  namespace: direwolf-dev
-  labels:
-    app: wolf-agent
-spec:
-  type: LoadBalancer
-  selector:
-    app: "wolf-agent-dev"
-  ports:
-    - name: https
-      protocol: TCP
-      port: 47984
-    - name: http
-      protocol: TCP
-      port: 47989
-    - name: rtsp
-      protocol: TCP
-      port: 48010
-    - name: control
-      protocol: UDP
-      port: 47999
-    - name: videortp
-      protocol: UDP
-      port: 48100
-    - name: audiortp
-      protocol: UDP
-      port: 48200
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: wolf-agent
+#   namespace: direwolf-dev
+#   labels:
+#     app: wolf-agent
+# spec:
+#   type: LoadBalancer
+#   selector:
+#     app: "wolf-agent-dev"
+#   ports:
+#     - name: https
+#       protocol: TCP
+#       port: 47984
+#     - name: http
+#       protocol: TCP
+#       port: 47989
+#     - name: rtsp
+#       protocol: TCP
+#       port: 48010
+#     - name: control
+#       protocol: UDP
+#       port: 47999
+#     - name: videortp
+#       protocol: UDP
+#       port: 48100
+#     - name: audiortp
+#       protocol: UDP
+#       port: 48200
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -156,8 +159,8 @@ spec:
           value: "10"
         - name: QUEUE_TIMEOUT_SECONDS
           value: "30"
-        - name: WOLF_DRA_ENABLE_SSE
-          value: "false"
+        # - name: WOLF_DRA_ENABLE_SSE
+        #   value: "false"
         - name: TLS_CERT
           value: /etc/wolf/cfg/server.crt
         - name: TLS_KEY
@@ -190,8 +193,8 @@ spec:
           value: /dev/dri/renderD128
         # I remember this being important but I do not remember why
         # will rediscover this later.
-        - name: WOLF_STREAM_CLIENT_IP
-          value: 10.244.1.1
+        # - name: WOLF_STREAM_CLIENT_IP
+        #   value: 10.244.1.1
         # This is where the wayland & pulseaudio sockets will be created
         - name: XDG_RUNTIME_DIR
           value: /var/run/wolf-sockets
@@ -199,10 +202,10 @@ spec:
           value: UTC
         - name: WOLF_SOCKET_PATH
           value: /etc/wolf/wolf.sock
-        - name: WOLF_USE_RTSP_FAKE_IP
-          value: "TRUE"
-        - name: RTSP_FAKE_IP
-          value: "10.89.1.240"
+        # - name: WOLF_USE_RTSP_FAKE_IP
+        #   value: "TRUE"
+        # - name: RTSP_FAKE_IP
+        #   value: "10.89.1.240"
         volumeMounts:
         - name: sockets-dir
           mountPath: /var/run/wolf-sockets

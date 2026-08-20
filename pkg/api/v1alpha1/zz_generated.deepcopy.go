@@ -277,7 +277,6 @@ func (in *LobbyStatus) DeepCopyInto(out *LobbyStatus) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
-	out.Ports = in.Ports
 	return
 }
 
