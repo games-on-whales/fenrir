@@ -32,7 +32,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
-	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
+	gatewayv1 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
@@ -80,8 +80,8 @@ type SessionController struct {
 	AppInformer     generic.Informer[*direwolfv1alpha1.App]
 	ProfileInformer generic.Informer[*direwolfv1alpha1.Profile]
 
-	TCPRouteClient gatewayv1alpha2.TCPRouteInterface
-	UDPRouteClient gatewayv1alpha2.UDPRouteInterface
+	TCPRouteClient gatewayv1.TCPRouteInterface
+	UDPRouteClient gatewayv1.UDPRouteInterface
 
 	K8sClient kubernetes.Interface
 
@@ -96,8 +96,8 @@ type SessionController struct {
 // NewSessionController creates a new session controller.
 func NewSessionController(
 	k8sClient kubernetes.Interface,
-	tcpRouteClient gatewayv1alpha2.TCPRouteInterface,
-	udpRouteClient gatewayv1alpha2.UDPRouteInterface,
+	tcpRouteClient gatewayv1.TCPRouteInterface,
+	udpRouteClient gatewayv1.UDPRouteInterface,
 	sessionClient v1alpha1client.SessionInterface,
 	sessionInformer generic.Informer[*direwolfv1alpha1.Session],
 	appInformer generic.Informer[*direwolfv1alpha1.App],

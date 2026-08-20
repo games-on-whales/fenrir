@@ -91,6 +91,17 @@ func SetObjectDefaults_App(in *App) {
 				b.Protocol = "TCP"
 			}
 		}
+		for j := range a.Env {
+			b := &a.Env[j]
+			if b.ValueFrom != nil {
+				if b.ValueFrom.FileKeyRef != nil {
+					if b.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						b.ValueFrom.FileKeyRef.Optional = &ptrVar1
+					}
+				}
+			}
+		}
 		if a.LivenessProbe != nil {
 			if a.LivenessProbe.ProbeHandler.GRPC != nil {
 				if a.LivenessProbe.ProbeHandler.GRPC.Service == nil {
@@ -124,6 +135,17 @@ func SetObjectDefaults_App(in *App) {
 				b.Protocol = "TCP"
 			}
 		}
+		for j := range a.Env {
+			b := &a.Env[j]
+			if b.ValueFrom != nil {
+				if b.ValueFrom.FileKeyRef != nil {
+					if b.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						b.ValueFrom.FileKeyRef.Optional = &ptrVar1
+					}
+				}
+			}
+		}
 		if a.LivenessProbe != nil {
 			if a.LivenessProbe.ProbeHandler.GRPC != nil {
 				if a.LivenessProbe.ProbeHandler.GRPC.Service == nil {
@@ -155,6 +177,17 @@ func SetObjectDefaults_App(in *App) {
 			b := &a.EphemeralContainerCommon.Ports[j]
 			if b.Protocol == "" {
 				b.Protocol = "TCP"
+			}
+		}
+		for j := range a.EphemeralContainerCommon.Env {
+			b := &a.EphemeralContainerCommon.Env[j]
+			if b.ValueFrom != nil {
+				if b.ValueFrom.FileKeyRef != nil {
+					if b.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						b.ValueFrom.FileKeyRef.Optional = &ptrVar1
+					}
+				}
 			}
 		}
 		if a.EphemeralContainerCommon.LivenessProbe != nil {
@@ -234,6 +267,47 @@ func SetObjectDefaults_Profile(in *Profile) {
 			}
 			if a.VolumeSource.ScaleIO.FSType == "" {
 				a.VolumeSource.ScaleIO.FSType = "xfs"
+			}
+		}
+	}
+	if in.Spec.SidecarPolicies != nil {
+		if in.Spec.SidecarPolicies.Wolf != nil {
+			for i := range in.Spec.SidecarPolicies.Wolf.Env {
+				a := &in.Spec.SidecarPolicies.Wolf.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+		if in.Spec.SidecarPolicies.PulseAudio != nil {
+			for i := range in.Spec.SidecarPolicies.PulseAudio.Env {
+				a := &in.Spec.SidecarPolicies.PulseAudio.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+		if in.Spec.SidecarPolicies.WolfAgent != nil {
+			for i := range in.Spec.SidecarPolicies.WolfAgent.Env {
+				a := &in.Spec.SidecarPolicies.WolfAgent.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
 			}
 		}
 	}

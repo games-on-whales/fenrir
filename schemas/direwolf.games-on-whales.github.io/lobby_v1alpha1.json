@@ -155,6 +155,10 @@
           "description": "The ID returned by the Wolf API when the lobby is created",
           "type": "string"
         },
+        "lobbyNode": {
+          "description": "LobbyNode is the current node this lobby is on",
+          "type": "string"
+        },
         "ports": {
           "description": "The ports allocated to the lobby on the shared gateway.",
           "properties": {

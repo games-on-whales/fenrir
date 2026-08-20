@@ -38,19 +38,14 @@ import (
 var _ Controller[runtime.Object] = &controller[runtime.Object]{}
 
 type controller[T runtime.Object] struct {
-	informer Informer[T]
-	queue    workqueue.TypedRateLimitingInterface[string]
-
-	// Returns an error if there was a transient error during reconciliation
-	// and the object should be tried again later.
-	reconciler func(namespace, name string, newObj T) error
-
-	options ControllerOptions
-
-	// must hold a func() bool or nil
+	informer               Informer[T]
+	queue                  workqueue.TypedRateLimitingInterface[string]
+	reconciler             func(namespace, name string, newObj T) error
+	options                ControllerOptions
 	notificationsDelivered atomic.Value
-
-	hasProcessed synctrack.AsyncTracker[string]
+	// Use a pointer and sync.Once for the new method-based API
+	upstreamSyncOnce sync.Once
+	hasProcessed     *synctrack.AsyncTracker[string]
 }
 
 type ControllerOptions struct {
@@ -70,27 +65,16 @@ func NewController[T runtime.Object](
 	if options.Workers == 0 {
 		options.Workers = 2
 	}
-
 	if options.Name == "" {
 		options.Name = fmt.Sprintf("%T-controller", *new(T))
 	}
 
 	c := &controller[T]{
-		options:    options,
-		informer:   informer,
-		reconciler: reconciler,
-		queue:      nil,
-	}
-	c.hasProcessed.UpstreamHasSynced = func() bool {
-		f := c.notificationsDelivered.Load()
-		if f == nil {
-			return false
-		}
-		fn, ok := f.(func() bool)
-		if !ok {
-			return false
-		}
-		return fn()
+		options:      options,
+		informer:     informer,
+		reconciler:   reconciler,
+		queue:        nil,
+		hasProcessed: synctrack.NewAsyncTracker[string](options.Name),
 	}
 	return c
 }
@@ -221,6 +205,13 @@ func (c *controller[T]) Run(ctx context.Context) error {
 }
 
 func (c *controller[T]) HasSynced() bool {
+	// Notify the tracker once when the upstream (registration) has synced.
+	f := c.notificationsDelivered.Load()
+	if f != nil {
+		if fn, ok := f.(func() bool); ok && fn() {
+			c.upstreamSyncOnce.Do(c.hasProcessed.UpstreamHasSynced)
+		}
+	}
 	return c.hasProcessed.HasSynced()
 }
 

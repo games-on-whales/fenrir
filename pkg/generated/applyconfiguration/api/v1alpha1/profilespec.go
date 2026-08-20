@@ -25,11 +25,21 @@ import (
 // ProfileSpecApplyConfiguration represents a declarative configuration of the ProfileSpec type for use
 // with apply.
 type ProfileSpecApplyConfiguration struct {
-	Resources       *v1.ResourceRequirements             `json:"resources,omitempty"`
-	Volumes         []v1.Volume                          `json:"volumes,omitempty"`
-	SidecarPolicies *SidecarPoliciesApplyConfiguration   `json:"sidecarPolicies,omitempty"`
-	Apps            []GameReferenceApplyConfiguration    `json:"apps,omitempty"`
-	Pairings        []PairingReferenceApplyConfiguration `json:"pairings,omitempty"`
+	// Resources defines the maximum resource requests and limits that the app
+	// container can have. If an app requests exceeds these values,
+	// the app will fail to start.
+	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
+	// Volumes defines the volumes that can be mounted by the session's pods.
+	Volumes []v1.Volume `json:"volumes,omitempty"`
+	// SidecarPolicies defines the resource requests and limits for the injected
+	// sidecar containers. If a policy for a sidecar is not defined here, the
+	// operator will use its own built-in default values.
+	SidecarPolicies *SidecarPoliciesApplyConfiguration `json:"sidecarPolicies,omitempty"`
+	// Apps defines the list of apps available to this profile.
+	Apps []GameReferenceApplyConfiguration `json:"apps,omitempty"`
+	// Pairings defines the list of paired moonlight clients that can access this profile.
+	// Admins manually add Pairing IDs here to grant access.
+	Pairings []PairingReferenceApplyConfiguration `json:"pairings,omitempty"`
 }
 
 // ProfileSpecApplyConfiguration constructs a declarative configuration of the ProfileSpec type for use with

@@ -1,8 +1,7 @@
 # Start with a Go image that has the tools we need
-FROM golang:1.25
+FROM golang:1.26
 
 # Install Delve for debugging and Air for live-reloading
-RUN go install github.com/go-delve/delve/cmd/dlv@latest
 RUN go install github.com/air-verse/air@latest
 
 # Set up the working directory inside the container

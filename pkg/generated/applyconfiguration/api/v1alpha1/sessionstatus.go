@@ -24,13 +24,19 @@ import (
 
 // SessionStatusApplyConfiguration represents a declarative configuration of the SessionStatus type for use
 // with apply.
+//
+// SessionStatus is the session State machine
+// Pending -> Initializing -> WaitForPing -> Streaming -> Ended
 type SessionStatusApplyConfiguration struct {
-	Conditions      []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Ports           *SessionPortsApplyConfiguration  `json:"ports,omitempty"`
-	WolfSessionID   *string                          `json:"wolfSessionID,omitempty"`
-	StreamURL       *string                          `json:"streamURL,omitempty"`
-	StatefulSetName *string                          `json:"statefulSetName,omitempty"`
-	ServiceName     *string                          `json:"serviceName,omitempty"`
+	// Represents the observations of a session's state.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// The ports allocated to the session on the shared gateway.
+	Ports *SessionPortsApplyConfiguration `json:"ports,omitempty"`
+	// The RTSP url to access the stream.
+	WolfSessionID   *string `json:"wolfSessionID,omitempty"`
+	StreamURL       *string `json:"streamURL,omitempty"`
+	StatefulSetName *string `json:"statefulSetName,omitempty"`
+	ServiceName     *string `json:"serviceName,omitempty"`
 }
 
 // SessionStatusApplyConfiguration constructs a declarative configuration of the SessionStatus type for use with

@@ -25,13 +25,25 @@ import (
 // AppSpecApplyConfiguration represents a declarative configuration of the AppSpec type for use
 // with apply.
 type AppSpecApplyConfiguration struct {
-	Title                *string                       `json:"title,omitempty"`
-	ID                   *int                          `json:"id,omitempty"`
-	IsHDRSupported       *bool                         `json:"isHDRSupported,omitempty"`
-	AppAssetWebP         []byte                        `json:"appAssetWebP,omitempty"`
-	Template             *v1.PodTemplateSpec           `json:"template,omitempty"`
-	WolfConfig           *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
-	VolumeClaimTemplates []v1.PersistentVolumeClaim    `json:"volumeClaimTemplates,omitempty"`
+	// Name of the app to be presented to the user
+	Title *string `json:"title,omitempty"`
+	// Globally unique ID of the application. If there is a collision, the app
+	// will be excluded from the list of available apps.
+	ID *int `json:"id,omitempty"`
+	// Whether the app supports HDR
+	IsHDRSupported *bool `json:"isHDRSupported,omitempty"`
+	// PNG image of the app
+	AppAssetWebP []byte `json:"appAssetWebP,omitempty"`
+	// The pod manifest for the application, it defines the pod
+	Template *v1.PodTemplateSpec `json:"template,omitempty"`
+	// Unstructured wolf configuration for app to be merged with the default
+	// configuration
+	// TODO remove this
+	WolfConfig *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
+	// A template for a PersistentVolumeClaim to be created for the app
+	// If provided, the operator will include them in the pvc
+	// must also be defined in the pod template's spec.volumes field.
+	VolumeClaimTemplates []v1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
 }
 
 // AppSpecApplyConfiguration constructs a declarative configuration of the AppSpec type for use with

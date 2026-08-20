@@ -20,6 +20,10 @@ package v1alpha1
 
 // SessionPortsApplyConfiguration represents a declarative configuration of the SessionPorts type for use
 // with apply.
+//
+// SessionPorts are 4 ports allocated to it on the shared gateway.
+// Using port forward allows us to avoid the need for a separate IP per session
+// or a relay which could add latency to the stream.
 type SessionPortsApplyConfiguration struct {
 	RTSP     *int32 `json:"rtsp,omitempty"`
 	Control  *int32 `json:"control,omitempty"`

@@ -25,13 +25,16 @@ import (
 // LobbySpecApplyConfiguration represents a declarative configuration of the LobbySpec type for use
 // with apply.
 type LobbySpecApplyConfiguration struct {
-	AppReference           *v1.LocalObjectReference              `json:"appReference,omitempty"`
+	// Reference to the App being run
+	AppReference *v1.LocalObjectReference `json:"appReference,omitempty"`
+	// Reference to the User who owns the lobby
 	ProfileReference       *v1.LocalObjectReference              `json:"profileReference,omitempty"`
 	VideoSettings          *LobbyVideoSettingsApplyConfiguration `json:"videoSettings,omitempty"`
 	AudioSettings          *LobbyAudioSettingsApplyConfiguration `json:"audioSettings,omitempty"`
 	MultiUser              *bool                                 `json:"multiUser,omitempty"`
 	StopWhenEveryoneLeaves *bool                                 `json:"stopWhenEveryoneLeaves,omitempty"`
-	RunnerOverride         *string                               `json:"runnerOverride,omitempty"`
+	// If provided, overrides the default runner command (which is "sleep infinity")
+	RunnerOverride *string `json:"runnerOverride,omitempty"`
 }
 
 // LobbySpecApplyConfiguration constructs a declarative configuration of the LobbySpec type for use with
