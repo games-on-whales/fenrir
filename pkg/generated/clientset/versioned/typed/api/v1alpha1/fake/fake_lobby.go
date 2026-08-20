@@ -25,24 +25,24 @@ import (
 	gentype "k8s.io/client-go/gentype"
 )
 
-// fakeUsers implements UserInterface
-type fakeUsers struct {
-	*gentype.FakeClientWithListAndApply[*v1alpha1.User, *v1alpha1.UserList, *apiv1alpha1.UserApplyConfiguration]
+// fakeLobbies implements LobbyInterface
+type fakeLobbies struct {
+	*gentype.FakeClientWithListAndApply[*v1alpha1.Lobby, *v1alpha1.LobbyList, *apiv1alpha1.LobbyApplyConfiguration]
 	Fake *FakeDirewolfV1alpha1
 }
 
-func newFakeUsers(fake *FakeDirewolfV1alpha1, namespace string) typedapiv1alpha1.UserInterface {
-	return &fakeUsers{
-		gentype.NewFakeClientWithListAndApply[*v1alpha1.User, *v1alpha1.UserList, *apiv1alpha1.UserApplyConfiguration](
+func newFakeLobbies(fake *FakeDirewolfV1alpha1, namespace string) typedapiv1alpha1.LobbyInterface {
+	return &fakeLobbies{
+		gentype.NewFakeClientWithListAndApply[*v1alpha1.Lobby, *v1alpha1.LobbyList, *apiv1alpha1.LobbyApplyConfiguration](
 			fake.Fake,
 			namespace,
-			v1alpha1.SchemeGroupVersion.WithResource("users"),
-			v1alpha1.SchemeGroupVersion.WithKind("User"),
-			func() *v1alpha1.User { return &v1alpha1.User{} },
-			func() *v1alpha1.UserList { return &v1alpha1.UserList{} },
-			func(dst, src *v1alpha1.UserList) { dst.ListMeta = src.ListMeta },
-			func(list *v1alpha1.UserList) []*v1alpha1.User { return gentype.ToPointerSlice(list.Items) },
-			func(list *v1alpha1.UserList, items []*v1alpha1.User) { list.Items = gentype.FromPointerSlice(items) },
+			v1alpha1.SchemeGroupVersion.WithResource("lobbies"),
+			v1alpha1.SchemeGroupVersion.WithKind("Lobby"),
+			func() *v1alpha1.Lobby { return &v1alpha1.Lobby{} },
+			func() *v1alpha1.LobbyList { return &v1alpha1.LobbyList{} },
+			func(dst, src *v1alpha1.LobbyList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.LobbyList) []*v1alpha1.Lobby { return gentype.ToPointerSlice(list.Items) },
+			func(list *v1alpha1.LobbyList, items []*v1alpha1.Lobby) { list.Items = gentype.FromPointerSlice(items) },
 		),
 		fake,
 	}

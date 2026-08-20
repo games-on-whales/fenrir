@@ -34,6 +34,7 @@ const GroupName = "direwolf.games-on-whales.github.io"
 var GroupVersion = v1.GroupVersion{Group: GroupName, Version: "v1alpha1"}
 
 // SchemeGroupVersion is group version used to register these objects
+//
 // Deprecated: use GroupVersion instead.
 var SchemeGroupVersion = schema.GroupVersion{Group: GroupName, Version: "v1alpha1"}
 
@@ -63,12 +64,14 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 	scheme.AddKnownTypes(SchemeGroupVersion,
 		&App{},
 		&AppList{},
+		&Lobby{},
+		&LobbyList{},
 		&Pairing{},
 		&PairingList{},
+		&Profile{},
+		&ProfileList{},
 		&Session{},
 		&SessionList{},
-		&User{},
-		&UserList{},
 	)
 	// AddToGroupVersion allows the serialization of client types like ListOptions.
 	v1.AddToGroupVersion(scheme, SchemeGroupVersion)

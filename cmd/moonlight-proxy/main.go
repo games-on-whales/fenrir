@@ -4,30 +4,42 @@ import (
 	"context"
 	"flag"
 	"os"
+	"strings"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/klog/v2"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	"games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/generic"
 	"games-on-whales.github.io/direwolf/pkg/moonlight"
 	"games-on-whales.github.io/direwolf/pkg/util"
-
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/informers"
-	"k8s.io/klog/v2"
 )
 
 func main() {
 	appContext, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	serverCertPath := flag.String("tls-cert", "server.crt", "Path to server cert")
-	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
+	serverCertPath := flag.String("tls-cert", os.Getenv("SERVER_CERT"), "Path to server cert")
+	serverKeyPath := flag.String("tls-key", os.Getenv("SERVER_KEY"), "Path to server key")
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
+	allowedHostsStr := flag.String("allowed-hosts", os.Getenv("ALLOWED_HOSTS"), "Comma-separated list of allowed external hostnames for pairing URLs (e.g., moonlight.example.com)")
 	klog.InitFlags(nil)
 	flag.Parse()
+
+	var allowedHosts []string
+	if *allowedHostsStr != "" {
+		for h := range strings.SplitSeq(*allowedHostsStr, ",") {
+			h = strings.TrimSpace(h)
+			if h != "" {
+				allowedHosts = append(allowedHosts, h)
+			}
+		}
+	}
 
 	klog.Info("Starting moonlight-proxy")
 	klog.Info("TLS Cert: ", *serverCertPath)
@@ -35,7 +47,7 @@ func main() {
 	klog.Info("Port: ", *port)
 	klog.Info("Secure Port: ", *securePort)
 	klog.Info("Namespace: ", *namespace)
-
+	klog.Infof("URL Allowed List: %v", allowedHosts)
 	tlsCert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
 	if err != nil {
 		klog.Fatal("Failed to load certificates:", err)
@@ -53,7 +65,7 @@ func main() {
 	)
 	pairingInformer := direwolfFactory.Direwolf().V1alpha1().Pairings().Informer()
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
-	userInformer := direwolfFactory.Direwolf().V1alpha1().Users().Informer()
+	profileInformer := direwolfFactory.Direwolf().V1alpha1().Profiles().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
 	direwolfFactory.Start(appContext.Done())
 	defer direwolfFactory.Shutdown()
@@ -63,35 +75,43 @@ func main() {
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
 
-	// !TODO: Eventually will want to respond to /livez before caches are warm.
 	klog.Info("Waiting for caches to sync")
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
 	klog.Info("Caches synced")
 
+	profileLister := generic.NewLister[*direwolfv1alpha1.Profile](profileInformer.GetIndexer()).Namespaced(*namespace)
+	pairingLister := generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace)
+	appLister := generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace)
+	sessionLister := generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace)
+	podLister := generic.NewLister[*corev1.Pod](podInformer.GetIndexer()).Namespaced(*namespace)
+
 	pairingManager := moonlight.NewPairingManager(
-		tlsCert,
+		&tlsCert,
 		direwolfClient.DirewolfV1alpha1().Pairings(*namespace),
 	)
 
 	restServer := moonlight.NewRESTServer(
 		pairingManager,
-		generic.NewLister[*direwolfv1alpha1.Pairing](pairingInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*direwolfv1alpha1.User](userInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*direwolfv1alpha1.App](appInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*direwolfv1alpha1.Session](sessionInformer.GetIndexer()).Namespaced(*namespace),
-		generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace),
+		pairingLister,
+		profileLister,
+		appLister,
+		sessionLister,
+		podLister,
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		moonlight.RESTServerOptions{
-			Port:       *port,
-			SecurePort: *securePort,
-			Cert:       tlsCert,
+			Port:         *port,
+			SecurePort:   *securePort,
+			Cert:         tlsCert,
+			AllowedHosts: allowedHosts,
 		},
 	)
 
 	go func() {
 		defer appCancel()
-		restServer.Run(appContext)
+		if err := restServer.Run(appContext); err != nil {
+			klog.ErrorS(err, "REST server exited with error")
+		}
 	}()
 
 	<-appContext.Done()

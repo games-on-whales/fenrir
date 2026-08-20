@@ -20,8 +20,10 @@ package v1alpha1
 
 type AppExpansion interface{}
 
+type LobbyExpansion interface{}
+
 type PairingExpansion interface{}
 
-type SessionExpansion interface{}
+type ProfileExpansion interface{}
 
-type UserExpansion interface{}
+type SessionExpansion interface{}

@@ -32,16 +32,20 @@ func (c *FakeDirewolfV1alpha1) Apps(namespace string) v1alpha1.AppInterface {
 	return newFakeApps(c, namespace)
 }
 
+func (c *FakeDirewolfV1alpha1) Lobbies(namespace string) v1alpha1.LobbyInterface {
+	return newFakeLobbies(c, namespace)
+}
+
 func (c *FakeDirewolfV1alpha1) Pairings(namespace string) v1alpha1.PairingInterface {
 	return newFakePairings(c, namespace)
 }
 
-func (c *FakeDirewolfV1alpha1) Sessions(namespace string) v1alpha1.SessionInterface {
-	return newFakeSessions(c, namespace)
+func (c *FakeDirewolfV1alpha1) Profiles(namespace string) v1alpha1.ProfileInterface {
+	return newFakeProfiles(c, namespace)
 }
 
-func (c *FakeDirewolfV1alpha1) Users(namespace string) v1alpha1.UserInterface {
-	return newFakeUsers(c, namespace)
+func (c *FakeDirewolfV1alpha1) Sessions(namespace string) v1alpha1.SessionInterface {
+	return newFakeSessions(c, namespace)
 }
 
 // RESTClient returns a RESTClient that is used to communicate

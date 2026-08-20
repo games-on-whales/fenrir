@@ -13,10 +13,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/klog/v2"
+
 	"games-on-whales.github.io/direwolf/pkg/controllers"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
-	"k8s.io/klog/v2"
 )
 
 func main() {
@@ -49,9 +50,10 @@ func main() {
 		for {
 			// Check socket exists
 			if info, err := os.Stat(*wolfSocketPath); err == nil && info != nil && info.Mode()&os.ModeSocket != 0 {
-				conn, err := net.Dial("unix", *wolfSocketPath)
+				var dialer net.Dialer
+				conn, err := dialer.DialContext(appContext, "unix", *wolfSocketPath)
 				if err == nil {
-					defer conn.Close()
+					conn.Close()
 					klog.Info("wolf.sock is ready")
 
 					// Call out to the proxy which handles chunked encoding
@@ -62,6 +64,7 @@ func main() {
 						&http.Client{
 							Transport: &http.Transport{
 								TLSClientConfig: &tls.Config{
+									// #nosec G402
 									InsecureSkipVerify: true,
 								},
 							},
@@ -72,7 +75,11 @@ func main() {
 						wolfClient,
 					)
 
-					go agentController.Run(appContext)
+					go func() {
+						if err := agentController.Run(appContext); err != nil {
+							klog.ErrorS(err, "Agent controller exited with error")
+						}
+					}()
 
 					// Set ready to true
 					// This will allow the /readyz endpoint to return 200 OK
@@ -83,7 +90,6 @@ func main() {
 				klog.Warningf("Waiting for wolf.sock to accept connections: %v\n", err)
 			} else if err == nil && info.Mode()&os.ModeSocket == 0 {
 				klog.Fatal("wolf.sock is not a socket", info.Mode())
-
 			} else {
 				klog.Info("Waiting for wolf.sock to appear...", err)
 			}
@@ -93,14 +99,14 @@ func main() {
 
 	// Spin up HTTPS server with self-signed certificate to service the wolf.sock
 	mux := http.NewServeMux()
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if ready.Load() {
 			w.WriteHeader(http.StatusOK)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 	})
-	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
@@ -119,7 +125,8 @@ func main() {
 			http.Error(w, fmt.Sprintf("Failed to join URL: %v", err), http.StatusInternalServerError)
 			return
 		}
-		request, err := http.NewRequest(r.Method, url, r.Body)
+		// #nosec G704 -- TODO: better implementation for DRA
+		request, err := http.NewRequestWithContext(r.Context(), r.Method, url, r.Body)
 		request.Proto = r.Proto
 		request.ProtoMajor = r.ProtoMajor
 		request.ProtoMinor = r.ProtoMinor
@@ -134,6 +141,7 @@ func main() {
 
 		// Send the request to the wolf.sock
 		klog.Info("Sending request to wolf.sock:", request.Method, request.URL.Path)
+		// #nosec G704 -- TODO: better implementation for DRA
 		response, err := client.Do(request.WithContext(r.Context()))
 		if err != nil {
 			klog.ErrorS(err, "Failed to send request to wolf.sock")
@@ -198,8 +206,9 @@ func main() {
 func UnixHTTPClient(sockAddr string) http.Client {
 	return http.Client{
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				return net.Dial("unix", sockAddr)
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, "unix", sockAddr)
 			},
 		},
 	}

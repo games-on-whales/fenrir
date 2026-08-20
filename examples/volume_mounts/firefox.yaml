@@ -11,8 +11,15 @@ spec:
   isHDRSupported: false
   title: Firefox
   #This will automatically provision storage with the default parameters
-  volumeClaimTemplate: 
-    spec: {}
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: app-data
+  #   spec:
+  #     accessModes:
+  #     - ReadWriteOnce
+  #     resources:
+  #       requests:
+  #         storage: 1Gi
   wolfConfig:
     runtimeVariables:
       renderNode: /dev/dri/renderD129
@@ -21,6 +28,9 @@ spec:
       containers:
       - name: app
         image: ghcr.io/games-on-whales/firefox:edge
+        # volumeMounts:
+        # - name: app-data
+        #   mountPath: /home/retro
         resources:
           limits:
             squat.ai/dri: "1"

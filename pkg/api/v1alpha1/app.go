@@ -1,10 +1,11 @@
 package v1alpha1
 
 import (
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// App is a Games on Whales container that uses wolf's sockets to stream to the user
 // +kubebuilder:object:root=true
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -37,25 +38,27 @@ type AppSpec struct {
 	// PNG image of the app
 	AppAssetWebP []byte `json:"appAssetWebP" xml:"-"`
 
+	// The pod manifest for the application, it defines the pod
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:X-kubernetes-preserve-unknown-fields:true
-	Template *v1.PodTemplateSpec `json:"template" xml:"-"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	Template corev1.PodTemplateSpec `json:"template" xml:"-"`
 
 	// Unstructured wolf configuration for app to be merged with the default
 	// configuration
+	// TODO remove this
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	WolfConfig WolfConfig `json:"wolfConfig" xml:"-"`
 
-	// A template for a PersistentVolumeClaim to be created for the app's
-	// home directory. If provided, the operator will create a PVC from
-	// this template and mount it at /home/retro.
-	// If not provided, an emptyDir volume will be used.
-	// all other volumes must be defined in the pod template's spec.volumes field.
+	// A template for a PersistentVolumeClaim to be created for the app
+	// If provided, the operator will include them in the pvc
+	// must also be defined in the pod template's spec.volumes field.
 	// +kubebuilder:validation:Optional
-	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
+	// +kubebuilder:pruning:PreserveUnknownFields
+	VolumeClaimTemplates []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"  xml:"-"`
 }
 
+// RuntimeWolfVariables will be removed into the DRA config
 // TODO so I can easily find it
 // This entire implementation needs a rework
 // It'll be modified later to better inject env vars and configs.
@@ -108,6 +111,7 @@ type WolfRunnerConfig struct {
 	RunCommand string `json:"runCommand,omitempty" toml:"run_cmd,omitempty"`
 }
 
+// AppList
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type AppList struct {
 	metav1.TypeMeta `json:",inline"`

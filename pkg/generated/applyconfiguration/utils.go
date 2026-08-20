@@ -24,7 +24,7 @@ import (
 	internal "games-on-whales.github.io/direwolf/pkg/generated/applyconfiguration/internal"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
-	testing "k8s.io/client-go/testing"
+	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
 )
 
 // ForKind returns an apply configuration type for the given GroupVersionKind, or nil if no
@@ -40,12 +40,28 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.GameReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GatewayReference"):
 		return &apiv1alpha1.GatewayReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Lobby"):
+		return &apiv1alpha1.LobbyApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyAudioSettings"):
+		return &apiv1alpha1.LobbyAudioSettingsApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbySpec"):
+		return &apiv1alpha1.LobbySpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyStatus"):
+		return &apiv1alpha1.LobbyStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("LobbyVideoSettings"):
+		return &apiv1alpha1.LobbyVideoSettingsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Pairing"):
 		return &apiv1alpha1.PairingApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PairingReference"):
 		return &apiv1alpha1.PairingReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PairingSpec"):
 		return &apiv1alpha1.PairingSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("Profile"):
+		return &apiv1alpha1.ProfileApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ProfileReference"):
+		return &apiv1alpha1.ProfileReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ProfileSpec"):
+		return &apiv1alpha1.ProfileSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("RuntimeWolfVariables"):
 		return &apiv1alpha1.RuntimeWolfVariablesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Session"):
@@ -62,12 +78,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SidecarPoliciesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicy"):
 		return &apiv1alpha1.SidecarPolicyApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("User"):
-		return &apiv1alpha1.UserApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("UserReference"):
-		return &apiv1alpha1.UserReferenceApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("UserSpec"):
-		return &apiv1alpha1.UserSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
 		return &apiv1alpha1.WolfConfigApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):
@@ -79,6 +89,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	return nil
 }
 
-func NewTypeConverter(scheme *runtime.Scheme) *testing.TypeConverter {
-	return &testing.TypeConverter{Scheme: scheme, TypeResolver: internal.Parser()}
+func NewTypeConverter(scheme *runtime.Scheme) managedfields.TypeConverter {
+	return managedfields.NewSchemeTypeConverter(scheme, internal.Parser())
 }

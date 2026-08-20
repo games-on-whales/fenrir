@@ -34,70 +34,91 @@ type namespacedLister[T runtime.Object] struct {
 	namespace string
 }
 
-func (w namespacedLister[T]) List(selector labels.Selector) (ret []T, err error) {
+func (w namespacedLister[T]) List(selector labels.Selector) ([]T, error) {
 	if selector == nil {
 		selector = labels.Everything()
 	}
-	err = cache.ListAllByNamespace(w.indexer, w.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(T))
+
+	var ret []T
+	err := cache.ListAllByNamespace(w.indexer, w.namespace, selector, func(m any) {
+		v, ok := m.(T)
+		if !ok {
+			return
+		}
+		ret = append(ret, v)
 	})
-	return ret, err
+	if err != nil {
+		return nil, fmt.Errorf("cache couldn't list namespaces: %w", err)
+	}
+	return ret, nil
 }
 
 func (w namespacedLister[T]) Get(name string) (T, error) {
 	var result T
-
-	obj, exists, err := w.indexer.GetByKey(w.namespace + "/" + name)
+	key := w.namespace + "/" + name
+	obj, exists, err := w.indexer.GetByKey(key)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("object couldn't be acquired by key(%s): %w", key, err)
 	}
 	if !exists {
 		return result, &kerrors.StatusError{ErrStatus: metav1.Status{
 			Status:  metav1.StatusFailure,
 			Code:    http.StatusNotFound,
 			Reason:  metav1.StatusReasonNotFound,
-			Message: fmt.Sprintf("%s not found", name),
+			Message: name + " not found",
 		}}
 	}
-	result = obj.(T)
-	return result, nil
+	v, ok := obj.(T)
+	if !ok {
+		return result, fmt.Errorf("unexpected type %T in indexer, expected %T", obj, result)
+	}
+	return v, nil
 }
 
 type lister[T runtime.Object] struct {
 	indexer cache.Indexer
 }
 
-func (w lister[T]) List(selector labels.Selector) (ret []T, err error) {
-	err = cache.ListAll(w.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(T))
+func (w lister[T]) List(selector labels.Selector) ([]T, error) {
+	var ret []T
+	err := cache.ListAll(w.indexer, selector, func(m any) {
+		v, ok := m.(T)
+		if !ok {
+			return
+		}
+		ret = append(ret, v)
 	})
-	return ret, err
+	if err != nil {
+		return nil, fmt.Errorf("cache couldn't be accessed: %w", err)
+	}
+	return ret, nil
 }
 
 func (w lister[T]) Get(name string) (T, error) {
 	var result T
-
 	obj, exists, err := w.indexer.GetByKey(name)
 	if err != nil {
-		return result, err
+		return result, fmt.Errorf("object couldn't be acquired by key(%s): %w", name, err)
 	}
 	if !exists {
-		// kerrors.StatusNotFound requires a GroupResource we cannot provide
 		return result, &kerrors.StatusError{ErrStatus: metav1.Status{
 			Status:  metav1.StatusFailure,
 			Code:    http.StatusNotFound,
 			Reason:  metav1.StatusReasonNotFound,
-			Message: fmt.Sprintf("%s not found", name),
+			Message: name + " not found",
 		}}
 	}
-	result = obj.(T)
-	return result, nil
+	v, ok := obj.(T)
+	if !ok {
+		return result, fmt.Errorf("unexpected type %T in indexer, expected %T", obj, result)
+	}
+	return v, nil
 }
 
 func (w lister[T]) Namespaced(namespace string) NamespacedLister[T] {
 	return namespacedLister[T]{namespace: namespace, indexer: w.indexer}
 }
 
-func NewLister[T runtime.Object](indexer cache.Indexer) lister[T] {
+func NewLister[T runtime.Object](indexer cache.Indexer) Lister[T] {
 	return lister[T]{indexer: indexer}
 }

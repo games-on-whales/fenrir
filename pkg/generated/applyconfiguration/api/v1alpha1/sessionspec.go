@@ -20,12 +20,31 @@ package v1alpha1
 
 // SessionSpecApplyConfiguration represents a declarative configuration of the SessionSpec type for use
 // with apply.
+//
+// SessionSpec refers to a certain user playing a specific game with a specific
+// client. This object is meant to live for the duration of the user's session.
+//
+// A session is created in response to a user's /launch request.
+//
+// It is meant to be deleted by the session controller once the agent has reported
+// that it is ended.
+//
+// A user can have multiple sessions active at a time, and even multiple copies
+// of the same "game" if the underlying persistentVolumeClass supports it multiple
+// binding.
+//
+// A session is created when moonlight calls /launch to launch a game.
 type SessionSpecApplyConfiguration struct {
-	UserReference    *UserReferenceApplyConfiguration    `json:"userReference,omitempty"`
+	ProfileReference *ProfileReferenceApplyConfiguration `json:"profileReference,omitempty"`
 	GameReference    *GameReferenceApplyConfiguration    `json:"gameReference,omitempty"`
 	PairingReference *PairingReferenceApplyConfiguration `json:"pairingReference,omitempty"`
+	// The name of the Gateway used to access the moonlight server.
+	// The gateway IP used for the stream session must be the same as the IP of
+	// the moonlight server used to initiate the connection due to moonlight
+	// protocol restrictions.
 	GatewayReference *GatewayReferenceApplyConfiguration `json:"gateway,omitempty"`
-	Config           *SessionInfoApplyConfiguration      `json:"config,omitempty"`
+	// Wolf-specific config for the session
+	Config *SessionInfoApplyConfiguration `json:"config,omitempty"`
 }
 
 // SessionSpecApplyConfiguration constructs a declarative configuration of the SessionSpec type for use with
@@ -34,11 +53,11 @@ func SessionSpec() *SessionSpecApplyConfiguration {
 	return &SessionSpecApplyConfiguration{}
 }
 
-// WithUserReference sets the UserReference field in the declarative configuration to the given value
+// WithProfileReference sets the ProfileReference field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the UserReference field is set to the value of the last call.
-func (b *SessionSpecApplyConfiguration) WithUserReference(value *UserReferenceApplyConfiguration) *SessionSpecApplyConfiguration {
-	b.UserReference = value
+// If called multiple times, the ProfileReference field is set to the value of the last call.
+func (b *SessionSpecApplyConfiguration) WithProfileReference(value *ProfileReferenceApplyConfiguration) *SessionSpecApplyConfiguration {
+	b.ProfileReference = value
 	return b
 }
 

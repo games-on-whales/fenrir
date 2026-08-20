@@ -26,12 +26,14 @@ import (
 type Interface interface {
 	// Apps returns a AppInformer.
 	Apps() AppInformer
+	// Lobbies returns a LobbyInformer.
+	Lobbies() LobbyInformer
 	// Pairings returns a PairingInformer.
 	Pairings() PairingInformer
+	// Profiles returns a ProfileInformer.
+	Profiles() ProfileInformer
 	// Sessions returns a SessionInformer.
 	Sessions() SessionInformer
-	// Users returns a UserInformer.
-	Users() UserInformer
 }
 
 type version struct {
@@ -50,17 +52,22 @@ func (v *version) Apps() AppInformer {
 	return &appInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
+// Lobbies returns a LobbyInformer.
+func (v *version) Lobbies() LobbyInformer {
+	return &lobbyInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // Pairings returns a PairingInformer.
 func (v *version) Pairings() PairingInformer {
 	return &pairingInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
+// Profiles returns a ProfileInformer.
+func (v *version) Profiles() ProfileInformer {
+	return &profileInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
 // Sessions returns a SessionInformer.
 func (v *version) Sessions() SessionInformer {
 	return &sessionInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
-}
-
-// Users returns a UserInformer.
-func (v *version) Users() UserInformer {
-	return &userInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

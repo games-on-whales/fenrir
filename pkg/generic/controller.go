@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/cache/synctrack"
@@ -39,19 +38,14 @@ import (
 var _ Controller[runtime.Object] = &controller[runtime.Object]{}
 
 type controller[T runtime.Object] struct {
-	informer Informer[T]
-	queue    workqueue.TypedRateLimitingInterface[string]
-
-	// Returns an error if there was a transient error during reconciliation
-	// and the object should be tried again later.
-	reconciler func(namespace, name string, newObj T) error
-
-	options ControllerOptions
-
-	// must hold a func() bool or nil
+	informer               Informer[T]
+	queue                  workqueue.TypedRateLimitingInterface[string]
+	reconciler             func(namespace, name string, newObj T) error
+	options                ControllerOptions
 	notificationsDelivered atomic.Value
-
-	hasProcessed synctrack.AsyncTracker[string]
+	// Use a pointer and sync.Once for the new method-based API
+	upstreamSyncOnce sync.Once
+	hasProcessed     *synctrack.AsyncTracker[string]
 }
 
 type ControllerOptions struct {
@@ -71,23 +65,16 @@ func NewController[T runtime.Object](
 	if options.Workers == 0 {
 		options.Workers = 2
 	}
-
-	if len(options.Name) == 0 {
+	if options.Name == "" {
 		options.Name = fmt.Sprintf("%T-controller", *new(T))
 	}
 
 	c := &controller[T]{
-		options:    options,
-		informer:   informer,
-		reconciler: reconciler,
-		queue:      nil,
-	}
-	c.hasProcessed.UpstreamHasSynced = func() bool {
-		f := c.notificationsDelivered.Load()
-		if f == nil {
-			return false
-		}
-		return f.(func() bool)()
+		options:      options,
+		informer:     informer,
+		reconciler:   reconciler,
+		queue:        nil,
+		hasProcessed: synctrack.NewAsyncTracker[string](options.Name),
 	}
 	return c
 }
@@ -117,7 +104,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 	// would never shut down the workqueue
 	defer c.queue.ShutDown()
 
-	enqueue := func(obj interface{}, isInInitialList bool) {
+	enqueue := func(obj any, isInInitialList bool) {
 		var key string
 		var err error
 		if key, err = cache.DeletionHandlingMetaNamespaceKeyFunc(obj); err != nil {
@@ -133,7 +120,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	registration, err := c.informer.AddEventHandler(cache.ResourceEventHandlerDetailedFuncs{
 		AddFunc: enqueue,
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			oldMeta, err1 := meta.Accessor(oldObj)
 			newMeta, err2 := meta.Accessor(newObj)
 
@@ -147,7 +134,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 				}
 				return
 			} else if oldMeta.GetResourceVersion() == newMeta.GetResourceVersion() {
-				if len(oldMeta.GetResourceVersion()) == 0 {
+				if oldMeta.GetResourceVersion() == "" {
 					klog.Warningf("%v throwing out update with empty RV. this is likely to happen if a test did not supply a resource version on an updated object", c.options.Name)
 				}
 				return
@@ -155,7 +142,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 			enqueue(newObj, false)
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			// Enqueue
 			enqueue(obj, false)
 		},
@@ -163,7 +150,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	// Error might be raised if informer was started and stopped already
 	if err != nil {
-		return err
+		return fmt.Errorf("failure due to Informer Stopping: %w", err)
 	}
 
 	c.notificationsDelivered.Store(registration.HasSynced)
@@ -193,7 +180,7 @@ func (c *controller[T]) Run(ctx context.Context) error {
 
 	waitGroup := sync.WaitGroup{}
 
-	for i := uint(0); i < c.options.Workers; i++ {
+	for range c.options.Workers {
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
@@ -214,10 +201,17 @@ func (c *controller[T]) Run(ctx context.Context) error {
 	waitGroup.Wait()
 
 	// Only way for workers to ever stop is for caller to cancel the context
-	return ctx.Err()
+	return fmt.Errorf("context cancelled: %w", ctx.Err())
 }
 
 func (c *controller[T]) HasSynced() bool {
+	// Notify the tracker once when the upstream (registration) has synced.
+	f := c.notificationsDelivered.Load()
+	if f != nil {
+		if fn, ok := f.(func() bool); ok && fn() {
+			c.upstreamSyncOnce.Do(c.hasProcessed.UpstreamHasSynced)
+		}
+	}
 	return c.hasProcessed.HasSynced()
 }
 
@@ -247,7 +241,7 @@ func (c *controller[T]) runWorker() {
 			// Finally, if no error occurs we Forget this item so it is allowed
 			// to be re-enqueued without a long rate limit
 			c.queue.Forget(obj)
-			klog.V(4).Infof("sync(%q)", key)
+			klog.V(2).Infof("sync(%q)", key)
 			return nil
 		}(key)
 
@@ -268,10 +262,10 @@ func (c *controller[T]) reconcile(key string) error {
 	namespace, name, err = cache.SplitMetaNamespaceKey(key)
 	if err != nil {
 		utilruntime.HandleError(fmt.Errorf("invalid resource key: %s", key))
-		return nil
+		return fmt.Errorf("failure due to invalid resource key: %w", err)
 	}
 
-	if len(namespace) > 0 {
+	if namespace != "" {
 		lister = c.informer.Namespaced(namespace)
 	} else {
 		lister = c.informer
@@ -280,7 +274,7 @@ func (c *controller[T]) reconcile(key string) error {
 	newObj, err = lister.Get(name)
 	if err != nil {
 		if !kerrors.IsNotFound(err) {
-			return err
+			return fmt.Errorf("listener not found: %w", err)
 		}
 
 		// Deleted object. Inform reconciler with empty

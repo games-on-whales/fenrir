@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app: wolf-agent-dev
+  name: wolf-agent-dev
+  namespace: direwolf-dev
+spec:
+  selector:
+    matchLabels:
+      app: wolf-agent-dev
+  template:
+    metadata:
+      labels:
+        app: wolf-agent-dev
+    spec:
+      volumes:
+      # This is where the wolf.sock and config.toml are created
+      - emptyDir: {}
+        name: wolf-cfg
+      - name: plugins-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins
+          type: DirectoryOrCreate
+      - name: plugins-registry
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: DirectoryOrCreate
+      - name: sockets-dir
+        hostPath:
+          path: /var/run/wolf-sockets
+          type: DirectoryOrCreate
+      - name: cdi-dir
+        hostPath:
+          path: /var/run/cdi
+          type: DirectoryOrCreate
+      containers:
+      # TODO change this to wolf-dra once development is underway 
+      - image: wolf-agent-dev
+        name: wolf-agent-dev
+        imagePullPolicy: IfNotPresent
+        args:
+        - --socket=/etc/wolf/wolf.sock
+        - --port=8443
+        env:
+        # This is where the wayland + pulseaudio sockets are created
+        - name: XDG_RUNTIME_DIR
+          value: /var/run/wolf-sockets
+        # This is the wolf socket
+        - name: WOLF_SOCKET_PATH
+          value: /etc/wolf/wolf.sock
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        volumeMounts:
+        - mountPath: /etc/wolf
+          name: wolf-cfg
+        - name: plugins-dir
+          mountPath: /var/lib/kubelet/plugins
+        - name: plugins-registry
+          mountPath: /var/lib/kubelet/plugins_registry
+        - name: sockets-dir
+          mountPath: /var/run/wolf-sockets
+        - name: cdi-dir
+          mountPath: /var/run/cdi
+      ## The stable image as of time of this commit
+      - image: ghcr.io/games-on-whales/wolf:sha-d6d41de
+        name: wolf
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: WOLF_RENDER_NODE
+          value: /dev/dri/renderD128
+        # I remember this being important but I do not remember why
+        # will rediscover this later.
+        - name: WOLF_STREAM_CLIENT_IP
+          value: 10.244.1.1
+        # This is where the wayland & pulseaudio sockets will be created
+        - name: XDG_RUNTIME_DIR
+          value: /var/run/wolf-sockets
+        - name: TZ
+          value: UTC
+        - name: WOLF_SOCKET_PATH
+          value: /etc/wolf/wolf.sock
+        volumeMounts:
+        - name: sockets-dir
+          mountPath: /var/run/wolf-sockets
+        - mountPath: /etc/wolf
+          name: wolf-cfg
+        resources:
+          limits:
+            cpu: "2"
+            devic.es/gpu: "1"
+            devic.es/uinput: "1"
+            memory: 2G
+          requests:
+            cpu: "2"
+            devic.es/gpu: "1"
+            devic.es/uinput: "1"
+            memory: 2G

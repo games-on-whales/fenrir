@@ -1,0 +1,125 @@
+apiVersion: skaffold/v4beta7
+kind: Config
+build:
+  local:
+    push: false
+    useDockerCLI: true
+  tagPolicy:
+    sha256: {}
+  artifacts:
+    - image: direwolf-operator-dev
+      context: .
+      docker:
+        dockerfile: Dockerfile.dev
+        buildArgs:
+          APP_NAME: operator
+      sync:
+        manual:
+          - src: 'pkg/**/*.go'
+            dest: .
+          - src: 'cmd/operator/main.go'
+            dest: .
+          - src: 'go.mod'
+            dest: .
+          - src: 'go.sum'
+            dest: .
+    - image: direwolf-moonlight-dev
+      context: .
+      docker:
+        dockerfile: Dockerfile.dev
+        buildArgs:
+          APP_NAME: moonlight-proxy
+      sync:
+        manual:
+          - src: 'pkg/**/*.go'
+            dest: .
+          - src: 'cmd/moonlight-proxy/main.go'
+            dest: .
+          - src: 'go.mod'
+            dest: .
+          - src: 'go.sum'
+            dest: .
+    - image: wolf-agent-dev
+      context: .
+      docker:
+        dockerfile: Dockerfile
+        buildArgs:
+          APP_NAME: wolf-agent
+      sync:
+        manual:
+          - src: 'pkg/**/*.go'
+            dest: .
+          - src: 'cmd/wolf-agent/main.go'
+            dest: .
+          - src: 'go.mod'
+            dest: .
+          - src: 'go.sum'
+            dest: .
+## To prevent skaffold from copying into the non active profile
+profiles:
+  - name: operator
+    patches:
+      - op: remove
+        path: /build/artifacts/1/sync
+      - op: remove
+        path: /build/artifacts/2
+  - name: moonlight
+    patches:
+      - op: remove
+        path: /build/artifacts/0/sync
+      - op: remove
+        path: /build/artifacts/2
+# This should be run with  --auto-build=false
+  - name: operator-moonlight
+    patches:
+      - op: remove
+        path: /build/artifacts/2
+      - op: remove
+        path: /manifests/rawYaml/2
+# This should be launched from a separate instance, since it requires rebuilding everytime
+  - name: wolf-agent
+    patches:
+      # Pop the first two images so that i can rebuild the third
+      - op: remove
+        path: /build/artifacts/0
+      - op: remove
+        path: /build/artifacts/0
+      # This operation works like a stack pop
+      # This removes index 3, which is direwolf-operator, making moonlight-proxy at index 3
+      - op: remove
+        path: /manifests/rawYaml/3
+      - op: remove
+        path: /manifests/rawYaml/3
+      - op: remove
+        path: /portForward
+
+deploy:
+  kubectl:
+    flags:
+      apply:
+        - "--server-side"
+manifests:
+  rawYaml:
+  - ./crds/*
+  - ./hack/deploy/00-namespace.yaml
+  - ./hack/deploy/01-wolf-agent.yaml
+  - ./hack/deploy/02-direwolf-operator.yaml
+  - ./hack/deploy/02-moonlight-proxy.yaml
+  - ./hack/deploy/03-misc.yaml
+
+portForward:
+  ## For the streaming service there should be more? since both services share all ports
+  ## This is until we migrate to ingress or api
+  - resourceType: Service
+    resourceName: direwolf
+    port: 47984
+    localPort: 47984
+  - resourceType: Service
+    resourceName: direwolf
+    port: 47989
+    localPort: 47989
+  ## For dlv, probably in the future once I get this whole operator development down
+  - resourceType: Deployment
+    resourceName: direwolf-operator-dev
+    port: 2345
+    localPort: 2345

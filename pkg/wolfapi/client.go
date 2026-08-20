@@ -5,55 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 
 	"github.com/r3labs/sse/v2"
 )
 
-type Session struct {
-	AppID             string         `json:"app_id,omitempty"`
-	AudioChannelCount int            `json:"audio_channel_count"`
-	ClientID          string         `json:"client_id,omitempty"` // omit, otherwise it throws 'Unhandled exception: stoull'
-	ClientIP          string         `json:"client_ip"`
-	ClientSettings    ClientSettings `json:"client_settings,omitempty"`
-	VideoHeight       int            `json:"video_height"`
-	VideoRefreshRate  int            `json:"video_refresh_rate"`
-	VideoWidth        int            `json:"video_width"`
-
-	AESKey string `json:"aes_key"`
-	AESIV  string `json:"aes_iv"`
-
-	RTSPFakeIP string `json:"rtsp_fake_ip,omitempty"` 
-
-	// overrides
-	H264GSTPipeline string `json:"h264_gst_pipeline,omitempty"`
-	HEVCGSTPipeline string `json:"hevc_gst_pipeline,omitempty"`
-	AV1GSTPipeline  string `json:"av1_gst_pipeline,omitempty"`
-	OpusGSTPipeline string `json:"opus_gst_pipeline,omitempty"`
-}
-
-type Runner struct {
-	Type   string `json:"type"`
-	RunCmd string `json:"run_cmd,omitempty"`
-}
-
-type ClientSettings struct {
-	ControllersOverride []string `json:"controllers_override"`
-	//!TODO Float is lossy type. Possible to use decimal?
-	HScrollAcceleration float64 `json:"h_scroll_acceleration"`
-	MouseAcceleration   float64 `json:"mouse_acceleration"`
-	RunGID              int     `json:"run_gid"`
-	RunUID              int     `json:"run_uid"`
-	VScrollAcceleration float64 `json:"v_scroll_acceleration"`
-}
 type Client interface {
 	AddSession(ctx context.Context, session Session) (string, error)
-	AddApp(ctx context.Context, app App) error
 	StopSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context) ([]Session, error)
-	ListApps(ctx context.Context) ([]App, error)
 	SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error)
+	ListLobbies(ctx context.Context) ([]Lobby, error)
+	CreateLobby(ctx context.Context, req LobbyCreateRequest) (*LobbyCreateResponse, error)
+	JoinLobby(ctx context.Context, req JoinLobbyRequest) error
+	LeaveLobby(ctx context.Context, req LeaveLobbyRequest) error
+	StopLobby(ctx context.Context, req StopLobbyRequest) error
 }
 
 type client struct {
@@ -61,251 +29,165 @@ type client struct {
 	httpClient *http.Client
 }
 
-func NewClient(
-	apiURL string,
-	httpClient *http.Client,
-) Client {
+func NewClient(apiURL string, httpClient *http.Client) Client {
 	return &client{
 		apiURL:     apiURL,
 		httpClient: httpClient,
 	}
 }
 
-// POST /api/v1/sessions/add
-func (c *client) AddSession(
-	ctx context.Context,
-	session Session,
-) (string, error) {
-	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions/add")
+// do performs an HTTP request and decodes the JSON response.
+func (c *client) do(ctx context.Context, method, path string, body, result any) error {
+	u, err := url.JoinPath(c.apiURL, path)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("building URL for %s: %w", path, err)
 	}
 
-	encodedSession, err := json.Marshal(session)
+	var bodyReader io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("encoding request body for %s: %w", path, err)
+		}
+		bodyReader = bytes.NewReader(encoded)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, u, bodyReader)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("creating request for %s: %w", path, err)
 	}
 
-	req, err := http.NewRequest("POST", u, bytes.NewBuffer(encodedSession))
-	if err != nil {
-		return "", err
-	}
-
-	// FORCE HTTP/1.0 (this disables chunked encoding automatically)
-	req.Proto = "HTTP/1.0"
-	req.ProtoMajor = 1
-	req.ProtoMinor = 0
-	req.TransferEncoding = []string{"identity"}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var addSessionResp AddSessionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&addSessionResp); err != nil {
-		return "", err
-	}
-
-	if !addSessionResp.Success {
-		return "", fmt.Errorf("failed to add session: %s", addSessionResp.Error)
-	}
-
-	return addSessionResp.SessionID, nil
-}
-
-// GET /api/v1/sessions
-func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
-	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions")
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, err
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("executing request for %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 
-	var sessionsResp SessionsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&sessionsResp); err != nil {
-		return nil, err
-	}
-
-	if !sessionsResp.Success {
-		return nil, fmt.Errorf("failed to list sessions: %s", sessionsResp.Error)
-	}
-
-	return sessionsResp.Sessions, nil
-}
-
-// GET /api/v1/apps
-func (c *client) ListApps(ctx context.Context) ([]App, error) {
-	u, err := url.JoinPath(c.apiURL, "/api/v1/apps")
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest("GET", u, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var appsResp AppsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&appsResp); err != nil {
-		return nil, err
-	}
-
-	if !appsResp.Success {
-		return nil, fmt.Errorf("failed to list apps: %s", appsResp.Error)
-	}
-	return appsResp.Apps, nil
-}
-// This is no longer used, I will probably remove it in the future
-// POST /api/v1/apps/add
-func (c *client) AddApp(ctx context.Context, app App) error {
-	u, err := url.JoinPath(c.apiURL, "/api/v1/apps/add")
-	if err != nil {
-		return err
-	}
-
-	encodedApp, err := json.Marshal(app)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", u, bytes.NewBuffer(encodedApp))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	var response Response
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return err
-	}
-
-	if !response.Success {
-		return fmt.Errorf("failed to add app: %s", response.Error)
+	if result != nil {
+		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+			return fmt.Errorf("decoding response for %s: %w", path, err)
+		}
 	}
 
 	return nil
 }
 
+func (c *client) get(ctx context.Context, path string, result any) error {
+	return c.do(ctx, http.MethodGet, path, nil, result)
+}
+
+func (c *client) post(ctx context.Context, path string, body, result any) error {
+	return c.do(ctx, http.MethodPost, path, body, result)
+}
+
+func (c *client) AddSession(ctx context.Context, session Session) (string, error) {
+	var resp AddSessionResponse
+	if err := c.post(ctx, "/api/v1/sessions/add", session, &resp); err != nil {
+		return "", err
+	}
+	if !resp.Success {
+		return "", fmt.Errorf("failed to add session: %s", resp.Error)
+	}
+	return resp.SessionID, nil
+}
+
+func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
+	var resp SessionsResponse
+	if err := c.get(ctx, "/api/v1/sessions", &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to list sessions: %s", resp.Error)
+	}
+	return resp.Sessions, nil
+}
+
 func (c *client) StopSession(ctx context.Context, sessionID string) error {
-	type StopSessionRequest struct {
-		SessionID string `json:"session_id"`
-	}
-	u, err := url.JoinPath(c.apiURL, "/api/v1/sessions/stop")
-	if err != nil {
+	req := StopSessionRequest{SessionID: sessionID}
+	var resp Response
+	if err := c.post(ctx, "/api/v1/sessions/stop", req, &resp); err != nil {
 		return err
 	}
-
-	stopSessionReq := StopSessionRequest{
-		SessionID: sessionID,
+	if !resp.Success {
+		return fmt.Errorf("failed to stop session: %s", resp.Error)
 	}
-	encodedStopSessionReq, err := json.Marshal(stopSessionReq)
-	if err != nil {
-		return err
-	}
-
-	req, err := http.NewRequest("POST", u, bytes.NewBuffer(encodedStopSessionReq))
-	if err != nil {
-		return err
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-	var stopSessionResp Response
-	if err := json.NewDecoder(resp.Body).Decode(&stopSessionResp); err != nil {
-		return err
-	} else if !stopSessionResp.Success {
-		return fmt.Errorf("failed to stop session: %s", stopSessionResp.Error)
-	}
-
 	return nil
 }
 
 func (c *client) SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error) {
+	u, err := url.JoinPath(c.apiURL, "/api/v1/events")
+	if err != nil {
+		return nil, fmt.Errorf("building events URL: %w", err)
+	}
+
 	events := make(chan *sse.Event)
-	sseClient := sse.NewClient(c.apiURL+"/api/v1/events", func(cl *sse.Client) {
+	sseClient := sse.NewClient(u, func(cl *sse.Client) {
 		cl.Connection = c.httpClient
 	})
 
-	err := sseClient.SubscribeChanRawWithContext(ctx, events)
-	if err != nil {
+	if err := sseClient.SubscribeChanRawWithContext(ctx, events); err != nil {
 		close(events)
-		return nil, err
+		return nil, fmt.Errorf("subscribing to events: %w", err)
 	}
 
 	return events, nil
 }
 
-type Response struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
+func (c *client) ListLobbies(ctx context.Context) ([]Lobby, error) {
+	var resp LobbiesResponse
+	if err := c.get(ctx, "/api/v1/lobbies", &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to list lobbies: %s", resp.Error)
+	}
+	return resp.Lobbies, nil
 }
 
-type SessionsResponse struct {
-	Response `json:",inline"`
-	Sessions []Session `json:"sessions"`
+func (c *client) CreateLobby(ctx context.Context, req LobbyCreateRequest) (*LobbyCreateResponse, error) {
+	var resp LobbyCreateResponse
+	if err := c.post(ctx, "/api/v1/lobbies/create", req, &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to create lobby: %s", resp.Error)
+	}
+	return &resp, nil
 }
 
-type AddSessionResponse struct {
-	Response  `json:",inline"`
-	SessionID string `json:"session_id"`
+func (c *client) JoinLobby(ctx context.Context, req JoinLobbyRequest) error {
+	var resp Response
+	if err := c.post(ctx, "/api/v1/lobbies/join", req, &resp); err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to join lobby: %s", resp.Error)
+	}
+	return nil
 }
 
-type App struct {
-	ID                     string `json:"id"`
-	Title                  string `json:"title"`
-	SupportHDR             bool   `json:"support_hdr"`
-	IconPNGPath            string `json:"icon_png_path"`
-	StartVirtualCompositor bool   `json:"start_virtual_compositor"`
-	StartAudioServer       bool   `json:"start_audio_server"`
-	RenderNode             string `json:"render_node"`
-	Runner                 Runner `json:"runner"`
-
-	H264GSTPipeline string `json:"h264_gst_pipeline"`
-	HEVCGSTPipeline string `json:"hevc_gst_pipeline"`
-	AV1GSTPipeline  string `json:"av1_gst_pipeline"`
-	OpusGSTPipeline string `json:"opus_gst_pipeline"`
+func (c *client) LeaveLobby(ctx context.Context, req LeaveLobbyRequest) error {
+	var resp Response
+	if err := c.post(ctx, "/api/v1/lobbies/leave", req, &resp); err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to leave lobby: %s", resp.Error)
+	}
+	return nil
 }
 
-type AppsResponse struct {
-	Response `json:",inline"`
-	Apps     []App `json:"apps"`
-}
-
-type WolfEventType string
-const (
-	PauseStreamEventType WolfEventType = "wolf::core::events::PauseStreamEvent"
-)
-
-type PauseStreamEvent struct {
-	SessionID string `json:"session_id"`
+func (c *client) StopLobby(ctx context.Context, req StopLobbyRequest) error {
+	var resp Response
+	if err := c.post(ctx, "/api/v1/lobbies/stop", req, &resp); err != nil {
+		return err
+	}
+	if !resp.Success {
+		return fmt.Errorf("failed to stop lobby: %s", resp.Error)
+	}
+	return nil
 }

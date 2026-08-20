@@ -25,13 +25,25 @@ import (
 // AppSpecApplyConfiguration represents a declarative configuration of the AppSpec type for use
 // with apply.
 type AppSpecApplyConfiguration struct {
-	Title               *string                           `json:"title,omitempty"`
-	ID                  *int                              `json:"id,omitempty"`
-	IsHDRSupported      *bool                             `json:"isHDRSupported,omitempty"`
-	AppAssetWebP        []byte                            `json:"appAssetWebP,omitempty"`
-	Template            *v1.PodTemplateSpec               `json:"template,omitempty"`
-	WolfConfig          *WolfConfigApplyConfiguration     `json:"wolfConfig,omitempty"`
-	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
+	// Name of the app to be presented to the user
+	Title *string `json:"title,omitempty"`
+	// Globally unique ID of the application. If there is a collision, the app
+	// will be excluded from the list of available apps.
+	ID *int `json:"id,omitempty"`
+	// Whether the app supports HDR
+	IsHDRSupported *bool `json:"isHDRSupported,omitempty"`
+	// PNG image of the app
+	AppAssetWebP []byte `json:"appAssetWebP,omitempty"`
+	// The pod manifest for the application, it defines the pod
+	Template *v1.PodTemplateSpec `json:"template,omitempty"`
+	// Unstructured wolf configuration for app to be merged with the default
+	// configuration
+	// TODO remove this
+	WolfConfig *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
+	// A template for a PersistentVolumeClaim to be created for the app
+	// If provided, the operator will include them in the pvc
+	// must also be defined in the pod template's spec.volumes field.
+	VolumeClaimTemplates []v1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"`
 }
 
 // AppSpecApplyConfiguration constructs a declarative configuration of the AppSpec type for use with
@@ -90,10 +102,12 @@ func (b *AppSpecApplyConfiguration) WithWolfConfig(value *WolfConfigApplyConfigu
 	return b
 }
 
-// WithVolumeClaimTemplate sets the VolumeClaimTemplate field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the VolumeClaimTemplate field is set to the value of the last call.
-func (b *AppSpecApplyConfiguration) WithVolumeClaimTemplate(value v1.PersistentVolumeClaimTemplate) *AppSpecApplyConfiguration {
-	b.VolumeClaimTemplate = &value
+// WithVolumeClaimTemplates adds the given value to the VolumeClaimTemplates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the VolumeClaimTemplates field.
+func (b *AppSpecApplyConfiguration) WithVolumeClaimTemplates(values ...v1.PersistentVolumeClaim) *AppSpecApplyConfiguration {
+	for i := range values {
+		b.VolumeClaimTemplates = append(b.VolumeClaimTemplates, values[i])
+	}
 	return b
 }

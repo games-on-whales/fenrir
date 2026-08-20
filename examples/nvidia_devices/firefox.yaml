@@ -11,8 +11,15 @@ spec:
   isHDRSupported: false
   title: Firefox
   ##This will automatically provision storage with the default parameters
-  # volumeClaimTemplate: 
-  #   spec: {}
+  # volumeClaimTemplates:
+  # - metadata:
+  #     name: app-data
+  #   spec:
+  #     accessModes:
+  #     - ReadWriteOnce
+  #     resources:
+  #       requests:
+  #         storage: 1Gi
   wolfConfig:
     runtimeVariables:
       ## Change this into the card id of your device, or comment it out and let wolf find it.
@@ -24,6 +31,9 @@ spec:
       containers:
       - name: app
         image: ghcr.io/games-on-whales/firefox:edge
+        # volumeMounts:
+        # - name: app-data
+        #   mountPath: /home/retro
         resources:
           limits:
             nvidia.com/gpu: "1"

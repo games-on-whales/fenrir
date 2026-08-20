@@ -24,13 +24,19 @@ import (
 
 // SessionStatusApplyConfiguration represents a declarative configuration of the SessionStatus type for use
 // with apply.
+//
+// SessionStatus is the session State machine
+// Pending -> Initializing -> WaitForPing -> Streaming -> Ended
 type SessionStatusApplyConfiguration struct {
-	Conditions     []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	Ports          *SessionPortsApplyConfiguration  `json:"ports,omitempty"`
-	WolfSessionID  *string                          `json:"wolfSessionID,omitempty"`
-	StreamURL      *string                          `json:"streamURL,omitempty"`
-	DeploymentName *string                          `json:"deploymentName,omitempty"`
-	ServiceName    *string                          `json:"serviceName,omitempty"`
+	// Represents the observations of a session's state.
+	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// The ports allocated to the session on the shared gateway.
+	Ports *SessionPortsApplyConfiguration `json:"ports,omitempty"`
+	// The RTSP url to access the stream.
+	WolfSessionID   *string `json:"wolfSessionID,omitempty"`
+	StreamURL       *string `json:"streamURL,omitempty"`
+	StatefulSetName *string `json:"statefulSetName,omitempty"`
+	ServiceName     *string `json:"serviceName,omitempty"`
 }
 
 // SessionStatusApplyConfiguration constructs a declarative configuration of the SessionStatus type for use with
@@ -76,11 +82,11 @@ func (b *SessionStatusApplyConfiguration) WithStreamURL(value string) *SessionSt
 	return b
 }
 
-// WithDeploymentName sets the DeploymentName field in the declarative configuration to the given value
+// WithStatefulSetName sets the StatefulSetName field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DeploymentName field is set to the value of the last call.
-func (b *SessionStatusApplyConfiguration) WithDeploymentName(value string) *SessionStatusApplyConfiguration {
-	b.DeploymentName = &value
+// If called multiple times, the StatefulSetName field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithStatefulSetName(value string) *SessionStatusApplyConfiguration {
+	b.StatefulSetName = &value
 	return b
 }
 

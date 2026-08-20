@@ -29,9 +29,10 @@ import (
 type DirewolfV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	AppsGetter
+	LobbiesGetter
 	PairingsGetter
+	ProfilesGetter
 	SessionsGetter
-	UsersGetter
 }
 
 // DirewolfV1alpha1Client is used to interact with features provided by the direwolf.games-on-whales.github.io group.
@@ -43,16 +44,20 @@ func (c *DirewolfV1alpha1Client) Apps(namespace string) AppInterface {
 	return newApps(c, namespace)
 }
 
+func (c *DirewolfV1alpha1Client) Lobbies(namespace string) LobbyInterface {
+	return newLobbies(c, namespace)
+}
+
 func (c *DirewolfV1alpha1Client) Pairings(namespace string) PairingInterface {
 	return newPairings(c, namespace)
 }
 
-func (c *DirewolfV1alpha1Client) Sessions(namespace string) SessionInterface {
-	return newSessions(c, namespace)
+func (c *DirewolfV1alpha1Client) Profiles(namespace string) ProfileInterface {
+	return newProfiles(c, namespace)
 }
 
-func (c *DirewolfV1alpha1Client) Users(namespace string) UserInterface {
-	return newUsers(c, namespace)
+func (c *DirewolfV1alpha1Client) Sessions(namespace string) SessionInterface {
+	return newSessions(c, namespace)
 }
 
 // NewForConfig creates a new DirewolfV1alpha1Client for the given config.

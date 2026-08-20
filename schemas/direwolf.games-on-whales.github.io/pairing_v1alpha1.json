@@ -1,5 +1,5 @@
 {
-  "description": "Represents a Pairing CRD.\nA pairing CRD is created when a client pairs with the server. It represents\nan association between a Moonlight client and a user.",
+  "description": "Pairing Represents a user device's information.\nA pairing CRD is created when a client pairs with the server. It represents\nan association between a Moonlight client and a user.",
   "properties": {
     "apiVersion": {
       "description": "APIVersion defines the versioned schema of this representation of an object.\nServers should convert recognized schemas to the latest internal value, and\nmay reject unrecognized values.\nMore info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources",
@@ -17,22 +17,13 @@
         "clientCertPEM": {
           "type": "string"
         },
-        "userReference": {
-          "properties": {
-            "name": {
-              "type": "string"
-            }
-          },
-          "required": [
-            "name"
-          ],
-          "type": "object",
-          "additionalProperties": false
+        "username": {
+          "type": "string"
         }
       },
       "required": [
         "clientCertPEM",
-        "userReference"
+        "username"
       ],
       "type": "object",
       "additionalProperties": false

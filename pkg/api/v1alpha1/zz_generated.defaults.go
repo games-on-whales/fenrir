@@ -32,154 +32,185 @@ import (
 func RegisterDefaults(scheme *runtime.Scheme) error {
 	scheme.AddTypeDefaultingFunc(&App{}, func(obj interface{}) { SetObjectDefaults_App(obj.(*App)) })
 	scheme.AddTypeDefaultingFunc(&AppList{}, func(obj interface{}) { SetObjectDefaults_AppList(obj.(*AppList)) })
-	scheme.AddTypeDefaultingFunc(&User{}, func(obj interface{}) { SetObjectDefaults_User(obj.(*User)) })
-	scheme.AddTypeDefaultingFunc(&UserList{}, func(obj interface{}) { SetObjectDefaults_UserList(obj.(*UserList)) })
+	scheme.AddTypeDefaultingFunc(&Profile{}, func(obj interface{}) { SetObjectDefaults_Profile(obj.(*Profile)) })
+	scheme.AddTypeDefaultingFunc(&ProfileList{}, func(obj interface{}) { SetObjectDefaults_ProfileList(obj.(*ProfileList)) })
 	return nil
 }
 
 func SetObjectDefaults_App(in *App) {
-	if in.Spec.Template != nil {
-		for i := range in.Spec.Template.Spec.Volumes {
-			a := &in.Spec.Template.Spec.Volumes[i]
-			if a.VolumeSource.ISCSI != nil {
-				if a.VolumeSource.ISCSI.ISCSIInterface == "" {
-					a.VolumeSource.ISCSI.ISCSIInterface = "default"
-				}
-			}
-			if a.VolumeSource.RBD != nil {
-				if a.VolumeSource.RBD.RBDPool == "" {
-					a.VolumeSource.RBD.RBDPool = "rbd"
-				}
-				if a.VolumeSource.RBD.RadosUser == "" {
-					a.VolumeSource.RBD.RadosUser = "admin"
-				}
-				if a.VolumeSource.RBD.Keyring == "" {
-					a.VolumeSource.RBD.Keyring = "/etc/ceph/keyring"
-				}
-			}
-			if a.VolumeSource.AzureDisk != nil {
-				if a.VolumeSource.AzureDisk.CachingMode == nil {
-					ptrVar1 := v1.AzureDataDiskCachingMode(v1.AzureDataDiskCachingReadWrite)
-					a.VolumeSource.AzureDisk.CachingMode = &ptrVar1
-				}
-				if a.VolumeSource.AzureDisk.FSType == nil {
-					var ptrVar1 string = "ext4"
-					a.VolumeSource.AzureDisk.FSType = &ptrVar1
-				}
-				if a.VolumeSource.AzureDisk.ReadOnly == nil {
-					var ptrVar1 bool = false
-					a.VolumeSource.AzureDisk.ReadOnly = &ptrVar1
-				}
-				if a.VolumeSource.AzureDisk.Kind == nil {
-					ptrVar1 := v1.AzureDataDiskKind(v1.AzureSharedBlobDisk)
-					a.VolumeSource.AzureDisk.Kind = &ptrVar1
-				}
-			}
-			if a.VolumeSource.ScaleIO != nil {
-				if a.VolumeSource.ScaleIO.StorageMode == "" {
-					a.VolumeSource.ScaleIO.StorageMode = "ThinProvisioned"
-				}
-				if a.VolumeSource.ScaleIO.FSType == "" {
-					a.VolumeSource.ScaleIO.FSType = "xfs"
-				}
+	for i := range in.Spec.Template.Spec.Volumes {
+		a := &in.Spec.Template.Spec.Volumes[i]
+		if a.VolumeSource.ISCSI != nil {
+			if a.VolumeSource.ISCSI.ISCSIInterface == "" {
+				a.VolumeSource.ISCSI.ISCSIInterface = "default"
 			}
 		}
-		for i := range in.Spec.Template.Spec.InitContainers {
-			a := &in.Spec.Template.Spec.InitContainers[i]
-			for j := range a.Ports {
-				b := &a.Ports[j]
-				if b.Protocol == "" {
-					b.Protocol = "TCP"
-				}
+		if a.VolumeSource.RBD != nil {
+			if a.VolumeSource.RBD.RBDPool == "" {
+				a.VolumeSource.RBD.RBDPool = "rbd"
 			}
-			if a.LivenessProbe != nil {
-				if a.LivenessProbe.ProbeHandler.GRPC != nil {
-					if a.LivenessProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.LivenessProbe.ProbeHandler.GRPC.Service = &ptrVar1
-					}
-				}
+			if a.VolumeSource.RBD.RadosUser == "" {
+				a.VolumeSource.RBD.RadosUser = "admin"
 			}
-			if a.ReadinessProbe != nil {
-				if a.ReadinessProbe.ProbeHandler.GRPC != nil {
-					if a.ReadinessProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.ReadinessProbe.ProbeHandler.GRPC.Service = &ptrVar1
-					}
-				}
+			if a.VolumeSource.RBD.Keyring == "" {
+				a.VolumeSource.RBD.Keyring = "/etc/ceph/keyring"
 			}
-			if a.StartupProbe != nil {
-				if a.StartupProbe.ProbeHandler.GRPC != nil {
-					if a.StartupProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.StartupProbe.ProbeHandler.GRPC.Service = &ptrVar1
+		}
+		if a.VolumeSource.AzureDisk != nil {
+			if a.VolumeSource.AzureDisk.CachingMode == nil {
+				ptrVar1 := v1.AzureDataDiskCachingMode(v1.AzureDataDiskCachingReadWrite)
+				a.VolumeSource.AzureDisk.CachingMode = &ptrVar1
+			}
+			if a.VolumeSource.AzureDisk.FSType == nil {
+				var ptrVar1 string = "ext4"
+				a.VolumeSource.AzureDisk.FSType = &ptrVar1
+			}
+			if a.VolumeSource.AzureDisk.ReadOnly == nil {
+				var ptrVar1 bool = false
+				a.VolumeSource.AzureDisk.ReadOnly = &ptrVar1
+			}
+			if a.VolumeSource.AzureDisk.Kind == nil {
+				ptrVar1 := v1.AzureDataDiskKind(v1.AzureSharedBlobDisk)
+				a.VolumeSource.AzureDisk.Kind = &ptrVar1
+			}
+		}
+		if a.VolumeSource.ScaleIO != nil {
+			if a.VolumeSource.ScaleIO.StorageMode == "" {
+				a.VolumeSource.ScaleIO.StorageMode = "ThinProvisioned"
+			}
+			if a.VolumeSource.ScaleIO.FSType == "" {
+				a.VolumeSource.ScaleIO.FSType = "xfs"
+			}
+		}
+	}
+	for i := range in.Spec.Template.Spec.InitContainers {
+		a := &in.Spec.Template.Spec.InitContainers[i]
+		for j := range a.Ports {
+			b := &a.Ports[j]
+			if b.Protocol == "" {
+				b.Protocol = "TCP"
+			}
+		}
+		for j := range a.Env {
+			b := &a.Env[j]
+			if b.ValueFrom != nil {
+				if b.ValueFrom.FileKeyRef != nil {
+					if b.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						b.ValueFrom.FileKeyRef.Optional = &ptrVar1
 					}
 				}
 			}
 		}
-		for i := range in.Spec.Template.Spec.Containers {
-			a := &in.Spec.Template.Spec.Containers[i]
-			for j := range a.Ports {
-				b := &a.Ports[j]
-				if b.Protocol == "" {
-					b.Protocol = "TCP"
+		if a.LivenessProbe != nil {
+			if a.LivenessProbe.ProbeHandler.GRPC != nil {
+				if a.LivenessProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.LivenessProbe.ProbeHandler.GRPC.Service = &ptrVar1
 				}
 			}
-			if a.LivenessProbe != nil {
-				if a.LivenessProbe.ProbeHandler.GRPC != nil {
-					if a.LivenessProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.LivenessProbe.ProbeHandler.GRPC.Service = &ptrVar1
-					}
+		}
+		if a.ReadinessProbe != nil {
+			if a.ReadinessProbe.ProbeHandler.GRPC != nil {
+				if a.ReadinessProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.ReadinessProbe.ProbeHandler.GRPC.Service = &ptrVar1
 				}
 			}
-			if a.ReadinessProbe != nil {
-				if a.ReadinessProbe.ProbeHandler.GRPC != nil {
-					if a.ReadinessProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.ReadinessProbe.ProbeHandler.GRPC.Service = &ptrVar1
-					}
+		}
+		if a.StartupProbe != nil {
+			if a.StartupProbe.ProbeHandler.GRPC != nil {
+				if a.StartupProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.StartupProbe.ProbeHandler.GRPC.Service = &ptrVar1
 				}
 			}
-			if a.StartupProbe != nil {
-				if a.StartupProbe.ProbeHandler.GRPC != nil {
-					if a.StartupProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.StartupProbe.ProbeHandler.GRPC.Service = &ptrVar1
+		}
+	}
+	for i := range in.Spec.Template.Spec.Containers {
+		a := &in.Spec.Template.Spec.Containers[i]
+		for j := range a.Ports {
+			b := &a.Ports[j]
+			if b.Protocol == "" {
+				b.Protocol = "TCP"
+			}
+		}
+		for j := range a.Env {
+			b := &a.Env[j]
+			if b.ValueFrom != nil {
+				if b.ValueFrom.FileKeyRef != nil {
+					if b.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						b.ValueFrom.FileKeyRef.Optional = &ptrVar1
 					}
 				}
 			}
 		}
-		for i := range in.Spec.Template.Spec.EphemeralContainers {
-			a := &in.Spec.Template.Spec.EphemeralContainers[i]
-			for j := range a.EphemeralContainerCommon.Ports {
-				b := &a.EphemeralContainerCommon.Ports[j]
-				if b.Protocol == "" {
-					b.Protocol = "TCP"
+		if a.LivenessProbe != nil {
+			if a.LivenessProbe.ProbeHandler.GRPC != nil {
+				if a.LivenessProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.LivenessProbe.ProbeHandler.GRPC.Service = &ptrVar1
 				}
 			}
-			if a.EphemeralContainerCommon.LivenessProbe != nil {
-				if a.EphemeralContainerCommon.LivenessProbe.ProbeHandler.GRPC != nil {
-					if a.EphemeralContainerCommon.LivenessProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.EphemeralContainerCommon.LivenessProbe.ProbeHandler.GRPC.Service = &ptrVar1
+		}
+		if a.ReadinessProbe != nil {
+			if a.ReadinessProbe.ProbeHandler.GRPC != nil {
+				if a.ReadinessProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.ReadinessProbe.ProbeHandler.GRPC.Service = &ptrVar1
+				}
+			}
+		}
+		if a.StartupProbe != nil {
+			if a.StartupProbe.ProbeHandler.GRPC != nil {
+				if a.StartupProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.StartupProbe.ProbeHandler.GRPC.Service = &ptrVar1
+				}
+			}
+		}
+	}
+	for i := range in.Spec.Template.Spec.EphemeralContainers {
+		a := &in.Spec.Template.Spec.EphemeralContainers[i]
+		for j := range a.EphemeralContainerCommon.Ports {
+			b := &a.EphemeralContainerCommon.Ports[j]
+			if b.Protocol == "" {
+				b.Protocol = "TCP"
+			}
+		}
+		for j := range a.EphemeralContainerCommon.Env {
+			b := &a.EphemeralContainerCommon.Env[j]
+			if b.ValueFrom != nil {
+				if b.ValueFrom.FileKeyRef != nil {
+					if b.ValueFrom.FileKeyRef.Optional == nil {
+						var ptrVar1 bool = false
+						b.ValueFrom.FileKeyRef.Optional = &ptrVar1
 					}
 				}
 			}
-			if a.EphemeralContainerCommon.ReadinessProbe != nil {
-				if a.EphemeralContainerCommon.ReadinessProbe.ProbeHandler.GRPC != nil {
-					if a.EphemeralContainerCommon.ReadinessProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.EphemeralContainerCommon.ReadinessProbe.ProbeHandler.GRPC.Service = &ptrVar1
-					}
+		}
+		if a.EphemeralContainerCommon.LivenessProbe != nil {
+			if a.EphemeralContainerCommon.LivenessProbe.ProbeHandler.GRPC != nil {
+				if a.EphemeralContainerCommon.LivenessProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.EphemeralContainerCommon.LivenessProbe.ProbeHandler.GRPC.Service = &ptrVar1
 				}
 			}
-			if a.EphemeralContainerCommon.StartupProbe != nil {
-				if a.EphemeralContainerCommon.StartupProbe.ProbeHandler.GRPC != nil {
-					if a.EphemeralContainerCommon.StartupProbe.ProbeHandler.GRPC.Service == nil {
-						var ptrVar1 string = ""
-						a.EphemeralContainerCommon.StartupProbe.ProbeHandler.GRPC.Service = &ptrVar1
-					}
+		}
+		if a.EphemeralContainerCommon.ReadinessProbe != nil {
+			if a.EphemeralContainerCommon.ReadinessProbe.ProbeHandler.GRPC != nil {
+				if a.EphemeralContainerCommon.ReadinessProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.EphemeralContainerCommon.ReadinessProbe.ProbeHandler.GRPC.Service = &ptrVar1
+				}
+			}
+		}
+		if a.EphemeralContainerCommon.StartupProbe != nil {
+			if a.EphemeralContainerCommon.StartupProbe.ProbeHandler.GRPC != nil {
+				if a.EphemeralContainerCommon.StartupProbe.ProbeHandler.GRPC.Service == nil {
+					var ptrVar1 string = ""
+					a.EphemeralContainerCommon.StartupProbe.ProbeHandler.GRPC.Service = &ptrVar1
 				}
 			}
 		}
@@ -193,7 +224,7 @@ func SetObjectDefaults_AppList(in *AppList) {
 	}
 }
 
-func SetObjectDefaults_User(in *User) {
+func SetObjectDefaults_Profile(in *Profile) {
 	for i := range in.Spec.Volumes {
 		a := &in.Spec.Volumes[i]
 		if a.VolumeSource.ISCSI != nil {
@@ -239,11 +270,52 @@ func SetObjectDefaults_User(in *User) {
 			}
 		}
 	}
+	if in.Spec.SidecarPolicies != nil {
+		if in.Spec.SidecarPolicies.Wolf != nil {
+			for i := range in.Spec.SidecarPolicies.Wolf.Env {
+				a := &in.Spec.SidecarPolicies.Wolf.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+		if in.Spec.SidecarPolicies.PulseAudio != nil {
+			for i := range in.Spec.SidecarPolicies.PulseAudio.Env {
+				a := &in.Spec.SidecarPolicies.PulseAudio.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+		if in.Spec.SidecarPolicies.WolfAgent != nil {
+			for i := range in.Spec.SidecarPolicies.WolfAgent.Env {
+				a := &in.Spec.SidecarPolicies.WolfAgent.Env[i]
+				if a.ValueFrom != nil {
+					if a.ValueFrom.FileKeyRef != nil {
+						if a.ValueFrom.FileKeyRef.Optional == nil {
+							var ptrVar1 bool = false
+							a.ValueFrom.FileKeyRef.Optional = &ptrVar1
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
-func SetObjectDefaults_UserList(in *UserList) {
+func SetObjectDefaults_ProfileList(in *ProfileList) {
 	for i := range in.Items {
 		a := &in.Items[i]
-		SetObjectDefaults_User(a)
+		SetObjectDefaults_Profile(a)
 	}
 }

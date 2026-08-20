@@ -10,26 +10,38 @@ spec:
   id: 1
   isHDRSupported: false
   title: Firefox
-  #This will automatically provision storage with the default parameters
-  volumeClaimTemplate: 
-    spec: {}
   wolfConfig:
     runtimeVariables:
       renderNode: /dev/dri/renderD128
-      # clientIP: 10.89.1.2
+  volumeClaimTemplates:
+  - metadata:
+      name: app-data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
   template:
     spec:
       containers:
       - name: app
         image: ghcr.io/games-on-whales/firefox:edge
+        volumeMounts:
+        - name: fix-home-perms
+          mountPath: /etc/cont-init.d/99-fix-home-perms.sh
+          subPath: 99-fix-home-perms.sh
+          readOnly: true
+        - name: app-data
+          mountPath: /home/retro
         resources:
           limits:
-            squat.ai/dri: "1"
-            cpu: 2000m
+            devic.es/dri: "1"
+            cpu: 2
             memory: 4G
           requests:
-            squat.ai/dri: "1"
-            cpu: 2000m
+            devic.es/dri: "1"
+            cpu: 2
             memory: 4G
         command:
         - /bin/bash
@@ -51,7 +63,6 @@ spec:
             echo "Waiting for pulse socket..." >&2
             sleep 1
           done
-
           export PULSE_SINK="$(pactl list sinks short | awk '$2 ~ /^virtual_sink/ {print $2; exit}')"
           export PULSE_SOURCE="${PULSE_SINK}.monitor"
           exec /entrypoint.sh

@@ -20,10 +20,15 @@ package v1alpha1
 
 // SidecarPoliciesApplyConfiguration represents a declarative configuration of the SidecarPolicies type for use
 // with apply.
+//
+// SidecarPolicies will be deleted once wolf-agent becomes a daemonset, it's no longer needed.
 type SidecarPoliciesApplyConfiguration struct {
-	Wolf       *SidecarPolicyApplyConfiguration `json:"wolf,omitempty"`
-	PulseAudio *SidecarPolicyApplyConfiguration `json:"pulseaudio,omitempty"`
-	WolfAgent  *SidecarPolicyApplyConfiguration `json:"wolfAgent,omitempty"`
+	// Policy for the 'wolf' streaming sidecar
+	Wolf *SidecarPolicyApplyConfiguration `json:"wolf,omitempty"`
+	// Policy for the 'pulseaudio' audio control container
+	PulseAudio *SidecarPolicyApplyConfiguration `json:"pulseAudio,omitempty"`
+	// Policy for the 'wolf' session starter container
+	WolfAgent *SidecarPolicyApplyConfiguration `json:"wolfAgent,omitempty"`
 }
 
 // SidecarPoliciesApplyConfiguration constructs a declarative configuration of the SidecarPolicies type for use with

@@ -1,0 +1,18 @@
+# .air.toml (go run / dlv debug version)
+
+root = "."
+
+[build]
+entrypoint = ""
+cmd = "go build cmd/${APP_NAME}/main.go" 
+
+full_bin = "go run cmd/${APP_NAME}/main.go" 
+
+# Watch these file extensions.
+include_ext = ["go"]
+
+[log]
+time = true
+
+[misc]
+clean_on_exit = true

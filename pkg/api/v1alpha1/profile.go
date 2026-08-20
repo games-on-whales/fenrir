@@ -5,22 +5,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// Represents a User CRD
+// Profile contains the user's devices and allowed applications
 // +genclient
+// +kubebuilder:subresource:status
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type User struct {
+type Profile struct {
 	metav1.TypeMeta `json:",inline"`
 	// Standard object metadata; More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata.
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
 
-	Spec UserSpec `json:"spec,omitempty"`
+	Spec ProfileSpec `json:"spec,omitempty"`
 
 	// +kubebuilder:subresource:status
-	Status UserStatus `json:"status,omitempty"`
+	Status ProfileStatus `json:"status,omitempty"`
 }
 
-type UserSpec struct {
+type ProfileSpec struct {
 	// Resources defines the maximum resource requests and limits that the app
 	// container can have. If an app requests exceeds these values,
 	// the app will fail to start.
@@ -34,13 +35,24 @@ type UserSpec struct {
 	// operator will use its own built-in default values.
 	// +optional
 	SidecarPolicies *SidecarPolicies `json:"sidecarPolicies,omitempty"`
+
+	// Apps defines the list of apps available to this profile.
+	// +optional
+	Apps []GameReference `json:"apps,omitempty"`
+
+	// Pairings defines the list of paired moonlight clients that can access this profile.
+	// Admins manually add Pairing IDs here to grant access.
+	// +optional
+	Pairings []PairingReference `json:"pairings,omitempty"`
 }
-//TODO
-// This will also need rework
-// Since I forgot that we might actually need to inject more than
-// Just the volume mounts and security context
-// for example the env vars.
-// SidecarPolicy defines the policy for a single sidecar container.
+
+type ProfileReference struct {
+	//+kubebuilder:validation:Required
+	Name string `json:"name,omitempty"`
+}
+
+// SidecarPolicy will be removed once wolf-agent is a daemonset
+// Maybe it'll be kept to limit some of the application resources?
 type SidecarPolicy struct {
 	// Environment variables appended to the sidecar
 	// +optional
@@ -61,25 +73,27 @@ type SidecarPolicy struct {
 	HostIPC *bool `json:"hostIPC,omitempty"`
 }
 
+// SidecarPolicies will be deleted once wolf-agent becomes a daemonset, it's no longer needed.
 type SidecarPolicies struct {
 	// Policy for the 'wolf' streaming sidecar
 	// +optional
 	Wolf *SidecarPolicy `json:"wolf,omitempty"`
 	// Policy for the 'pulseaudio' audio control container
 	// +optional
-	PulseAudio *SidecarPolicy `json:"pulseaudio,omitempty"`
+	PulseAudio *SidecarPolicy `json:"pulseAudio,omitempty"`
 	// Policy for the 'wolf' session starter container
 	// +optional
 	WolfAgent *SidecarPolicy `json:"wolfAgent,omitempty"`
 }
 
-type UserStatus struct {
+type ProfileStatus struct {
 }
 
+// ProfileList is as the name implies a list of profiles
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-type UserList struct {
+type ProfileList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 
-	Items []User `json:"items"`
+	Items []Profile `json:"items"`
 }
