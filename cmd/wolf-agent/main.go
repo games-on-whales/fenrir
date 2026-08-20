@@ -23,7 +23,6 @@ import (
 	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
 
-	"games-on-whales.github.io/direwolf/pkg/controllers"
 	"games-on-whales.github.io/direwolf/pkg/dra"
 	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
 	informers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
@@ -141,7 +140,7 @@ func main() {
 		AddFunc: func(obj any) {
 			driver.HandleSessionAdd(ctx, obj)
 		},
-		UpdateFunc: func(oldObj, newObj interface{}) {
+		UpdateFunc: func(oldObj, newObj any) {
 			driver.HandleSessionUpdate(ctx, newObj)
 		},
 		DeleteFunc: func(obj any) {
@@ -238,7 +237,7 @@ func runSSE(ctx context.Context, wolfSockPath string) {
 		},
 	)
 
-	agent := controllers.NewAgent(wolfClient)
+	agent := dra.NewAgent(wolfClient)
 	if err := agent.Run(ctx); err != nil {
 		klog.ErrorS(err, "SSE agent exited")
 	}

@@ -28,7 +28,6 @@ import (
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
 	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
-
 	v1alpha1lister "games-on-whales.github.io/direwolf/pkg/generated/listers/api/v1alpha1"
 	wolfapi "games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
