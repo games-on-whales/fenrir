@@ -62,7 +62,7 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	sessionInformer := generic.NewInformer[*direwolfv1alpha1.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
 	appInformer := generic.NewInformer[*direwolfv1alpha1.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
 	profileInformer := generic.NewInformer[*direwolfv1alpha1.Profile](dwFactory.Direwolf().V1alpha1().Profiles().Informer())
-	deploymentInformer := generic.NewInformer[*appsv1.Deployment](k8sFactory.Apps().V1().Deployments().Informer())
+	statefulsetInformer := generic.NewInformer[*appsv1.StatefulSet](k8sFactory.Apps().V1().StatefulSets().Informer())
 
 	// Create a session client scoped to the test namespace
 	sessionClient := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace)
@@ -76,7 +76,7 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		sessionInformer,
 		appInformer,
 		profileInformer,
-		deploymentInformer,
+		statefulsetInformer,
 		SessionControllerOptions{},
 	)
 
@@ -122,11 +122,11 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if err := sc.allocatePorts(ctx, sess); err != nil {
 		t.Fatalf("allocatePorts failed: %v", err)
 	}
-	// Mark PortsAllocated condition so reconcilePod proceeds
+	// Mark PortsAllocated condition so reconcileStatefulSet proceeds
 	sess.Status.Conditions = append(sess.Status.Conditions, metav1.Condition{Type: "PortsAllocated", Status: metav1.ConditionTrue, Reason: "Test", Message: "allocated"})
 
 	// Pre-create an empty ConfigMap that reconcileConfigMap will apply/patch.
-	cmName := sc.deploymentName(sess)
+	cmName := sc.statefulSetName(sess)
 	_, err = fakeK8s.CoreV1().ConfigMaps(profile.Namespace).Create(ctx, &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      cmName,
@@ -142,13 +142,8 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	// 	t.Fatalf("reconcileConfigMap failed: %v", err)
 	// }
 
-	// 3) reconcilePVC
-	if err := sc.reconcilePVC(ctx, sess); err != nil {
-		t.Fatalf("reconcilePVC failed: %v", err)
-	}
-
 	// Pre-create a minimal deployment so the fake k8s client's Apply can update it
-	deployName := sc.deploymentName(sess)
+	deployName := sc.statefulSetName(sess)
 	_, err = fakeK8s.AppsV1().Deployments(profile.Namespace).Create(ctx, &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      deployName,
@@ -160,9 +155,9 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		t.Fatalf("failed to pre-create deployment: %v", err)
 	}
 
-	// 4) reconcilePod (creates/updates Deployment)
-	if err := sc.reconcilePod(ctx, sess); err != nil {
-		t.Fatalf("reconcilePod failed: %v", err)
+	// 4) reconcileStatefulSet (creates/updates Deployment)
+	if err := sc.reconcileStatefulSet(ctx, sess); err != nil {
+		t.Fatalf("reconcileStatefulSet failed: %v", err)
 	}
 
 	// Pre-create a minimal service so Apply will succeed
@@ -181,8 +176,8 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	}
 
 	// Fetch the created deployment and log YAML
-	deploymentName := sc.deploymentName(sess)
-	dep, err := fakeK8s.AppsV1().Deployments(profile.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	statefulsetName := sc.statefulSetName(sess)
+	dep, err := fakeK8s.AppsV1().Deployments(profile.Namespace).Get(ctx, statefulsetName, metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("failed to get deployment from fake k8s: %v", err)
 	}

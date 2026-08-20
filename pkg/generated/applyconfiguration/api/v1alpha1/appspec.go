@@ -25,13 +25,13 @@ import (
 // AppSpecApplyConfiguration represents a declarative configuration of the AppSpec type for use
 // with apply.
 type AppSpecApplyConfiguration struct {
-	Title               *string                           `json:"title,omitempty"`
-	ID                  *int                              `json:"id,omitempty"`
-	IsHDRSupported      *bool                             `json:"isHDRSupported,omitempty"`
-	AppAssetWebP        []byte                            `json:"appAssetWebP,omitempty"`
-	Template            *v1.PodTemplateSpec               `json:"template,omitempty"`
-	WolfConfig          *WolfConfigApplyConfiguration     `json:"wolfConfig,omitempty"`
-	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
+	Title                *string                       `json:"title,omitempty"`
+	ID                   *int                          `json:"id,omitempty"`
+	IsHDRSupported       *bool                         `json:"isHDRSupported,omitempty"`
+	AppAssetWebP         []byte                        `json:"appAssetWebP,omitempty"`
+	Template             *v1.PodTemplateSpec           `json:"template,omitempty"`
+	WolfConfig           *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
+	VolumeClaimTemplates []v1.PersistentVolumeClaim    `json:"volumeClaimTemplates,omitempty"`
 }
 
 // AppSpecApplyConfiguration constructs a declarative configuration of the AppSpec type for use with
@@ -90,10 +90,12 @@ func (b *AppSpecApplyConfiguration) WithWolfConfig(value *WolfConfigApplyConfigu
 	return b
 }
 
-// WithVolumeClaimTemplate sets the VolumeClaimTemplate field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the VolumeClaimTemplate field is set to the value of the last call.
-func (b *AppSpecApplyConfiguration) WithVolumeClaimTemplate(value v1.PersistentVolumeClaimTemplate) *AppSpecApplyConfiguration {
-	b.VolumeClaimTemplate = &value
+// WithVolumeClaimTemplates adds the given value to the VolumeClaimTemplates field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the VolumeClaimTemplates field.
+func (b *AppSpecApplyConfiguration) WithVolumeClaimTemplates(values ...v1.PersistentVolumeClaim) *AppSpecApplyConfiguration {
+	for i := range values {
+		b.VolumeClaimTemplates = append(b.VolumeClaimTemplates, values[i])
+	}
 	return b
 }

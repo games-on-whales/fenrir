@@ -93,7 +93,7 @@ rules:
   resources: ["*"]
   verbs: ["*"]
 - apiGroups: ["apps"]
-  resources: ["deployments"]
+  resources: ["statefulsets"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
   resources: ["services", "persistentvolumeclaims", "configmaps"]

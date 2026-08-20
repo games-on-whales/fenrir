@@ -26,6 +26,14 @@ type AppListerExpansion interface{}
 // AppNamespaceLister.
 type AppNamespaceListerExpansion interface{}
 
+// LobbyListerExpansion allows custom methods to be added to
+// LobbyLister.
+type LobbyListerExpansion interface{}
+
+// LobbyNamespaceListerExpansion allows custom methods to be added to
+// LobbyNamespaceLister.
+type LobbyNamespaceListerExpansion interface{}
+
 // PairingListerExpansion allows custom methods to be added to
 // PairingLister.
 type PairingListerExpansion interface{}

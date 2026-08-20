@@ -88,8 +88,8 @@ type SessionController struct {
 	trackedSessions map[profileGame]sets.Set[string]
 	trackedGames    map[string]profileGame
 
-	controller           generic.Controller[*direwolfv1alpha1.Session]
-	deploymentController generic.Controller[*appsv1.Deployment]
+	controller            generic.Controller[*direwolfv1alpha1.Session]
+	statefulSetController generic.Controller[*appsv1.StatefulSet]
 	SessionControllerOptions
 }
 
@@ -102,7 +102,7 @@ func NewSessionController(
 	sessionInformer generic.Informer[*direwolfv1alpha1.Session],
 	appInformer generic.Informer[*direwolfv1alpha1.App],
 	profileInformer generic.Informer[*direwolfv1alpha1.Profile],
-	deploymentInformer generic.Informer[*appsv1.Deployment],
+	statefulSetInformer generic.Informer[*appsv1.StatefulSet],
 	options SessionControllerOptions,
 ) *SessionController {
 	res := &SessionController{
@@ -127,11 +127,11 @@ func NewSessionController(
 		},
 	)
 
-	//!TODO: Also watch any udproutes, services, deployments, etc. that we create
+	//!TODO: Also watch any udproutes, services, statefulsets, etc. that we create
 	// and re-reconcile their sessions when they change.
-	res.deploymentController = generic.NewController(
-		deploymentInformer,
-		func(_, _ string, newObj *appsv1.Deployment) error {
+	res.statefulSetController = generic.NewController(
+		statefulSetInformer,
+		func(_, _ string, newObj *appsv1.StatefulSet) error {
 			// Load bearing. If we pass nil it will be casted to interface and
 			// not be comparable with nil :)
 			if newObj == nil {
@@ -140,8 +140,8 @@ func NewSessionController(
 			return res.reconcileDependant(newObj)
 		},
 		generic.ControllerOptions{
-			Name:    "session-controller-deployment",
-			Workers: 1,
+			Name:    "session-controller-statefulset",
+			Workers: 2,
 		},
 	)
 
@@ -178,9 +178,9 @@ func (c *SessionController) Run(ctx context.Context) error {
 
 	go func() {
 		defer cancel()
-		err := c.deploymentController.Run(sessionCtx)
+		err := c.statefulSetController.Run(sessionCtx)
 		if err != nil {
-			klog.Errorf("Failed to run deployment controller: %v", err)
+			klog.Errorf("Failed to run statefulset controller: %v", err)
 		}
 	}()
 
@@ -285,55 +285,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		})
 	}
 
-	// configError := c.reconcileConfigMap(context.TODO(), newObj)
-	// if configError != nil {
-	// 	klog.Errorf("Failed to reconcile configmap: %s", configError)
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:    "ConfigMapCreated",
-	// 		Status:  metav1.ConditionFalse,
-	// 		Reason:  "ConfigMapCreationFailed",
-	// 		Message: configError.Error(),
-	// 	})
-	// } else {
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:   "ConfigMapCreated",
-	// 		Status: metav1.ConditionTrue,
-	// 		Reason: "Success",
-	// 	})
-	// }
-
-	if pvcError := c.reconcilePVC(context.TODO(), newObj); pvcError != nil {
-		klog.Errorf("Failed to reconcile pvc: %s", pvcError)
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:    "VolumeCreated",
-			Status:  metav1.ConditionFalse,
-			Reason:  "PVCAllocationFailed",
-			Message: pvcError.Error(),
-		})
-	} else {
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:   "VolumeCreated",
-			Status: metav1.ConditionTrue,
-			Reason: "Success",
-		})
-	}
-
-	if podError := c.reconcilePod(context.TODO(), newObj); podError != nil {
-		klog.Errorf("Failed to reconcile pod: %s", podError)
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:    "DeploymentCreated",
-			Status:  metav1.ConditionFalse,
-			Reason:  "PodCreationFailed",
-			Message: podError.Error(),
-		})
-	} else {
-		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:   "DeploymentCreated",
-			Status: metav1.ConditionTrue,
-			Reason: "Success",
-		})
-	}
-
+	// Service must exist before StatefulSet so ServiceName is populated
 	if serviceError := c.reconcileService(context.TODO(), newObj); serviceError != nil {
 		klog.Errorf("Failed to reconcile service: %s", serviceError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
@@ -350,22 +302,21 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 		})
 	}
 
-	// Gateway not yet supported
-	// if gatewayError := c.reconcileGateway(context.TODO(), newObj); gatewayError != nil {
-	// 	klog.Errorf("Failed to reconcile gateway: %s", gatewayError)
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:    "RoutesCreated",
-	// 		Status:  metav1.ConditionFalse,
-	// 		Reason:  "GatewayConfigurationFailed",
-	// 		Message: gatewayError.Error(),
-	// 	})
-	// } else {
-	// 	meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-	// 		Type:   "RoutesCreated",
-	// 		Status: metav1.ConditionTrue,
-	// 		Reason: "Success",
-	// 	})
-	// }
+	if podError := c.reconcileStatefulSet(context.TODO(), newObj); podError != nil {
+		klog.Errorf("Failed to reconcile statefulset: %s", podError)
+		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+			Type:    "StatefulSetCreated",
+			Status:  metav1.ConditionFalse,
+			Reason:  "StatefulSetCreationFailed",
+			Message: podError.Error(),
+		})
+	} else {
+		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
+			Type:   "StatefulSetCreated",
+			Status: metav1.ConditionTrue,
+			Reason: "Success",
+		})
+	}
 
 	if streamError := c.reconcileActiveStreams(context.TODO(), newObj); streamError != nil {
 		klog.Errorf("Failed to reconcile active streams: %s", streamError)
@@ -404,115 +355,6 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 	//!TODO: figure our retry logic. Some of these errors surely are retriable
 	return nil
 }
-
-// // !TODO: Unused. Part of testing gateway implementation. The final idea is for
-// // Direwolf to dynamically set up port forwards / UDPRoutes via Kubernetes
-// // Gateway API for RTSP, ENet, Video RTP, Audio RTP.
-// func (c *SessionController) reconcileGateway(ctx context.Context, session *v1alpha1types.Session) error {
-// 	// 1. Decide the ports this session will use for RTSP, Enet, Video RTP, Audio RTP
-// 	// 2. Create TCPRoute for RTSP, UDP routes for Enet, RTP via Gateway API
-// 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
-// 		return fmt.Errorf("waiting for PortsAllocated")
-// 	}
-
-// 	_, err := c.UDPRouteClient.Apply(
-// 		ctx,
-// 		gatewayv1alpha2ac.UDPRoute(session.Name, session.Namespace).
-// 			WithOwnerReferences(metav1ac.OwnerReference().
-// 				WithName(session.Name).
-// 				WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 				WithKind("Session").
-// 				WithUID(session.UID).
-// 				WithController(true)).
-// 			WithLabels(
-// 				map[string]string{
-// 					"app":           "direwolf-worker",
-// 					direwolfv1alpha1.LabelApp:  session.Spec.GameReference.Name,
-// 					"direwolf/user": session.Spec.UserReference.Name,
-// 				}).
-// 			WithSpec(
-// 				gatewayv1alpha2ac.UDPRouteSpec().
-// 					WithParentRefs(gatewayv1ac.ParentReference().
-// 						WithKind("Gateway").
-// 						WithGroup("gateway.networking.k8s.io").
-// 						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
-// 						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
-// 					WithRules(
-// 						gatewayv1alpha2ac.UDPRouteRule().
-// 							WithName(gatewayv1.SectionName(session.Name)).
-// 							WithBackendRefs(
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.Control)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.VideoRTP)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.AudioRTP)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 							),
-// 					),
-// 			),
-// 		metav1.ApplyOptions{
-// 			FieldManager: "direwolf-session-controller-udp-route",
-// 			Force:        true,
-// 		},
-// 	)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to apply udp route: %s", err)
-// 	}
-
-// 	_, err = c.TCPRouteClient.Apply(
-// 		ctx,
-// 		gatewayv1alpha2ac.TCPRoute(session.Name, session.Namespace).
-// 			WithOwnerReferences(metav1ac.OwnerReference().
-// 				WithName(session.Name).
-// 				WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 				WithKind("Session").
-// 				WithUID(session.UID).
-// 				WithController(true)).
-// 			WithLabels(
-// 				map[string]string{
-// 					"app":           "direwolf-worker",
-// 					direwolfv1alpha1.LabelApp:  session.Spec.GameReference.Name,
-// 					"direwolf/user": session.Spec.UserReference.Name,
-// 				}).
-// 			WithSpec(
-// 				gatewayv1alpha2ac.TCPRouteSpec().
-// 					WithParentRefs(gatewayv1ac.ParentReference().
-// 						WithKind("Gateway").
-// 						WithGroup("gateway.networking.k8s.io").
-// 						WithName(gatewayv1.ObjectName(session.Spec.GatewayReference.Name)).
-// 						WithNamespace(gatewayv1.Namespace(session.Spec.GatewayReference.Namespace))).
-// 					WithRules(
-// 						gatewayv1alpha2ac.TCPRouteRule().
-// 							WithName(gatewayv1.SectionName(session.Name)).
-// 							WithBackendRefs(
-// 								gatewayv1ac.BackendRef().
-// 									WithPort(gatewayv1.PortNumber(session.Status.Ports.RTSP)).
-// 									WithKind(gatewayv1.Kind("Service")).
-// 									WithName(gatewayv1.ObjectName(session.Namespace)).
-// 									WithNamespace(gatewayv1.Namespace(session.Namespace)),
-// 							),
-// 					),
-// 			),
-// 		metav1.ApplyOptions{
-// 			FieldManager: "direwolf-session-controller-TCP-route",
-// 			Force:        true,
-// 		},
-// 	)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to apply TCP route: %s", err)
-// 	}
-
-// 	return nil
-// }
 
 func (c *SessionController) reconcileService(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
@@ -689,11 +531,15 @@ func validateVolumeMounts(mounts []corev1.VolumeMount, validVolumes map[string]s
 	return nil
 }
 
-func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv1alpha1.Session) error {
+func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *direwolfv1alpha1.Session) error {
 	//!TODO: Just allocate a ton of ports on the container, we wont be able to
 	// change them while its running if another user connects
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
 		return errors.New("waiting for PortsAllocated")
+	}
+
+	if session.Status.ServiceName == "" {
+		return errors.New("waiting for ServiceName")
 	}
 
 	// Get the profile object to access resource policies
@@ -739,35 +585,35 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 		}
 	}
 
-	// If deployment already exists, just skip
-	deploymentName := c.deploymentName(session)
+	// If statefulset already exists, just skip
+	statefulSetName := c.statefulSetName(session)
 
 	// Use API server directly, instead of informer cache because it gets stale on rapid session creation / deletion
-	existingDeployment, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	existingStatefulSet, err := c.K8sClient.AppsV1().StatefulSets(session.Namespace).Get(ctx, statefulSetName, metav1.GetOptions{})
 	if err == nil {
-		// Deployment is being garbage-collected from previous session; don't try to adopt it
-		if existingDeployment.DeletionTimestamp != nil {
-			return fmt.Errorf("deployment %s/%s is being deleted, will retry", session.Namespace, deploymentName)
+		// StatefulSet is being garbage-collected from previous session; don't try to adopt it
+		if existingStatefulSet.DeletionTimestamp != nil {
+			return fmt.Errorf("statefulset %s/%s is being deleted, will retry", session.Namespace, statefulSetName)
 		}
 
-		klog.Infof("Deployment %s/%s already exists, just updating metadata", session.Namespace, deploymentName)
-		if _, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
+		klog.Infof("StatefulSet %s/%s already exists, just updating metadata", session.Namespace, statefulSetName)
+		if _, err := c.K8sClient.AppsV1().StatefulSets(session.Namespace).Apply(
 			ctx,
-			appsv1ac.Deployment(deploymentName, session.Namespace).
+			appsv1ac.StatefulSet(statefulSetName, session.Namespace).
 				WithOwnerReferences(ownerApply...),
 			metav1.ApplyOptions{
-				FieldManager: "direwolf-session-controller-deployment-owners",
+				FieldManager: "direwolf-session-controller-statefulset-owners",
 				Force:        true,
 			},
 		); err != nil {
-			return fmt.Errorf("failed to apply owner references to deployment %s/%s: %w", session.Namespace, deploymentName, err)
+			return fmt.Errorf("failed to apply owner references to statefulset %s/%s: %w", session.Namespace, statefulSetName, err)
 		}
 
 		return nil
 	} else if !kerrors.IsNotFound(err) {
-		return fmt.Errorf("failed to check for existing deployment %s/%s: %w", session.Namespace, deploymentName, err)
+		return fmt.Errorf("failed to check for existing statefulset %s/%s: %w", session.Namespace, statefulSetName, err)
 	}
-	// Fall through to create deployment if not found
+	// Fall through to create statefulset if not found
 
 	// Create pod from pod template
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
@@ -780,13 +626,13 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 	// I need a better method of injecting env vars / configs to the pod
 	// TODO better env var handling in DRA
 	wolfEnvVars := map[string]string{
-		"PUID":                   "1000",
-		"PGID":                   "1000",
-		"UNAME":                  "ubuntu",
-		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix", //nolint
-		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
-		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
-		"WOLF_SOCKET_PATH":       "/etc/wolf/wolf.sock",
+		"PUID":            "1000",
+		"PGID":            "1000",
+		"UNAME":           "ubuntu",
+		"XDG_RUNTIME_DIR": "/tmp/.X11-unix", //nolint
+		"PULSE_SERVER":    "unix:/tmp/.X11-unix/pulse-socket",
+		// "HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
+		"WOLF_SOCKET_PATH": "/etc/wolf/wolf.sock",
 		// Keeping those for later
 		// "GST_VAAPI_ALL_DRIVERS":      "1",
 		// "GST_DEBUG":                  "2",
@@ -813,7 +659,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 		wolfEnvVars["WOLF_STREAM_CLIENT_IP"] = session.Spec.Config.ClientIP
 	}
 	var podToCreate corev1.PodTemplateSpec
-	if app.Spec.Template != nil {
+	if len(app.Spec.Template.Spec.Containers) > 0 {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
 		podToCreate.Spec = *app.Spec.Template.Spec.DeepCopy()
 	}
@@ -838,11 +684,11 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				Name:      "wolf-runtime", //nolint
 				MountPath: "/tmp/.X11-unix",
 			},
-			corev1.VolumeMount{
-				Name:      "wolf-data",
-				MountPath: "/home/retro",
-				SubPath:   "state/" + app.Name,
-			},
+			// corev1.VolumeMount{
+			// 	Name:      "wolf-data",
+			// 	MountPath: "/home/retro",
+			// 	SubPath:   "state/" + app.Name,
+			// },
 		)
 
 		podToCreate.Spec.Containers[i].Env = append(podToCreate.Spec.Containers[i].Env, []corev1.EnvVar{
@@ -1119,10 +965,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 					Name:      "wolf-runtime", //nolint
 					MountPath: "/tmp/.X11-unix",
 				},
-				{
-					Name:      "wolf-data",
-					MountPath: "/mnt/data/wolf",
-				},
+				// {
+				// 	Name:      "wolf-data",
+				// 	MountPath: "/mnt/data/wolf",
+				// },
 				// {
 				// 	Name:      "dev-input",
 				// 	MountPath: "/dev/input",
@@ -1139,39 +985,36 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 		},
 	)
 
-	var wolfDataVolumeSource corev1.VolumeSource
-	if app.Spec.VolumeClaimTemplate != nil {
-		wolfDataVolumeSource = corev1.VolumeSource{
-			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: c.deploymentName(session),
-			},
+	// Build VolumeClaimTemplates from app spec with Profile ownership for GC
+	var volumeClaimTemplates []corev1.PersistentVolumeClaim
+	for _, template := range app.Spec.VolumeClaimTemplates {
+		claim := *template.DeepCopy()
+
+		// Apply same defaults as the old reconcilePVC
+		if len(claim.Spec.AccessModes) == 0 {
+			claim.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
 		}
-	} else {
-		wolfDataVolumeSource = corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		if claim.Spec.Resources.Requests == nil {
+			claim.Spec.Resources.Requests = make(corev1.ResourceList)
 		}
+		if _, ok := claim.Spec.Resources.Requests[corev1.ResourceStorage]; !ok {
+			claim.Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("5Gi")
+		}
+
+		// Profile ownership so PVCs are deleted when profile is deleted
+		claim.OwnerReferences = append(claim.OwnerReferences, metav1.OwnerReference{
+			APIVersion: direwolfv1alpha1.GroupVersion.String(),
+			Kind:       "Profile",
+			Name:       profile.Name,
+			UID:        profile.UID,
+			Controller: ptr.To(true),
+		})
+
+		volumeClaimTemplates = append(volumeClaimTemplates, claim)
 	}
 
+	// Assemble pod volumes
 	podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes,
-		// corev1.Volume{
-		// 	Name: "config",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		ConfigMap: &corev1.ConfigMapVolumeSource{
-		// 			LocalObjectReference: corev1.LocalObjectReference{
-		// 				Name: c.deploymentName(session),
-		// 			},
-		// 		},
-		// 	},
-		// },
-		// corev1.Volume{
-		// 	Name: "wolf-tls-secret",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		Secret: &corev1.SecretVolumeSource{
-		// 			SecretName: "wolf-tls-secret",
-		// 			Optional:   ptr.To(true), // Optional so it doesn't crash if you forgot to create it
-		// 		},
-		// 	},
-		// },
 		corev1.Volume{
 			Name: "wolf-cfg",
 			VolumeSource: corev1.VolumeSource{
@@ -1184,38 +1027,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 				EmptyDir: &corev1.EmptyDirVolumeSource{},
 			},
 		},
-		corev1.Volume{
-			Name:         "wolf-data",
-			VolumeSource: wolfDataVolumeSource,
-		},
-		// corev1.Volume{ //Needs to be changed into something more secure, without host path
-		// 	Name: "dev-input",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		HostPath: &corev1.HostPathVolumeSource{
-		// 			Path: "/dev/input",
-		// 			Type: ptr.To(corev1.HostPathDirectory),
-		// 		},
-		// 	},
-		// },
-		// I'm moving this to volumeConfig
-		// corev1.Volume{
-		// 	Name: "dev-uinput",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		HostPath: &corev1.HostPathVolumeSource{
-		// 			Path: "/dev/uinput",
-		// 			Type: ptr.To(corev1.HostPathFile),
-		// 		},
-		// 	},
-		// },
-		// corev1.Volume{ //Needs to be changed into something more secure, without host path
-		// 	Name: "host-udev",
-		// 	VolumeSource: corev1.VolumeSource{
-		// 		HostPath: &corev1.HostPathVolumeSource{
-		// 			Path: "/run/udev",
-		// 			Type: ptr.To(corev1.HostPathDirectory),
-		// 		},
-		// 	},
-		// },
 	)
 
 	// Add volumes from the profile spec
@@ -1223,15 +1034,14 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, profile.Spec.Volumes...)
 	}
 
-	// Create deployment scaled to 1 for this pod
-	// Should use deployment so that changes in spec aren't rejected.
-	deployment := appsv1.Deployment{
+	// Create StatefulSet scaled to 1 for this pod
+	statefulSet := appsv1.StatefulSet{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "apps/v1",
-			Kind:       "Deployment",
+			Kind:       "StatefulSet",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.deploymentName(session),
+			Name:      statefulSetName,
 			Namespace: session.Namespace,
 			Labels: map[string]string{
 				"app":                         "direwolf-worker", //nolint
@@ -1240,218 +1050,48 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *direwolfv
 			},
 			OwnerReferences: owners,
 		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: ptr.To[int32](1),
+		Spec: appsv1.StatefulSetSpec{
+			ServiceName: session.Status.ServiceName,
+			Replicas:    ptr.To[int32](1),
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
 					direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
 					direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
 				},
 			},
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RecreateDeploymentStrategyType,
-			},
-			RevisionHistoryLimit:    ptr.To[int32](1),
-			ProgressDeadlineSeconds: ptr.To[int32](10),
-			Template:                podToCreate,
+			Template:             podToCreate,
+			VolumeClaimTemplates: volumeClaimTemplates,
 		},
 	}
 
-	unstructuredDeployment, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&deployment)
+	unstructuredStatefulSet, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&statefulSet)
 	if err != nil {
-		return fmt.Errorf("failed to convert deployment to unstructured: %w", err)
+		return fmt.Errorf("failed to convert statefulset to unstructured: %w", err)
 	}
 
 	// NOTE: Kinda dumb cuz its just gona get serialized again....
 	// could just use dynamic client
-	var deploymentApplyConfig appsv1ac.DeploymentApplyConfiguration
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredDeployment, &deploymentApplyConfig)
+	var statefulSetApplyConfig appsv1ac.StatefulSetApplyConfiguration
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredStatefulSet, &statefulSetApplyConfig)
 	if err != nil {
-		return fmt.Errorf("failed to convert unstructured to deployment: %w", err)
+		return fmt.Errorf("failed to convert unstructured to statefulset: %w", err)
 	}
 
-	_, err = c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
+	_, err = c.K8sClient.AppsV1().StatefulSets(session.Namespace).Apply(
 		ctx,
-		&deploymentApplyConfig,
+		&statefulSetApplyConfig,
 		metav1.ApplyOptions{
-			FieldManager: "direwolf-session-controller-deployment",
+			FieldManager: "direwolf-session-controller-statefulset",
 		})
 
 	if err != nil {
-		return fmt.Errorf("failed to apply deployment: %w", err)
+		return fmt.Errorf("failed to apply statefulset: %w", err)
 	}
 
 	return nil
 }
 
-// func (c *SessionController) reconcileConfigMap(
-// 	ctx context.Context,
-// 	session *v1alpha1types.Session,
-// ) error {
-// 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to get app: %s", err)
-// 	}
-
-// 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to get user: %s", err)
-// 	}
-
-// 	wolfConfig, err := GenerateWolfConfig(app)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to generate wolf config: %s", err)
-// 	}
-// 	deploymentName := c.deploymentName(session)
-
-// 	_, err = c.K8sClient.CoreV1().
-// 		ConfigMaps(session.Namespace).
-// 		Apply(
-// 			context.Background(),
-// 			v1ac.ConfigMap(deploymentName, session.Namespace).
-// 				WithLabels(
-// 					map[string]string{
-// 						"app":           "direwolf-worker",
-// 						direwolfv1alpha1.LabelApp:  session.Spec.GameReference.Name,
-// 						"direwolf/user": session.Spec.UserReference.Name,
-// 					}).
-// 				WithOwnerReferences(
-// 					metav1ac.OwnerReference().
-// 						WithName(app.Name).
-// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 						WithKind("App").
-// 						WithUID(app.UID).
-// 						WithController(true),
-// 					metav1ac.OwnerReference().
-// 						WithName(user.Name).
-// 						WithAPIVersion(v1alpha1.GroupVersion.String()).
-// 						WithKind("User").
-// 						WithUID(user.UID),
-// 				).
-// 				WithData(map[string]string{
-// 					"config.toml": wolfConfig,
-// 				}),
-// 			metav1.ApplyOptions{
-// 				FieldManager: "direwolf-session-controller",
-// 			})
-// 	if err != nil {
-// 		return fmt.Errorf("failed to apply configmap: %s", err)
-// 	}
-// 	return nil
-// }
-
-func (c *SessionController) reconcilePVC(ctx context.Context, session *direwolfv1alpha1.Session) error {
-	profile, err := c.ProfileInformer.Namespaced(session.Namespace).Get(session.Spec.ProfileReference.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get profile: %w", err)
-	}
-	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
-	if err != nil {
-		return fmt.Errorf("failed to get profile: %w", err)
-	}
-
-	// Check if the user defined a volume claim template. If not, return nil.
-	if app.Spec.VolumeClaimTemplate == nil {
-		klog.Infof("App %s does not define a VolumeClaimTemplate, skipping PVC creation.", app.Name)
-		return nil
-	}
-
-	pvcName := c.deploymentName(session)
-	templateSpec := app.Spec.VolumeClaimTemplate.Spec.DeepCopy()
-
-	// Default Access Mode: RWO
-	if len(templateSpec.AccessModes) == 0 {
-		templateSpec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
-	}
-
-	// Default Storage: 5Gi
-	if templateSpec.Resources.Requests == nil {
-		templateSpec.Resources.Requests = make(corev1.ResourceList)
-	}
-	if _, ok := templateSpec.Resources.Requests[corev1.ResourceStorage]; !ok {
-		templateSpec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("5Gi")
-	}
-	// Note: Default storage class is handled by Kubernetes if StorageClassName is nil.
-
-	// Build the PVC spec apply configuration from the defaulted spec
-	pvcSpec := v1ac.PersistentVolumeClaimSpec().
-		WithAccessModes(templateSpec.AccessModes...).
-		WithResources(v1ac.VolumeResourceRequirements().
-			WithLimits(templateSpec.Resources.Limits).
-			WithRequests(templateSpec.Resources.Requests))
-
-	if templateSpec.Selector != nil {
-		selectorConfig := metav1ac.LabelSelector()
-		if len(templateSpec.Selector.MatchLabels) > 0 {
-			selectorConfig.WithMatchLabels(templateSpec.Selector.MatchLabels)
-		}
-		if len(templateSpec.Selector.MatchExpressions) > 0 {
-			var expressions []*metav1ac.LabelSelectorRequirementApplyConfiguration
-			for _, req := range templateSpec.Selector.MatchExpressions {
-				expressions = append(expressions, metav1ac.LabelSelectorRequirement().
-					WithKey(req.Key).
-					WithOperator(req.Operator).
-					WithValues(req.Values...))
-			}
-			selectorConfig.WithMatchExpressions(expressions...)
-		}
-		pvcSpec.WithSelector(selectorConfig)
-	}
-	if templateSpec.StorageClassName != nil {
-		pvcSpec.WithStorageClassName(*templateSpec.StorageClassName)
-	}
-	if templateSpec.VolumeMode != nil {
-		pvcSpec.WithVolumeMode(*templateSpec.VolumeMode)
-	}
-	if templateSpec.DataSource != nil {
-		dsConfig := v1ac.TypedLocalObjectReference().
-			WithKind(templateSpec.DataSource.Kind).
-			WithName(templateSpec.DataSource.Name)
-		if templateSpec.DataSource.APIGroup != nil {
-			dsConfig.WithAPIGroup(*templateSpec.DataSource.APIGroup)
-		}
-		pvcSpec.WithDataSource(dsConfig)
-	}
-	if templateSpec.DataSourceRef != nil {
-		dsrConfig := v1ac.TypedObjectReference().
-			WithKind(templateSpec.DataSourceRef.Kind).
-			WithName(templateSpec.DataSourceRef.Name)
-		if templateSpec.DataSourceRef.APIGroup != nil {
-			dsrConfig.WithAPIGroup(*templateSpec.DataSourceRef.APIGroup)
-		}
-		if templateSpec.DataSourceRef.Namespace != nil {
-			dsrConfig.WithNamespace(*templateSpec.DataSourceRef.Namespace)
-		}
-		pvcSpec.WithDataSourceRef(dsrConfig)
-	}
-
-	_, err = c.K8sClient.CoreV1().PersistentVolumeClaims(session.Namespace).Apply(
-		ctx,
-		v1ac.PersistentVolumeClaim(pvcName, session.Namespace).
-			WithLabels(map[string]string{
-				"app":                         "direwolf-worker", //nolint
-				direwolfv1alpha1.LabelApp:     session.Spec.GameReference.Name,
-				direwolfv1alpha1.LabelProfile: session.Spec.ProfileReference.Name,
-			}).
-			WithOwnerReferences(metav1ac.OwnerReference().
-				WithName(profile.Name).
-				WithAPIVersion(direwolfv1alpha1.GroupVersion.String()).
-				WithKind("Profile").
-				WithUID(profile.UID).
-				WithController(true)).
-			WithSpec(pvcSpec),
-		metav1.ApplyOptions{
-			FieldManager: "direwolf-session-controller-pvc",
-		},
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to apply PVC %s: %w", pvcName, err)
-	}
-
-	return nil
-}
-func (c *SessionController) deploymentName(session *direwolfv1alpha1.Session) string {
+func (c *SessionController) statefulSetName(session *direwolfv1alpha1.Session) string {
 	return fmt.Sprintf("%s-%s", session.Spec.ProfileReference.Name, session.Spec.GameReference.Name)
 }
 
@@ -1487,23 +1127,23 @@ func (c *SessionController) reconcileActiveStreams(
 	ctx context.Context,
 	session *direwolfv1alpha1.Session,
 ) error {
-	deploymentName := c.deploymentName(session)
+	statefulSetName := c.statefulSetName(session)
 
 	// !TODO: Use informer for cache reads instead?
-	deployment, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	statefulSet, err := c.K8sClient.AppsV1().StatefulSets(session.Namespace).Get(ctx, statefulSetName, metav1.GetOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to get deployment: %w", err)
+		return fmt.Errorf("failed to get statefulset: %w", err)
 	}
 
-	if deployment.Status.ObservedGeneration != deployment.Generation ||
-		deployment.Status.ReadyReplicas != deployment.Status.Replicas {
-		return fmt.Errorf("deployment %s/%s not ready (Observed %d, Latest %d) (%d/%d)",
-			session.Namespace, deploymentName,
-			deployment.Status.ObservedGeneration, deployment.Generation,
-			deployment.Status.ReadyReplicas, deployment.Status.Replicas)
+	if statefulSet.Status.ObservedGeneration != statefulSet.Generation ||
+		statefulSet.Status.ReadyReplicas != *statefulSet.Spec.Replicas {
+		return fmt.Errorf("statefulset %s/%s not ready (Observed %d, Latest %d) (%d/%d)",
+			session.Namespace, statefulSetName,
+			statefulSet.Status.ObservedGeneration, statefulSet.Generation,
+			statefulSet.Status.ReadyReplicas, *statefulSet.Spec.Replicas)
 	}
 
-	// Get service for the deployment
+	// Get service for the statefulset
 	service, err := c.K8sClient.CoreV1().Services(session.Namespace).Get(ctx, session.Status.ServiceName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get service: %w", err)
@@ -1521,7 +1161,7 @@ func (c *SessionController) reconcileActiveStreams(
 
 	// Retry wolf-agent calls
 	var sessions []wolfapi.Session
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		sessions, err = wolfclient.ListSessions(ctx)
 		if err == nil {
 			break
@@ -1568,7 +1208,7 @@ func (c *SessionController) reconcileActiveStreams(
 		}
 		// This is temporary, since sometimes session creation fails on kind cluster
 		var sessionID string
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			sessionID, err = wolfclient.AddSession(ctx, wolfapi.Session{
 				VideoWidth:       session.Spec.Config.VideoWidth,
 				VideoHeight:      session.Spec.Config.VideoHeight,

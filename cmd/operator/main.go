@@ -61,7 +61,7 @@ func main() {
 	defer direwolfFactory.Shutdown()
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
 		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
-	deploymentInformer := k8sFactory.Apps().V1().Deployments().Informer()
+	statefulsetInformer := k8sFactory.Apps().V1().StatefulSets().Informer()
 
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
@@ -95,7 +95,7 @@ func main() {
 		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
 		generic.NewInformer[*direwolfv1alpha1.Profile](profileInformer),
-		generic.NewInformer[*appsv1.Deployment](deploymentInformer),
+		generic.NewInformer[*appsv1.StatefulSet](statefulsetInformer),
 		controllers.SessionControllerOptions{
 			WolfAgentImage:           *wolfAgentImage,
 			WolfAgentImagePullPolicy: *wolfAgentImagePullPolicy,

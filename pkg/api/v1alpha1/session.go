@@ -70,8 +70,8 @@ type SessionStatus struct {
 	WolfSessionID string `json:"wolfSessionID,omitempty"`
 	StreamURL     string `json:"streamURL,omitempty"`
 
-	DeploymentName string `json:"deploymentName,omitempty"`
-	ServiceName    string `json:"serviceName,omitempty"`
+	StatefulSetName string `json:"statefulSetName,omitempty"`
+	ServiceName     string `json:"serviceName,omitempty"`
 }
 
 // SessionList is a list containing the sessions
