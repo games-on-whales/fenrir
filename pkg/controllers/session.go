@@ -573,7 +573,7 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 				Kind:       "Session",
 				Name:       name,
 				UID:        sess.UID,
-				Controller: ptr.To(true),
+				Controller: new(true),
 			}
 			owners = append(owners, owner)
 			ownerApply = append(ownerApply, metav1ac.OwnerReference().
@@ -1007,7 +1007,7 @@ func (c *SessionController) reconcileStatefulSet(ctx context.Context, session *d
 			Kind:       "Profile",
 			Name:       profile.Name,
 			UID:        profile.UID,
-			Controller: ptr.To(true),
+			Controller: new(true),
 		})
 
 		volumeClaimTemplates = append(volumeClaimTemplates, claim)

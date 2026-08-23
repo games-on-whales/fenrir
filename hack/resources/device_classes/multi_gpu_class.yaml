@@ -1,0 +1,22 @@
+# This device class is for multi gpu nodes
+# It will change the default from /dev/dri/renderD128 
+# Into /dev/dri/renderD129
+# Note DRA devices require host path mounts, so they're often privileged
+# that's the main reason they have direct access to the dri directory
+# TODO create a page with the device class parameters, get ABe & Virant's help
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: default-wolf
+spec:
+  selectors:
+  - cel:
+      expression: device.driver == "wolf.dra.io"
+  config:
+    - opaque:
+        driver: wolf.dra.io
+        parameters:
+          video_settings:
+            wayland_render_node: "/dev/dri/renderD129"
+            runner_render_node: "/dev/dri/renderD129"

@@ -42,7 +42,7 @@ build:
     - image: wolf-agent-dev
       context: .
       docker:
-        dockerfile: Dockerfile
+        dockerfile: Dockerfile.dev
         buildArgs:
           APP_NAME: wolf-agent
       sync:
@@ -91,8 +91,26 @@ profiles:
       - op: remove
         path: /manifests/rawYaml/3
       - op: remove
+        path: /manifests/rawYaml/3
+      - op: remove
         path: /portForward
-
+  - name: wolf-agent-standalone
+    patches:
+      # Pop the first two images so that i can rebuild the third
+      - op: remove
+        path: /build/artifacts/0
+      - op: remove
+        path: /build/artifacts/0
+      # This operation works like a stack pop
+      # This removes index 3, which is direwolf-operator, making moonlight-proxy at index 3
+      - op: remove
+        path: /manifests/rawYaml/2
+      - op: remove
+        path: /manifests/rawYaml/3
+      - op: remove
+        path: /manifests/rawYaml/3
+      - op: remove
+        path: /portForward
 deploy:
   kubectl:
     flags:
@@ -103,6 +121,7 @@ manifests:
   - ./crds/*
   - ./hack/deploy/00-namespace.yaml
   - ./hack/deploy/01-wolf-agent.yaml
+  - ./hack/deploy/01-wolf-agent-standalone.yaml
   - ./hack/deploy/02-direwolf-operator.yaml
   - ./hack/deploy/02-moonlight-proxy.yaml
   - ./hack/deploy/03-misc.yaml

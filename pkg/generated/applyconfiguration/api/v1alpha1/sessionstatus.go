@@ -37,6 +37,8 @@ type SessionStatusApplyConfiguration struct {
 	StreamURL       *string `json:"streamURL,omitempty"`
 	StatefulSetName *string `json:"statefulSetName,omitempty"`
 	ServiceName     *string `json:"serviceName,omitempty"`
+	NodeName        *string `json:"nodeName,omitempty"`
+	StreamStarted   *bool   `json:"streamStarted,omitempty"`
 }
 
 // SessionStatusApplyConfiguration constructs a declarative configuration of the SessionStatus type for use with
@@ -95,5 +97,21 @@ func (b *SessionStatusApplyConfiguration) WithStatefulSetName(value string) *Ses
 // If called multiple times, the ServiceName field is set to the value of the last call.
 func (b *SessionStatusApplyConfiguration) WithServiceName(value string) *SessionStatusApplyConfiguration {
 	b.ServiceName = &value
+	return b
+}
+
+// WithNodeName sets the NodeName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the NodeName field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithNodeName(value string) *SessionStatusApplyConfiguration {
+	b.NodeName = &value
+	return b
+}
+
+// WithStreamStarted sets the StreamStarted field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the StreamStarted field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithStreamStarted(value bool) *SessionStatusApplyConfiguration {
+	b.StreamStarted = &value
 	return b
 }

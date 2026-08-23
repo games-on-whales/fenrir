@@ -36,6 +36,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.AppApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AppSpec"):
 		return &apiv1alpha1.AppSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ClientSettings"):
+		return &apiv1alpha1.ClientSettingsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GameReference"):
 		return &apiv1alpha1.GameReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GatewayReference"):

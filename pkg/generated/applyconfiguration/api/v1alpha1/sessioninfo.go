@@ -21,13 +21,14 @@ package v1alpha1
 // SessionInfoApplyConfiguration represents a declarative configuration of the SessionInfo type for use
 // with apply.
 type SessionInfoApplyConfiguration struct {
-	ClientIP           *string `json:"clientIP,omitempty"`
-	AESKey             *string `json:"aesKey,omitempty"`
-	AESIV              *string `json:"aesIV,omitempty"`
-	VideoWidth         *int    `json:"videoWidth,omitempty"`
-	VideoHeight        *int    `json:"videoHeight,omitempty"`
-	VideoRefreshRate   *int    `json:"videoRefreshRate,omitempty"`
-	SurroundAudioFlags *int    `json:"surroundAudioFlags,omitempty"`
+	ClientIP           *string                           `json:"clientIP,omitempty"`
+	AESKey             *string                           `json:"aesKey,omitempty"`
+	AESIV              *string                           `json:"aesIV,omitempty"`
+	VideoWidth         *int                              `json:"videoWidth,omitempty"`
+	VideoHeight        *int                              `json:"videoHeight,omitempty"`
+	VideoRefreshRate   *int                              `json:"videoRefreshRate,omitempty"`
+	SurroundAudioFlags *int                              `json:"surroundAudioFlags,omitempty"`
+	ClientSettings     *ClientSettingsApplyConfiguration `json:"clientSettings,omitempty"`
 }
 
 // SessionInfoApplyConfiguration constructs a declarative configuration of the SessionInfo type for use with
@@ -89,5 +90,13 @@ func (b *SessionInfoApplyConfiguration) WithVideoRefreshRate(value int) *Session
 // If called multiple times, the SurroundAudioFlags field is set to the value of the last call.
 func (b *SessionInfoApplyConfiguration) WithSurroundAudioFlags(value int) *SessionInfoApplyConfiguration {
 	b.SurroundAudioFlags = &value
+	return b
+}
+
+// WithClientSettings sets the ClientSettings field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the ClientSettings field is set to the value of the last call.
+func (b *SessionInfoApplyConfiguration) WithClientSettings(value *ClientSettingsApplyConfiguration) *SessionInfoApplyConfiguration {
+	b.ClientSettings = value
 	return b
 }
