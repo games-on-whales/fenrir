@@ -77,13 +77,14 @@ spec:
       port: 48200
 ---
 apiVersion: apps/v1
-kind: DaemonSet
+kind: Deployment
 metadata:
   labels:
     app: wolf-agent-dev
   name: wolf-agent-dev
   namespace: direwolf-dev
 spec:
+  replicas: 1
   selector:
     matchLabels:
       app: wolf-agent-dev

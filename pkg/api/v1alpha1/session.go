@@ -51,6 +51,8 @@ type SessionSpec struct {
 
 	// Wolf-specific config for the session
 	Config SessionInfo `json:"config"`
+	// Lobbyname is used for binding session to a node's lobby
+	LobbyName string `json:"lobbyName"`
 }
 
 // SessionStatus is the session State machine
@@ -72,6 +74,8 @@ type SessionStatus struct {
 
 	StatefulSetName string `json:"statefulSetName,omitempty"`
 	ServiceName     string `json:"serviceName,omitempty"`
+	NodeName        string `json:"nodeName,omitempty"`
+	StreamStarted   bool   `json:"streamStarted,omitempty"`
 }
 
 // SessionList is a list containing the sessions
@@ -103,6 +107,9 @@ type SessionInfo struct {
 
 	//+kubebuilder:validation:Required
 	SurroundAudioFlags int `json:"surroundAudioFlags,omitempty"`
+
+	//+kubebuilder:validation:Required
+	ClientSettings *ClientSettings `json:"clientSettings,omitempty"`
 }
 
 // SessionPorts are 4 ports allocated to it on the shared gateway.

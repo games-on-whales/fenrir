@@ -181,11 +181,9 @@ func (c *controller[T]) Run(ctx context.Context) error {
 	waitGroup := sync.WaitGroup{}
 
 	for range c.options.Workers {
-		waitGroup.Add(1)
-		go func() {
-			defer waitGroup.Done()
+		waitGroup.Go(func() {
 			wait.Until(c.runWorker, time.Second, ctx.Done())
-		}()
+		})
 	}
 
 	klog.Infof("Started %v workers for %v", c.options.Workers, c.options.Name)

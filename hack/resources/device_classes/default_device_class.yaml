@@ -1,0 +1,11 @@
+# This device class just relies on the defaults
+# It will use /dev/dri/renderD128 for creating the wayland sessions
+---
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: default-wolf
+spec:
+  selectors:
+  - cel:
+      expression: device.driver == "wolf.dra.io"

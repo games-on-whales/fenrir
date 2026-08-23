@@ -1,0 +1,63 @@
+---
+# ResourceClaimTemplate — defines the request + video/audio params
+# This might not be ideal, since the user can specify their own 
+# stream settings from moonlight, so it might be better to create a 
+# resource claim first from the moonlight operator?
+# alternatively, this can be used as resolution / streaming
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: lobby-claim-template
+  namespace: direwolf-dev
+spec:
+  spec:
+    devices:
+      requests:
+      - name: lobby
+        exactly:
+          deviceClassName: default-wolf
+          capacity:
+            requests:
+              slots: "1"
+      config:
+      - requests:
+        - lobby
+        opaque:
+          driver: wolf.dra.io
+          # The parameters here are supposed to be a json object similar
+          # to the lobby creation request from wolf
+          parameters:
+            video_settings:
+              width: 1920
+              height: 1080
+              refresh_rate: 60
+            audio_settings:
+              channel_count: 2
+---
+# This is just to test multiple parallel / simultaneous requests
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wolf-consumer
+  namespace: direwolf-dev
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wolf-consumer
+  template:
+    metadata:
+      labels:
+        app: wolf-consumer
+    spec:
+      containers:
+      - name: app
+        image: alpine:latest
+        command: ["sh", "-c", "echo '--- ENV ---'; env | grep -E 'WAYLAND|GAMESCOPE|XDG|WOLF'; echo '--- MOUNTS ---'; cat /proc/self/mounts | grep wolf; sleep 3600"]
+        resources:
+          claims:
+          - name: lobby
+      resourceClaims:
+      - name: lobby
+        resourceClaimTemplateName: lobby-claim-template

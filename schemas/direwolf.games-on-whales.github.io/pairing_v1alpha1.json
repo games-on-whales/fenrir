@@ -17,6 +17,40 @@
         "clientCertPEM": {
           "type": "string"
         },
+        "clientSettings": {
+          "default": {
+            "controllersOverride": [
+              "AUTO"
+            ],
+            "hScrollAcceleration": 1,
+            "motionControllerOverride": "AUTO",
+            "mouseAcceleration": 1,
+            "vScrollAcceleration": 1
+          },
+          "description": "ClientSettings is the client configuration for the session\neach client can configure their own controller and acceleration",
+          "properties": {
+            "controllersOverride": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hScrollAcceleration": {
+              "type": "number"
+            },
+            "motionControllerOverride": {
+              "type": "string"
+            },
+            "mouseAcceleration": {
+              "type": "number"
+            },
+            "vScrollAcceleration": {
+              "type": "number"
+            }
+          },
+          "type": "object",
+          "additionalProperties": false
+        },
         "username": {
           "type": "string"
         }

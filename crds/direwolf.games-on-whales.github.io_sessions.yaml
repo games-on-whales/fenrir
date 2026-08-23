@@ -61,6 +61,24 @@ spec:
                     type: string
                   clientIP:
                     type: string
+                  clientSettings:
+                    description: |-
+                      ClientSettings is the client configuration for the session
+                      each client can configure their own controller and acceleration
+                    properties:
+                      controllersOverride:
+                        items:
+                          type: string
+                        type: array
+                      hScrollAcceleration:
+                        type: number
+                      motionControllerOverride:
+                        type: string
+                      mouseAcceleration:
+                        type: number
+                      vScrollAcceleration:
+                        type: number
+                    type: object
                   surroundAudioFlags:
                     type: integer
                   videoHeight:
@@ -72,6 +90,7 @@ spec:
                 required:
                 - aesIV
                 - aesKey
+                - clientSettings
                 - surroundAudioFlags
                 - videoHeight
                 - videoRefreshRate
@@ -98,6 +117,9 @@ spec:
                 required:
                 - name
                 type: object
+              lobbyName:
+                description: Lobbyname is used for binding session to a node's lobby
+                type: string
               pairingReference:
                 properties:
                   name:
@@ -116,6 +138,7 @@ spec:
             - config
             - gameReference
             - gateway
+            - lobbyName
             - pairingReference
             - profileReference
             type: object
@@ -184,6 +207,8 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              nodeName:
+                type: string
               ports:
                 description: The ports allocated to the session on the shared gateway.
                 properties:
@@ -204,6 +229,8 @@ spec:
                 type: string
               statefulSetName:
                 type: string
+              streamStarted:
+                type: boolean
               streamURL:
                 type: string
               wolfSessionID:

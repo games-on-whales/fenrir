@@ -27,6 +27,31 @@
             "clientIP": {
               "type": "string"
             },
+            "clientSettings": {
+              "description": "ClientSettings is the client configuration for the session\neach client can configure their own controller and acceleration",
+              "properties": {
+                "controllersOverride": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "hScrollAcceleration": {
+                  "type": "number"
+                },
+                "motionControllerOverride": {
+                  "type": "string"
+                },
+                "mouseAcceleration": {
+                  "type": "number"
+                },
+                "vScrollAcceleration": {
+                  "type": "number"
+                }
+              },
+              "type": "object",
+              "additionalProperties": false
+            },
             "surroundAudioFlags": {
               "type": "integer"
             },
@@ -43,6 +68,7 @@
           "required": [
             "aesIV",
             "aesKey",
+            "clientSettings",
             "surroundAudioFlags",
             "videoHeight",
             "videoRefreshRate",
@@ -79,6 +105,10 @@
           "type": "object",
           "additionalProperties": false
         },
+        "lobbyName": {
+          "description": "Lobbyname is used for binding session to a node's lobby",
+          "type": "string"
+        },
         "pairingReference": {
           "properties": {
             "name": {
@@ -108,6 +138,7 @@
         "config",
         "gameReference",
         "gateway",
+        "lobbyName",
         "pairingReference",
         "profileReference"
       ],
@@ -177,6 +208,9 @@
           ],
           "x-kubernetes-list-type": "map"
         },
+        "nodeName": {
+          "type": "string"
+        },
         "ports": {
           "description": "The ports allocated to the session on the shared gateway.",
           "properties": {
@@ -205,6 +239,9 @@
         },
         "statefulSetName": {
           "type": "string"
+        },
+        "streamStarted": {
+          "type": "boolean"
         },
         "streamURL": {
           "type": "string"

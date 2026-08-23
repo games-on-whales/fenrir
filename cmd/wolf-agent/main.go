@@ -2,214 +2,281 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
-	"flag"
-	"fmt"
-	"io"
+	"errors"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
-	"sync/atomic"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"syscall"
 	"time"
 
+	resourceapi "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/workqueue"
+	"k8s.io/dynamic-resource-allocation/kubeletplugin"
+	"k8s.io/dynamic-resource-allocation/resourceslice"
 	"k8s.io/klog/v2"
 
-	"games-on-whales.github.io/direwolf/pkg/controllers"
+	"games-on-whales.github.io/direwolf/pkg/dra"
+	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
+	informers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 func main() {
-	appContext, appCancel := context.WithCancel(context.Background())
-	defer appCancel()
+	driverName := getEnv("DRIVER_NAME", "wolf.dra.io")
+	nodeName := os.Getenv("NODE_NAME")
+	if nodeName == "" {
+		klog.Fatal("NODE_NAME environment variable is required")
+	}
+	podUID := os.Getenv("POD_UID")
+	podName := os.Getenv("POD_NAME")
+	podNamespace := os.Getenv("POD_NAMESPACE")
+	if podName == "" || podNamespace == "" {
+		klog.Warning("POD_NAME or POD_NAMESPACE not set; ResourceSlice will not carry agent pod info")
+	}
+	socketsDir := getEnv("SOCKETS_DIR", "/var/run/wolf-sockets")
+	wolfSockPath := getEnv("WOLF_SOCKET_PATH", "/var/run/wolf.sock")
+	cdiDir := getEnv("CDI_DIR", "/var/run/cdi")
+	maxLobbies := getEnvInt("MAX_LOBBIES", 10)
+	// maximum time to wait for lobby creation
+	queueTimeoutSec := getEnvInt("QUEUE_TIMEOUT_SECONDS", 30)
+	enableSSE := getEnv("WOLF_DRA_ENABLE_SSE", "false") == "true"
 
-	serverCertPath := flag.String("tls-cert", "server.crt", "Path to server cert")
-	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
-	serverPort := flag.Int("port", 443, "Port to listen on")
-	wolfSocketPath := flag.String("socket", "/var/run/wolf.sock", "Path to wolf.sock")
-	klog.InitFlags(nil)
-	flag.Parse()
+	logLevel := getEnvInt("LOG_LEVEL", 2)
 
-	klog.Info("Starting wolf-agent")
-	klog.Info("TLS Cert:", *serverCertPath)
-	klog.Info("TLS Key:", *serverKeyPath)
-	klog.Info("Port:", *serverPort)
-	klog.Info("Wolf Socket:", *wolfSocketPath)
-	client := UnixHTTPClient(*wolfSocketPath)
+	tlsCertPath := getEnv("TLS_CERT", "server.crt")
+	tlsKeyPath := getEnv("TLS_KEY", "server.key")
 
-	// Generate self-signed certificate and key
-	cert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
-	if err != nil {
-		klog.Fatal("Failed to load certificates:", err)
+	// Set klog verbosity level based on LOG_LEVEL env var
+	var level klog.Level
+	if err := level.Set(strconv.Itoa(logLevel)); err != nil {
+		klog.ErrorS(err, "Invalid LOG_LEVEL, using default")
+	} else {
+		klog.V(0).InfoS("Log level set", "level", logLevel)
 	}
 
-	// Start a thread to watch for the wolf.sock to appear
-	var ready atomic.Bool
-	go func() {
-		for {
-			// Check socket exists
-			if info, err := os.Stat(*wolfSocketPath); err == nil && info != nil && info.Mode()&os.ModeSocket != 0 {
-				var dialer net.Dialer
-				conn, err := dialer.DialContext(appContext, "unix", *wolfSocketPath)
-				if err == nil {
-					conn.Close()
-					klog.Info("wolf.sock is ready")
+	klog.InfoS("Starting wolf-dra",
+		"driverName", driverName,
+		"nodeName", nodeName,
+		"socketsDir", socketsDir,
+		"wolfSockPath", wolfSockPath,
+		"cdiDir", cdiDir,
+		"maxLobbies", maxLobbies,
+		"queueTimeout", queueTimeoutSec,
+		"enableSSE", enableSSE,
+		"logLevel", logLevel,
+	)
 
-					// Call out to the proxy which handles chunked encoding
-					// properly. There may be a way to use the SSE client without
-					// it, but found this easier.
-					wolfClient := wolfapi.NewClient(
-						fmt.Sprintf("https://localhost:%d", *serverPort),
-						&http.Client{
-							Transport: &http.Transport{
-								TLSClientConfig: &tls.Config{
-									// #nosec G402
-									InsecureSkipVerify: true,
+	cert, err := util.LoadCertificates(tlsCertPath, tlsKeyPath)
+	if err != nil {
+		klog.Fatal("Failed to load certificates: ", err)
+	}
+	_ = cert
+
+	if err := waitForWolfSock(wolfSockPath, 30*time.Second); err != nil {
+		klog.Fatal("wolf.sock not available: ", err)
+	}
+
+	cfg, err := rest.InClusterConfig()
+	if err != nil {
+		klog.Fatal("Failed to get in-cluster config: ", err)
+	}
+	cs, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatal("Failed to create clientset: ", err)
+	}
+
+	// Create direwolf clientset for Session CRD informers (Phase 2)
+	dwClient, err := direwolf.NewForConfig(cfg)
+	if err != nil {
+		klog.Fatal("Failed to create direwolf clientset: ", err)
+	}
+
+	queueTimeout := time.Duration(queueTimeoutSec) * time.Second
+	driver, err := dra.NewDriver(
+		driverName, nodeName, socketsDir, wolfSockPath, cdiDir,
+		maxLobbies, queueTimeout, nil, cs, dwClient,
+	)
+	if err != nil {
+		klog.Fatal("Failed to create driver: ", err)
+	}
+
+	// Use WithCancelCause so HandleError can trigger a graceful shutdown.
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+
+	driver.SetCancelFunc(cancel)
+
+	// Reconcile state immediately at startup, before the plugin registers.
+	// This reads existing CDI files and compares with Wolf's active lobbies
+	// to ensure we don't drop active streams or recreate running pods.
+	klog.Info("Reconciling state with Wolf...")
+	driver.ReconcileWithWolf(ctx)
+	klog.Info("Reconciliation complete.")
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		s := <-sigCh
+		klog.InfoS("Shutting down", "signal", s)
+		cancel(nil)
+	}()
+	factory := informers.NewSharedInformerFactory(dwClient, 0)
+	sessionInformer := factory.Direwolf().V1alpha1().Sessions().Informer()
+	sessionLister := factory.Direwolf().V1alpha1().Sessions().Lister()
+	sessionWorkqueue := workqueue.NewTypedRateLimitingQueue(
+		workqueue.DefaultTypedControllerRateLimiter[string](),
+	)
+
+	sessionInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			driver.HandleSessionAdd(ctx, obj)
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			driver.HandleSessionUpdate(ctx, newObj)
+		},
+		DeleteFunc: func(obj any) {
+			driver.HandleSessionDelete(ctx, obj)
+		},
+	})
+
+	driver.SetSessionInformer(sessionInformer, sessionLister, sessionWorkqueue)
+	go factory.Start(ctx.Done())
+
+	pluginDir := filepath.Join(kubeletplugin.KubeletPluginsDir, driverName)
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil {
+		klog.Fatal("Failed to create plugin directory: ", err)
+	}
+
+	opts := []kubeletplugin.Option{
+		kubeletplugin.DriverName(driverName),
+		kubeletplugin.KubeClient(cs),
+		kubeletplugin.NodeName(nodeName),
+		kubeletplugin.CDIDirectory(cdiDir),
+	}
+	if podUID != "" {
+		opts = append(opts, kubeletplugin.RollingUpdate(types.UID(podUID)))
+	}
+
+	helper, err := kubeletplugin.Start(ctx, driver, opts...)
+	if err != nil {
+		klog.Fatal("Failed to start kubelet plugin: ", err)
+	}
+	internalIP, externalIP := driver.GetNodeIPs(ctx)
+	klog.InfoS("Resolved node IPs for ResourceSlice",
+		"internalIP", internalIP, "externalIP", externalIP,
+		"agentPod", podNamespace+"/"+podName)
+
+	// ---- consumable capacity pool ----
+	driverResources := resourceslice.DriverResources{
+		Pools: map[string]resourceslice.Pool{
+			nodeName: {
+				Slices: []resourceslice.Slice{
+					{
+						// TODO: include more node identifiable information
+						// instead of having the direwolf operator figure it out
+						Devices: []resourceapi.Device{
+							{
+								Name:                     "lobby-pool",
+								AllowMultipleAllocations: new(true),
+								Capacity: map[resourceapi.QualifiedName]resourceapi.DeviceCapacity{
+									"slots": {Value: resource.MustParse(strconv.Itoa(maxLobbies))},
+								},
+								Attributes: map[resourceapi.QualifiedName]resourceapi.DeviceAttribute{
+									"wolf.dra.io/type":              {StringValue: new("lobby")},
+									"wolf.dra.io/nodeInternalIP":    {StringValue: new(internalIP)},
+									"wolf.dra.io/nodeExternalIP":    {StringValue: new(externalIP)},
+									"wolf.dra.io/agentPodName":      {StringValue: new(podName)},
+									"wolf.dra.io/agentPodNamespace": {StringValue: new(podNamespace)},
 								},
 							},
 						},
-					)
-
-					agentController := controllers.NewAgent(
-						wolfClient,
-					)
-
-					go func() {
-						if err := agentController.Run(appContext); err != nil {
-							klog.ErrorS(err, "Agent controller exited with error")
-						}
-					}()
-
-					// Set ready to true
-					// This will allow the /readyz endpoint to return 200 OK
-					// and the server to start accepting connections
-					ready.Store(true)
-					return
-				}
-				klog.Warningf("Waiting for wolf.sock to accept connections: %v\n", err)
-			} else if err == nil && info.Mode()&os.ModeSocket == 0 {
-				klog.Fatal("wolf.sock is not a socket", info.Mode())
-			} else {
-				klog.Info("Waiting for wolf.sock to appear...", err)
-			}
-			<-time.After(200 * time.Millisecond)
-		}
-	}()
-
-	// Spin up HTTPS server with self-signed certificate to service the wolf.sock
-	mux := http.NewServeMux()
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		if ready.Load() {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			w.WriteHeader(http.StatusServiceUnavailable)
-		}
-	})
-	mux.HandleFunc("/livez", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-	mux.HandleFunc("/api/v1/", func(w http.ResponseWriter, r *http.Request) {
-		klog.Info("Received request:", r.Method, r.URL.Path)
-		if !ready.Load() {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-
-		//!TODO: Use kubernetes metric.Filter or something to implement RBAC
-		// authorization against the bearer token
-		// Proxy the request to the wolf.sock
-		url, err := url.JoinPath("http://", "wolf.sock", r.URL.Path)
-		if err != nil {
-			klog.ErrorS(err, "Failed to join URL")
-			http.Error(w, fmt.Sprintf("Failed to join URL: %v", err), http.StatusInternalServerError)
-			return
-		}
-		// #nosec G704 -- TODO: better implementation for DRA
-		request, err := http.NewRequestWithContext(r.Context(), r.Method, url, r.Body)
-		request.Proto = r.Proto
-		request.ProtoMajor = r.ProtoMajor
-		request.ProtoMinor = r.ProtoMinor
-		request.TransferEncoding = r.TransferEncoding
-		request.ContentLength = r.ContentLength
-		if err != nil {
-			klog.ErrorS(err, "Failed to create proxy request")
-			http.Error(w, fmt.Sprintf("Failed to create proxy request: %v", err), http.StatusInternalServerError)
-			return
-		}
-		request.Header = r.Header.Clone()
-
-		// Send the request to the wolf.sock
-		klog.Info("Sending request to wolf.sock:", request.Method, request.URL.Path)
-		// #nosec G704 -- TODO: better implementation for DRA
-		response, err := client.Do(request.WithContext(r.Context()))
-		if err != nil {
-			klog.ErrorS(err, "Failed to send request to wolf.sock")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		defer response.Body.Close()
-
-		// Write the response back to the client
-		for key, values := range response.Header {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-		w.WriteHeader(response.StatusCode)
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			klog.Error("Flushing not supported! Aborting writing response")
-			return
-		}
-
-		// Stream response body manually. io.Copy doesn't eagerly flush
-		// which breaks SSE stream.
-		buf := make([]byte, 4096)
-		for {
-			n, err := response.Body.Read(buf)
-			if n > 0 {
-				_, writeErr := w.Write(buf[:n])
-				if writeErr != nil {
-					klog.Info("Client connection closed")
-					return
-				}
-				flusher.Flush() // Ensure immediate delivery
-			}
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				klog.ErrorS(err, "Error reading from backend")
-				return
-			}
-		}
-		klog.InfoS("Request completed", "statusCode", response.StatusCode)
-	})
-
-	// Start HTTPS server
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", *serverPort),
-		Handler: mux,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		},
-	}
-
-	klog.Infof("Listening on port %d\n", *serverPort)
-	err = server.ListenAndServeTLS("", "")
-	if err != nil {
-		klog.Fatal("Failed to start server:", err)
-	}
-}
-
-func UnixHTTPClient(sockAddr string) http.Client {
-	return http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				var d net.Dialer
-				return d.DialContext(ctx, "unix", sockAddr)
+					},
+				},
 			},
 		},
 	}
+
+	if err := helper.PublishResources(ctx, driverResources); err != nil {
+		klog.Fatal("Failed to publish resources: ", err)
+	}
+	klog.InfoS("Published lobby pool", "slots", maxLobbies)
+
+	if enableSSE {
+		go runSSE(ctx, wolfSockPath)
+	}
+
+	<-ctx.Done()
+
+	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+		klog.ErrorS(cause, "Driver stopped due to fatal error")
+	}
+
+	helper.Stop()
+	klog.Info("wolf-dra stopped")
+}
+
+func runSSE(ctx context.Context, wolfSockPath string) {
+	wolfClient := wolfapi.NewClient(
+		"http://localhost",
+		&http.Client{
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					var d net.Dialer
+					return d.DialContext(ctx, "unix", wolfSockPath)
+				},
+			},
+		},
+	)
+
+	agent := dra.NewAgent(wolfClient)
+	if err := agent.Run(ctx); err != nil {
+		klog.ErrorS(err, "SSE agent exited")
+	}
+}
+
+func waitForWolfSock(path string, timeout time.Duration) error {
+	deadline := time.After(timeout)
+	tick := time.NewTicker(200 * time.Millisecond)
+	defer tick.Stop()
+
+	for {
+		select {
+		case <-deadline:
+			return errors.New("timeout")
+		case <-tick.C:
+			if info, err := os.Stat(path); err == nil && info.Mode()&os.ModeSocket != 0 {
+				var d net.Dialer
+				c, err := d.DialContext(context.Background(), "unix", path)
+				if err == nil {
+					c.Close()
+					return nil
+				}
+			}
+		}
+	}
+}
+
+func getEnv(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func getEnvInt(k string, def int) int {
+	if v := os.Getenv(k); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return def
 }
