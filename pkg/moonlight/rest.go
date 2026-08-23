@@ -693,6 +693,7 @@ func (s *RESTServer) launchOrResume(w http.ResponseWriter, r *http.Request, isRe
 				VideoWidth:         params.width,
 				VideoHeight:        params.height,
 				VideoRefreshRate:   params.refreshRate,
+				ClientSettings:     pairing.Spec.ClientSettings,
 			},
 		},
 	}

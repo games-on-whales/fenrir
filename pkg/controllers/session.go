@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"reflect"
-	"strconv"
 	"sync"
 	"time"
 
@@ -334,10 +332,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *direwolfv1
 				streamIP = info.ExternalIP
 			}
 			if streamIP != "" {
-				newObj.Status.StreamURL = "rtsp://" + net.JoinHostPort(
-					streamIP,
-					strconv.FormatInt(int64(newObj.Status.Ports.RTSP), 10),
-				)
+				newObj.Status.StreamURL = "rtsp://" + streamIP + ":48010"
 				streamReady = true
 			}
 		} else {
