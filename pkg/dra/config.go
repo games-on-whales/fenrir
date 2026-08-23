@@ -147,6 +147,7 @@ func (p *ClaimParams) applyDefaults() {
 	p.VideoSettings.RefreshRate = cmp.Or(p.VideoSettings.RefreshRate, 60)
 	p.VideoSettings.WaylandRenderNode = cmp.Or(p.VideoSettings.WaylandRenderNode, "/dev/dri/renderD128")
 	p.VideoSettings.RunnerRenderNode = cmp.Or(p.VideoSettings.RunnerRenderNode, "/dev/dri/renderD128")
+	// TODO: Learn how to automatically find buffercaps from wolf instead of hardcoding it for now.
 	p.VideoSettings.VideoProducerBufferCaps = cmp.Or(p.VideoSettings.VideoProducerBufferCaps, "video/x-raw(memory:DMABuf), drm-format={NV12,YV12,YU12,P012,YUYV,YU24,AB24,AR24,XB24,XR24}")
 	p.AudioSettings.ChannelCount = cmp.Or(p.AudioSettings.ChannelCount, 2)
 	p.ClientSettings.HScrollAcceleration = cmp.Or(p.ClientSettings.HScrollAcceleration, 1)

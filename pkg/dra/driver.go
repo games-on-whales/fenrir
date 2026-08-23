@@ -59,6 +59,10 @@ type Driver struct {
 	sessionInformer  cache.SharedIndexInformer
 	sessionLister    v1alpha1lister.SessionLister
 	sessionWorkqueue workqueue.TypedRateLimitingInterface[string]
+
+	// For when HDR is ready and we can just create a session with it's gst pipeline params
+	apps         []wolfapi.App
+	defaultAppID string
 }
 
 func NewDriver(
@@ -102,6 +106,10 @@ func NewDriver(
 	}
 
 	d.allocator.SyncFromState(d.state)
+	if apps, err := wolfClient.ListApps(context.Background()); err == nil && len(apps) > 0 {
+		d.apps = apps
+		d.defaultAppID = apps[0].ID
+	}
 	return d, nil
 }
 
@@ -604,7 +612,7 @@ func (d *Driver) GetNodeIPs(ctx context.Context) (internal, external string) {
 // buildWolfSession converts the Session CRD config into a wolfapi.Session.
 // TODO: ClientSettings & AudioChannelCount should come from the Profile and Session respectively.
 func (d *Driver) buildWolfSession(session *direwolfv1alpha1.Session, rtspFakeIP string) wolfapi.Session {
-	return wolfapi.Session{
+	sess := wolfapi.Session{
 		ClientIP:          session.Spec.Config.ClientIP,
 		AESKey:            session.Spec.Config.AESKey,
 		AESIV:             session.Spec.Config.AESIV,
@@ -614,15 +622,19 @@ func (d *Driver) buildWolfSession(session *direwolfv1alpha1.Session, rtspFakeIP 
 		RTSPFakeIP:        rtspFakeIP,
 		AudioChannelCount: 2,
 		ClientSettings: wolfapi.ClientSettings{
-			ControllersOverride:      []string{"XBOX"},
-			MotionControllerOverride: "AUTO",
-			HScrollAcceleration:      1,
-			MouseAcceleration:        1,
+			ControllersOverride:      session.Spec.Config.ClientSettings.ControllersOverride,
+			MotionControllerOverride: session.Spec.Config.ClientSettings.MotionControllerOverride,
+			MouseAcceleration:        session.Spec.Config.ClientSettings.MouseAcceleration,
+			HScrollAcceleration:      session.Spec.Config.ClientSettings.HScrollAcceleration,
+			VScrollAcceleration:      session.Spec.Config.ClientSettings.VScrollAcceleration,
 			RunGID:                   1000,
 			RunUID:                   1000,
-			VScrollAcceleration:      1,
 		},
 	}
+	if d.defaultAppID != "" {
+		sess.AppID = d.defaultAppID
+	}
+	return sess
 }
 
 // addSessionToLobby creates a Wolf session, joins it to the claim's lobby,

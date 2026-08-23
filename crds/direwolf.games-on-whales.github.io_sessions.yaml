@@ -61,6 +61,24 @@ spec:
                     type: string
                   clientIP:
                     type: string
+                  clientSettings:
+                    description: |-
+                      ClientSettings is the client configuration for the session
+                      each client can configure their own controller and acceleration
+                    properties:
+                      controllersOverride:
+                        items:
+                          type: string
+                        type: array
+                      hScrollAcceleration:
+                        type: number
+                      motionControllerOverride:
+                        type: string
+                      mouseAcceleration:
+                        type: number
+                      vScrollAcceleration:
+                        type: number
+                    type: object
                   surroundAudioFlags:
                     type: integer
                   videoHeight:
@@ -72,6 +90,7 @@ spec:
                 required:
                 - aesIV
                 - aesKey
+                - clientSettings
                 - surroundAudioFlags
                 - videoHeight
                 - videoRefreshRate

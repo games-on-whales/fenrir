@@ -42,6 +42,16 @@ type ClientSettings struct {
 	MotionControllerOverride string  `json:"motion_controller_override,omitempty"`
 }
 
+type App struct {
+	Title string `json:"title"`
+	ID    string `json:"id"`
+}
+
+type AppsResponse struct {
+	Success bool   `json:"success"`
+	Apps    []App  `json:"apps"`
+	Error   string `json:"error"`
+}
 type StopSessionRequest struct {
 	SessionID string `json:"session_id"`
 }

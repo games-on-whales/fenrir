@@ -16,6 +16,7 @@ type Client interface {
 	AddSession(ctx context.Context, session Session) (string, error)
 	StopSession(ctx context.Context, sessionID string) error
 	ListSessions(ctx context.Context) ([]Session, error)
+	ListApps(ctx context.Context) ([]App, error)
 	SubscribeToEvents(ctx context.Context) (<-chan *sse.Event, error)
 	ListLobbies(ctx context.Context) ([]Lobby, error)
 	CreateLobby(ctx context.Context, req LobbyCreateRequest) (*LobbyCreateResponse, error)
@@ -106,6 +107,17 @@ func (c *client) ListSessions(ctx context.Context) ([]Session, error) {
 	return resp.Sessions, nil
 }
 
+// GET /api/v1/apps
+func (c *client) ListApps(ctx context.Context) ([]App, error) {
+	var resp AppsResponse
+	if err := c.get(ctx, "/api/v1/apps", &resp); err != nil {
+		return nil, err
+	}
+	if !resp.Success {
+		return nil, fmt.Errorf("failed to list apps: %s", resp.Error)
+	}
+	return resp.Apps, nil
+}
 func (c *client) StopSession(ctx context.Context, sessionID string) error {
 	req := StopSessionRequest{SessionID: sessionID}
 	var resp Response
