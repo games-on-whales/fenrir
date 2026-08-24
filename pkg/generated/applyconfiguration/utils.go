@@ -36,6 +36,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.AppApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AppSpec"):
 		return &apiv1alpha1.AppSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("ClientSettings"):
+		return &apiv1alpha1.ClientSettingsApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GameReference"):
 		return &apiv1alpha1.GameReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GatewayReference"):
@@ -62,8 +64,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.ProfileReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ProfileSpec"):
 		return &apiv1alpha1.ProfileSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("RuntimeWolfVariables"):
-		return &apiv1alpha1.RuntimeWolfVariablesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Session"):
 		return &apiv1alpha1.SessionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionInfo"):
@@ -74,16 +74,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SessionSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionStatus"):
 		return &apiv1alpha1.SessionStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicies"):
-		return &apiv1alpha1.SidecarPoliciesApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("SidecarPolicy"):
-		return &apiv1alpha1.SidecarPolicyApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
-		return &apiv1alpha1.WolfConfigApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):
-		return &apiv1alpha1.WolfRunnerConfigApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WolfStreamConfig"):
-		return &apiv1alpha1.WolfStreamConfigApplyConfiguration{}
 
 	}
 	return nil

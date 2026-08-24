@@ -39,6 +39,10 @@
           "type": "object",
           "additionalProperties": false
         },
+        "deviceClassName": {
+          "description": "DeviceClassName is copied from the referenced App at lobby creation time.\nUsed for the Wolf Lobby creation, in case the user has a non-standard render node name\nAnd other wolf configs / defaults",
+          "type": "string"
+        },
         "multiUser": {
           "type": "boolean"
         },
@@ -159,34 +163,23 @@
           "description": "LobbyNode is the current node this lobby is on",
           "type": "string"
         },
-        "ports": {
-          "description": "The ports allocated to the lobby on the shared gateway.",
-          "properties": {
-            "audioRTP": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "control": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "rtsp": {
-              "format": "int32",
-              "type": "integer"
-            },
-            "videoRTP": {
-              "format": "int32",
-              "type": "integer"
-            }
-          },
-          "type": "object",
-          "additionalProperties": false
+        "nodeName": {
+          "description": "NodeName is the Kubernetes node the lobby pod was scheduled to.",
+          "type": "string"
+        },
+        "podName": {
+          "description": "PodName is the actual StatefulSet pod (e.g. \"profile-app-0\").",
+          "type": "string"
         },
         "serviceName": {
           "type": "string"
         },
         "statefulSetName": {
           "type": "string"
+        },
+        "statefulSetReady": {
+          "description": "StatefulSetReady is true when the lobby's pod is running and ready.",
+          "type": "boolean"
         },
         "waylandSocketName": {
           "description": "WaylandSocketName is the name of the Wayland socket file generated for this Lobby",

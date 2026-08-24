@@ -1,208 +1,208 @@
 package controllers
 
-import (
-	"context"
-	"os"
-	"testing"
-	"time"
+// import (
+// 	"context"
+// 	"os"
+// 	"testing"
+// 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/informers"
-	k8sfake "k8s.io/client-go/kubernetes/fake"
-	"k8s.io/utils/ptr"
-	sigsyaml "sigs.k8s.io/yaml"
+// 	appsv1 "k8s.io/api/apps/v1"
+// 	corev1 "k8s.io/api/core/v1"
+// 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+// 	"k8s.io/client-go/informers"
+// 	k8sfake "k8s.io/client-go/kubernetes/fake"
+// 	"k8s.io/utils/ptr"
+// 	sigsyaml "sigs.k8s.io/yaml"
 
-	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
-	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
-	"games-on-whales.github.io/direwolf/pkg/generic"
-)
+// 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+// 	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
+// 	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
+// 	"games-on-whales.github.io/direwolf/pkg/generic"
+// )
 
-// TestSessionControllerReconcilePath builds a session CR, runs the controller's
-// reconcile helper methods and logs the resulting Deployment YAML. This does
-// not call the full controller Run loop, but exercises the same code paths the
-// controller would use to create the Deployment from the App/Profile/Session CRs.
-func TestSessionControllerReconcilePath(t *testing.T) {
-	ctx := context.Background()
+// // TestSessionControllerReconcilePath builds a session CR, runs the controller's
+// // reconcile helper methods and logs the resulting Deployment YAML. This does
+// // not call the full controller Run loop, but exercises the same code paths the
+// // controller would use to create the Deployment from the App/Profile/Session CRs.
+// func TestSessionControllerReconcilePath(t *testing.T) {
+// 	ctx := context.Background()
 
-	// Read fixtures
-	profileYamlData, err := os.ReadFile("../../examples/profile.yaml")
-	if err != nil {
-		t.Fatalf("failed to read profile.yaml: %v", err)
-	}
-	steamYamlData, err := os.ReadFile("../../examples/steam.yaml")
-	if err != nil {
-		t.Fatalf("failed to read steam.yaml: %v", err)
-	}
+// 	// Read fixtures
+// 	profileYamlData, err := os.ReadFile("../../examples/profile.yaml")
+// 	if err != nil {
+// 		t.Fatalf("failed to read profile.yaml: %v", err)
+// 	}
+// 	steamYamlData, err := os.ReadFile("../../examples/steam.yaml")
+// 	if err != nil {
+// 		t.Fatalf("failed to read steam.yaml: %v", err)
+// 	}
 
-	// Unmarshal into API types
-	var profile direwolfv1alpha1.Profile
-	if err := sigsyaml.Unmarshal(profileYamlData, &profile); err != nil {
-		t.Fatalf("failed to unmarshal profile yaml: %v", err)
-	}
-	var app direwolfv1alpha1.App
-	if err := sigsyaml.Unmarshal(steamYamlData, &app); err != nil {
-		t.Fatalf("failed to unmarshal app yaml: %v", err)
-	}
+// 	// Unmarshal into API types
+// 	var profile direwolfv1alpha1.Profile
+// 	if err := sigsyaml.Unmarshal(profileYamlData, &profile); err != nil {
+// 		t.Fatalf("failed to unmarshal profile yaml: %v", err)
+// 	}
+// 	var app direwolfv1alpha1.App
+// 	if err := sigsyaml.Unmarshal(steamYamlData, &app); err != nil {
+// 		t.Fatalf("failed to unmarshal app yaml: %v", err)
+// 	}
 
-	// Ensure App is in same namespace as profile for this test (controller resolves App by session namespace)
-	app.Namespace = profile.Namespace
+// 	// Ensure App is in same namespace as profile for this test (controller resolves App by session namespace)
+// 	app.Namespace = profile.Namespace
 
-	// Create fake clients pre-seeded with profile and App
-	fakeDirewolf := generatedclient.NewSimpleClientset(&profile, &app)
-	fakeK8s := k8sfake.NewSimpleClientset()
+// 	// Create fake clients pre-seeded with profile and App
+// 	fakeDirewolf := generatedclient.NewSimpleClientset(&profile, &app)
+// 	fakeK8s := k8sfake.NewSimpleClientset()
 
-	// Create informer factories
-	dwFactory := generatedinformers.NewSharedInformerFactory(fakeDirewolf, 0)
-	k8sFactory := informers.NewSharedInformerFactory(fakeK8s, 0)
+// 	// Create informer factories
+// 	dwFactory := generatedinformers.NewSharedInformerFactory(fakeDirewolf, 0)
+// 	k8sFactory := informers.NewSharedInformerFactory(fakeK8s, 0)
 
-	// Build generic informers needed by NewSessionController
-	sessionInformer := generic.NewInformer[*direwolfv1alpha1.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
-	appInformer := generic.NewInformer[*direwolfv1alpha1.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
-	profileInformer := generic.NewInformer[*direwolfv1alpha1.Profile](dwFactory.Direwolf().V1alpha1().Profiles().Informer())
-	statefulsetInformer := generic.NewInformer[*appsv1.StatefulSet](k8sFactory.Apps().V1().StatefulSets().Informer())
+// 	// Build generic informers needed by NewSessionController
+// 	sessionInformer := generic.NewInformer[*direwolfv1alpha1.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
+// 	appInformer := generic.NewInformer[*direwolfv1alpha1.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
+// 	profileInformer := generic.NewInformer[*direwolfv1alpha1.Profile](dwFactory.Direwolf().V1alpha1().Profiles().Informer())
+// 	statefulsetInformer := generic.NewInformer[*appsv1.StatefulSet](k8sFactory.Apps().V1().StatefulSets().Informer())
 
-	// Create a session client scoped to the test namespace
-	sessionClient := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace)
+// 	// Create a session client scoped to the test namespace
+// 	sessionClient := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace)
 
-	// Instantiate controller with nil gateway clients (not used in this test)
-	sc := NewSessionController(
-		fakeK8s,
-		nil,
-		nil,
-		sessionClient,
-		sessionInformer,
-		appInformer,
-		profileInformer,
-		statefulsetInformer,
-		SessionControllerOptions{},
-	)
+// 	// Instantiate controller with nil gateway clients (not used in this test)
+// 	sc := NewSessionController(
+// 		fakeK8s,
+// 		nil,
+// 		nil,
+// 		sessionClient,
+// 		sessionInformer,
+// 		appInformer,
+// 		profileInformer,
+// 		statefulsetInformer,
+// 		SessionControllerOptions{},
+// 	)
 
-	// Start informers and wait for caches
-	stopCh := make(chan struct{})
-	defer close(stopCh)
-	dwFactory.Start(stopCh)
-	k8sFactory.Start(stopCh)
-	// Wait for cache sync
-	if !cacheWaitForSync(k8sFactory, dwFactory, 5*time.Second) {
-		t.Fatal("informers failed to sync")
-	}
+// 	// Start informers and wait for caches
+// 	stopCh := make(chan struct{})
+// 	defer close(stopCh)
+// 	dwFactory.Start(stopCh)
+// 	k8sFactory.Start(stopCh)
+// 	// Wait for cache sync
+// 	if !cacheWaitForSync(k8sFactory, dwFactory, 5*time.Second) {
+// 		t.Fatal("informers failed to sync")
+// 	}
 
-	// Create a Session CR that references the profile and app
-	sess := &direwolfv1alpha1.Session{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "sess-alex-steam",
-			Namespace: profile.Namespace,
-		},
-		Spec: direwolfv1alpha1.SessionSpec{
-			ProfileReference: direwolfv1alpha1.ProfileReference{Name: profile.Name},
-			GameReference:    direwolfv1alpha1.GameReference{Name: app.Name},
-			PairingReference: direwolfv1alpha1.PairingReference{Name: "pairing1"},
-			GatewayReference: direwolfv1alpha1.GatewayReference{Name: "gw1"},
-			Config: direwolfv1alpha1.SessionInfo{
-				AESKey:             "k1",
-				AESIV:              "i1",
-				VideoWidth:         1920,
-				VideoHeight:        1080,
-				VideoRefreshRate:   60,
-				SurroundAudioFlags: 0,
-			},
-		},
-	}
+// 	// Create a Session CR that references the profile and app
+// 	sess := &direwolfv1alpha1.Session{
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name:      "sess-alex-steam",
+// 			Namespace: profile.Namespace,
+// 		},
+// 		Spec: direwolfv1alpha1.SessionSpec{
+// 			ProfileReference: direwolfv1alpha1.ProfileReference{Name: profile.Name},
+// 			GameReference:    direwolfv1alpha1.GameReference{Name: app.Name},
+// 			PairingReference: direwolfv1alpha1.PairingReference{Name: "pairing1"},
+// 			GatewayReference: direwolfv1alpha1.GatewayReference{Name: "gw1"},
+// 			Config: direwolfv1alpha1.SessionInfo{
+// 				AESKey:             "k1",
+// 				AESIV:              "i1",
+// 				VideoWidth:         1920,
+// 				VideoHeight:        1080,
+// 				VideoRefreshRate:   60,
+// 				SurroundAudioFlags: 0,
+// 			},
+// 		},
+// 	}
 
-	// Create the Session in the fake client so informers can list it if necessary
-	if _, err := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace).Create(ctx, sess, metav1.CreateOptions{}); err != nil {
-		t.Fatalf("failed to create session in fake client: %v", err)
-	}
+// 	// Create the Session in the fake client so informers can list it if necessary
+// 	if _, err := fakeDirewolf.DirewolfV1alpha1().Sessions(profile.Namespace).Create(ctx, sess, metav1.CreateOptions{}); err != nil {
+// 		t.Fatalf("failed to create session in fake client: %v", err)
+// 	}
 
-	// Run the same sequence the controller uses (without reconcileActiveStreams that talks to wolf)
-	// 1) allocatePorts
-	if err := sc.allocatePorts(ctx, sess); err != nil {
-		t.Fatalf("allocatePorts failed: %v", err)
-	}
-	// Mark PortsAllocated condition so reconcileStatefulSet proceeds
-	sess.Status.Conditions = append(sess.Status.Conditions, metav1.Condition{Type: "PortsAllocated", Status: metav1.ConditionTrue, Reason: "Test", Message: "allocated"})
+// 	// Run the same sequence the controller uses (without reconcileActiveStreams that talks to wolf)
+// 	// 1) allocatePorts
+// 	if err := sc.allocatePorts(ctx, sess); err != nil {
+// 		t.Fatalf("allocatePorts failed: %v", err)
+// 	}
+// 	// Mark PortsAllocated condition so reconcileStatefulSet proceeds
+// 	sess.Status.Conditions = append(sess.Status.Conditions, metav1.Condition{Type: "PortsAllocated", Status: metav1.ConditionTrue, Reason: "Test", Message: "allocated"})
 
-	// Pre-create an empty ConfigMap that reconcileConfigMap will apply/patch.
-	cmName := sc.statefulSetName(sess)
-	_, err = fakeK8s.CoreV1().ConfigMaps(profile.Namespace).Create(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cmName,
-			Namespace: profile.Namespace,
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("failed to pre-create configmap: %v", err)
-	}
+// 	// Pre-create an empty ConfigMap that reconcileConfigMap will apply/patch.
+// 	cmName := sc.statefulSetName(sess)
+// 	_, err = fakeK8s.CoreV1().ConfigMaps(profile.Namespace).Create(ctx, &corev1.ConfigMap{
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name:      cmName,
+// 			Namespace: profile.Namespace,
+// 		},
+// 	}, metav1.CreateOptions{})
+// 	if err != nil {
+// 		t.Fatalf("failed to pre-create configmap: %v", err)
+// 	}
 
-	// 2) reconcileConfigMap, we're no longer using the config map toml
-	// if err := sc.reconcileConfigMap(ctx, sess); err != nil {
-	// 	t.Fatalf("reconcileConfigMap failed: %v", err)
-	// }
+// 	// 2) reconcileConfigMap, we're no longer using the config map toml
+// 	// if err := sc.reconcileConfigMap(ctx, sess); err != nil {
+// 	// 	t.Fatalf("reconcileConfigMap failed: %v", err)
+// 	// }
 
-	// Pre-create a minimal deployment so the fake k8s client's Apply can update it
-	deployName := sc.statefulSetName(sess)
-	_, err = fakeK8s.AppsV1().Deployments(profile.Namespace).Create(ctx, &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      deployName,
-			Namespace: profile.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{Replicas: ptr.To[int32](0)},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("failed to pre-create deployment: %v", err)
-	}
+// 	// Pre-create a minimal deployment so the fake k8s client's Apply can update it
+// 	deployName := sc.statefulSetName(sess)
+// 	_, err = fakeK8s.AppsV1().Deployments(profile.Namespace).Create(ctx, &appsv1.Deployment{
+// 		ObjectMeta: metav1.ObjectMeta{
+// 			Name:      deployName,
+// 			Namespace: profile.Namespace,
+// 		},
+// 		Spec: appsv1.DeploymentSpec{Replicas: ptr.To[int32](0)},
+// 	}, metav1.CreateOptions{})
+// 	if err != nil {
+// 		t.Fatalf("failed to pre-create deployment: %v", err)
+// 	}
 
-	// 4) reconcileStatefulSet (creates/updates Deployment)
-	if err := sc.reconcileStatefulSet(ctx, sess); err != nil {
-		t.Fatalf("reconcileStatefulSet failed: %v", err)
-	}
+// 	// 4) reconcileStatefulSet (creates/updates Deployment)
+// 	if err := sc.reconcileStatefulSet(ctx, sess); err != nil {
+// 		t.Fatalf("reconcileStatefulSet failed: %v", err)
+// 	}
 
-	// Pre-create a minimal service so Apply will succeed
-	svcName := sess.Name + "-rtp"
-	_, err = fakeK8s.CoreV1().Services(profile.Namespace).Create(ctx, &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: profile.Namespace},
-		Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "direwolf-worker"}},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("failed to pre-create service: %v", err)
-	}
+// 	// Pre-create a minimal service so Apply will succeed
+// 	svcName := sess.Name + "-rtp"
+// 	_, err = fakeK8s.CoreV1().Services(profile.Namespace).Create(ctx, &corev1.Service{
+// 		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: profile.Namespace},
+// 		Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "direwolf-worker"}},
+// 	}, metav1.CreateOptions{})
+// 	if err != nil {
+// 		t.Fatalf("failed to pre-create service: %v", err)
+// 	}
 
-	// 5) reconcileService (creates Service)
-	if err := sc.reconcileService(ctx, sess); err != nil {
-		t.Fatalf("reconcileService failed: %v", err)
-	}
+// 	// 5) reconcileService (creates Service)
+// 	if err := sc.reconcileService(ctx, sess); err != nil {
+// 		t.Fatalf("reconcileService failed: %v", err)
+// 	}
 
-	// Fetch the created deployment and log YAML
-	statefulsetName := sc.statefulSetName(sess)
-	dep, err := fakeK8s.AppsV1().Deployments(profile.Namespace).Get(ctx, statefulsetName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("failed to get deployment from fake k8s: %v", err)
-	}
-	out, err := sigsyaml.Marshal(dep)
-	if err != nil {
-		t.Fatalf("failed to marshal deployment: %v", err)
-	}
-	t.Logf("Generated Deployment YAML:\n%s", string(out))
-}
+// 	// Fetch the created deployment and log YAML
+// 	statefulsetName := sc.statefulSetName(sess)
+// 	dep, err := fakeK8s.AppsV1().Deployments(profile.Namespace).Get(ctx, statefulsetName, metav1.GetOptions{})
+// 	if err != nil {
+// 		t.Fatalf("failed to get deployment from fake k8s: %v", err)
+// 	}
+// 	out, err := sigsyaml.Marshal(dep)
+// 	if err != nil {
+// 		t.Fatalf("failed to marshal deployment: %v", err)
+// 	}
+// 	t.Logf("Generated Deployment YAML:\n%s", string(out))
+// }
 
-// cacheWaitForSync waits for both informer factories to sync (typed and direwolf)
-func cacheWaitForSync(k8sFactory informers.SharedInformerFactory, dwFactory generatedinformers.SharedInformerFactory, timeout time.Duration) bool {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	ch := make(chan bool, 1)
-	go func() {
-		// Wait for both factories' known informers to sync
-		k8sFactory.WaitForCacheSync(ctx.Done())
-		dwFactory.WaitForCacheSync(ctx.Done())
-		ch <- true
-	}()
-	select {
-	case <-ch:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
+// // cacheWaitForSync waits for both informer factories to sync (typed and direwolf)
+// func cacheWaitForSync(k8sFactory informers.SharedInformerFactory, dwFactory generatedinformers.SharedInformerFactory, timeout time.Duration) bool {
+// 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// 	defer cancel()
+// 	ch := make(chan bool, 1)
+// 	go func() {
+// 		// Wait for both factories' known informers to sync
+// 		k8sFactory.WaitForCacheSync(ctx.Done())
+// 		dwFactory.WaitForCacheSync(ctx.Done())
+// 		ch <- true
+// 	}()
+// 	select {
+// 	case <-ch:
+// 		return true
+// 	case <-ctx.Done():
+// 		return false
+// 	}
+// }

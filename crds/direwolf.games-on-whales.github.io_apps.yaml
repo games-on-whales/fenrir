@@ -43,6 +43,12 @@ spec:
                 description: PNG image of the app
                 format: byte
                 type: string
+              deviceClassName:
+                default: default-wolf
+                description: |-
+                  DeviceClassName is the Kubernetes DRA DeviceClass used for wolf
+                  resource claims when running this app.
+                type: string
               id:
                 description: |-
                   Globally unique ID of the application. If there is a collision, the app
@@ -8987,66 +8993,6 @@ spec:
                       type: object
                   type: object
                 type: array
-                x-kubernetes-preserve-unknown-fields: true
-              wolfConfig:
-                description: |-
-                  Unstructured wolf configuration for app to be merged with the default
-                  configuration
-                properties:
-                  audio:
-                    properties:
-                      sink:
-                        type: string
-                      source:
-                        type: string
-                    type: object
-                  id:
-                    type: string
-                  runner:
-                    properties:
-                      runCommand:
-                        type: string
-                      type:
-                        type: string
-                    type: object
-                  runtimeVariables:
-                    description: Additional wolf configs to use.
-                    properties:
-                      logLevel:
-                        default: DEBUG
-                        description: Logging level for wolf.
-                        enum:
-                        - ERROR
-                        - WARNING
-                        - INFO
-                        - DEBUG
-                        - TRACE
-                        type: string
-                      renderNode:
-                        default: /dev/dri/renderD128
-                        description: |-
-                          RenderNode specifies the filepath to the DRM render node device.
-                          Wolf defaults to: "/dev/dri/renderD128"
-                        type: string
-                      timeZone:
-                        default: UTC
-                        description: Time zone for the wolf container
-                        type: string
-                    type: object
-                  startAudioServer:
-                    type: boolean
-                  startVirtualCompositor:
-                    type: boolean
-                  title:
-                    type: string
-                  video:
-                    properties:
-                      sink:
-                        type: string
-                      source:
-                        type: string
-                    type: object
-                type: object
                 x-kubernetes-preserve-unknown-fields: true
             required:
             - appAssetWebP

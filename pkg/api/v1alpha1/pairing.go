@@ -26,6 +26,10 @@ type PairingSpec struct {
 
 	//+kubebuilder:validation:Required
 	Username string `json:"username,omitempty"`
+
+	// +kubebuilder:default={controllersOverride: {"AUTO"}, motionControllerOverride: "AUTO", mouseAcceleration: 1, hScrollAcceleration: 1, vScrollAcceleration: 1}
+	// +optional
+	ClientSettings *ClientSettings `json:"clientSettings,omitempty"`
 }
 
 type GameReference struct {
@@ -51,4 +55,14 @@ type PairingList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Pairing `json:"items"`
+}
+
+// ClientSettings is the client configuration for the session
+// each client can configure their own controller and acceleration
+type ClientSettings struct {
+	ControllersOverride      []string `json:"controllersOverride,omitempty"`
+	MotionControllerOverride string   `json:"motionControllerOverride,omitempty"`
+	MouseAcceleration        float64  `json:"mouseAcceleration,omitempty"`
+	HScrollAcceleration      float64  `json:"hScrollAcceleration,omitempty"`
+	VScrollAcceleration      float64  `json:"vScrollAcceleration,omitempty"`
 }

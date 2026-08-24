@@ -34,12 +34,11 @@ type AppSpecApplyConfiguration struct {
 	IsHDRSupported *bool `json:"isHDRSupported,omitempty"`
 	// PNG image of the app
 	AppAssetWebP []byte `json:"appAssetWebP,omitempty"`
+	// DeviceClassName is the Kubernetes DRA DeviceClass used for wolf
+	// resource claims when running this app.
+	DeviceClassName *string `json:"deviceClassName,omitempty"`
 	// The pod manifest for the application, it defines the pod
 	Template *v1.PodTemplateSpec `json:"template,omitempty"`
-	// Unstructured wolf configuration for app to be merged with the default
-	// configuration
-	// TODO remove this
-	WolfConfig *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
 	// A template for a PersistentVolumeClaim to be created for the app
 	// If provided, the operator will include them in the pvc
 	// must also be defined in the pod template's spec.volumes field.
@@ -86,19 +85,19 @@ func (b *AppSpecApplyConfiguration) WithAppAssetWebP(values ...byte) *AppSpecApp
 	return b
 }
 
+// WithDeviceClassName sets the DeviceClassName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DeviceClassName field is set to the value of the last call.
+func (b *AppSpecApplyConfiguration) WithDeviceClassName(value string) *AppSpecApplyConfiguration {
+	b.DeviceClassName = &value
+	return b
+}
+
 // WithTemplate sets the Template field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
 // If called multiple times, the Template field is set to the value of the last call.
 func (b *AppSpecApplyConfiguration) WithTemplate(value v1.PodTemplateSpec) *AppSpecApplyConfiguration {
 	b.Template = &value
-	return b
-}
-
-// WithWolfConfig sets the WolfConfig field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the WolfConfig field is set to the value of the last call.
-func (b *AppSpecApplyConfiguration) WithWolfConfig(value *WolfConfigApplyConfiguration) *AppSpecApplyConfiguration {
-	b.WolfConfig = value
 	return b
 }
 

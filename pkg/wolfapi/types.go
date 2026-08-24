@@ -1,11 +1,13 @@
 package wolfapi
 
+// TODO, go through the wolf code to mimick their structs
 type Response struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error,omitempty"`
 }
 
 // Session types
+// TODO: use the shared settings from lobby?
 type Session struct {
 	AppID             string         `json:"app_id,omitempty"`
 	AudioChannelCount int            `json:"audio_channel_count"`
@@ -32,13 +34,24 @@ type Session struct {
 type ClientSettings struct {
 	ControllersOverride []string `json:"controllers_override"`
 	// TODO: Float is a lossy type. Consider using decimal?
-	HScrollAcceleration float64 `json:"h_scroll_acceleration"`
-	MouseAcceleration   float64 `json:"mouse_acceleration"`
-	RunGID              int     `json:"run_gid"`
-	RunUID              int     `json:"run_uid"`
-	VScrollAcceleration float64 `json:"v_scroll_acceleration"`
+	HScrollAcceleration      float64 `json:"h_scroll_acceleration"`
+	MouseAcceleration        float64 `json:"mouse_acceleration"`
+	RunGID                   int     `json:"run_gid"`
+	RunUID                   int     `json:"run_uid"`
+	VScrollAcceleration      float64 `json:"v_scroll_acceleration"`
+	MotionControllerOverride string  `json:"motion_controller_override,omitempty"`
 }
 
+type App struct {
+	Title string `json:"title"`
+	ID    string `json:"id"`
+}
+
+type AppsResponse struct {
+	Success bool   `json:"success"`
+	Apps    []App  `json:"apps"`
+	Error   string `json:"error"`
+}
 type StopSessionRequest struct {
 	SessionID string `json:"session_id"`
 }
@@ -68,6 +81,8 @@ const (
 	StreamSessionEventType WolfEventType = "wolf::core::events::StreamSession"
 	VideoSessionEventType  WolfEventType = "wolf::core::events::VideoSession"
 	AudioSessionEventType  WolfEventType = "wolf::core::events::AudioSession"
+	CreateLobbyEventType   WolfEventType = "wolf::core::events::CreateLobbyEvent"
+	LeaveLobbyEvent        WolfEventType = "wolf::core::events::LeaveLobbyEvent"
 )
 
 type PauseStreamEvent struct {
@@ -89,6 +104,9 @@ type VideoSessionEvent struct {
 
 type AudioSessionEvent struct {
 	SessionID string `json:"session_id"`
+}
+type CreateLobbyEvent struct {
+	ID string `json:"id"`
 }
 
 // Lobby types
@@ -119,7 +137,7 @@ type LobbyCreateRequest struct {
 	ProfileID              string             `json:"profile_id"`
 	Name                   string             `json:"name"`
 	IconPNGPath            string             `json:"icon_png_path,omitempty"`
-	PinRequired            *bool              `json:"pin_required"`
+	PinRequired            bool               `json:"pin_required"`
 	Pin                    []int              `json:"pin"`
 	MultiUser              bool               `json:"multi_user"`
 	StopWhenEveryoneLeaves bool               `json:"stop_when_everyone_leaves"`

@@ -45,6 +45,12 @@ type LobbySpec struct {
 	// If provided, overrides the default runner command (which is "sleep infinity")
 	//+kubebuilder:validation:Optional
 	RunnerOverride string `json:"runnerOverride,omitempty"`
+
+	// DeviceClassName is copied from the referenced App at lobby creation time.
+	// Used for the Wolf Lobby creation, in case the user has a non-standard render node name
+	// And other wolf configs / defaults
+	// +kubebuilder:validation:Optional
+	DeviceClassName string `json:"deviceClassName,omitempty"`
 }
 
 type LobbyVideoSettings struct {
@@ -72,8 +78,14 @@ type LobbyStatus struct {
 	StatefulSetName string `json:"statefulSetName,omitempty"`
 	ServiceName     string `json:"serviceName,omitempty"`
 
-	// The ports allocated to the lobby on the shared gateway.
-	Ports SessionPorts `json:"ports,omitempty"`
+	// NodeName is the Kubernetes node the lobby pod was scheduled to.
+	NodeName string `json:"nodeName,omitempty"`
+
+	// PodName is the actual StatefulSet pod (e.g. "profile-app-0").
+	PodName string `json:"podName,omitempty"`
+
+	// StatefulSetReady is true when the lobby's pod is running and ready.
+	StatefulSetReady bool `json:"statefulSetReady,omitempty"`
 }
 
 // LobbyList is a list of all lobbies, across all nodes

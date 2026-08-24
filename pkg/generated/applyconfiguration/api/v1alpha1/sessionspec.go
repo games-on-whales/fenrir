@@ -45,6 +45,8 @@ type SessionSpecApplyConfiguration struct {
 	GatewayReference *GatewayReferenceApplyConfiguration `json:"gateway,omitempty"`
 	// Wolf-specific config for the session
 	Config *SessionInfoApplyConfiguration `json:"config,omitempty"`
+	// Lobbyname is used for binding session to a node's lobby
+	LobbyName *string `json:"lobbyName,omitempty"`
 }
 
 // SessionSpecApplyConfiguration constructs a declarative configuration of the SessionSpec type for use with
@@ -90,5 +92,13 @@ func (b *SessionSpecApplyConfiguration) WithGatewayReference(value *GatewayRefer
 // If called multiple times, the Config field is set to the value of the last call.
 func (b *SessionSpecApplyConfiguration) WithConfig(value *SessionInfoApplyConfiguration) *SessionSpecApplyConfiguration {
 	b.Config = value
+	return b
+}
+
+// WithLobbyName sets the LobbyName field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the LobbyName field is set to the value of the last call.
+func (b *SessionSpecApplyConfiguration) WithLobbyName(value string) *SessionSpecApplyConfiguration {
+	b.LobbyName = &value
 	return b
 }

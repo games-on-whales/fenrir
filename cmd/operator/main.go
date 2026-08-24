@@ -24,20 +24,6 @@ func main() {
 	appContext, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	im := os.Getenv("AGENT_IMAGE")
-	if im == "" {
-		im = "ghcr.io/games-on-whales/wolf-agent:main"
-	}
-	wImagePullPolicy := os.Getenv("AGENT_IMAGE_PULL_POLICY")
-	switch wImagePullPolicy {
-	case "Always", "IfNotPresent", "Never":
-		klog.Infof("Wolf-Agent Image Pull policy %s", wImagePullPolicy)
-	default:
-		klog.Infof("Wolf-Agent Image Pull policy %q is not valid: defaulting to %q", wImagePullPolicy, "IfNotPresent")
-		wImagePullPolicy = "IfNotPresent"
-	}
-	wolfAgentImage := flag.String("wolf-agent-image", im, "Wolf Agent image")
-	wolfAgentImagePullPolicy := flag.String("wolf-agent-image-pull-policy", wImagePullPolicy, "wolf agent image pull policy (Always, IfNotPresent, Never)")
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
@@ -45,7 +31,8 @@ func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
 
-	k8sClient, direwolfClient, gatewayClient, _, err := util.GetKubernetesClients()
+	// gatewayClient reserved for future Gateway API work (TCPRoutes/UDPRoutes).
+	k8sClient, direwolfClient, _, _, err := util.GetKubernetesClients()
 	if err != nil {
 		klog.Fatal("Error getting Kubernetes clients", err)
 	}
@@ -57,8 +44,10 @@ func main() {
 	appInformer := direwolfFactory.Direwolf().V1alpha1().Apps().Informer()
 	profileInformer := direwolfFactory.Direwolf().V1alpha1().Profiles().Informer()
 	sessionInformer := direwolfFactory.Direwolf().V1alpha1().Sessions().Informer()
+	lobbyInformer := direwolfFactory.Direwolf().V1alpha1().Lobbies().Informer()
 	direwolfFactory.Start(appContext.Done())
 	defer direwolfFactory.Shutdown()
+
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
 		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
 	statefulsetInformer := k8sFactory.Apps().V1().StatefulSets().Informer()
@@ -86,21 +75,30 @@ func main() {
 		klog.Fatal("Error creating resource lock", err)
 	}
 
-	// Session Controller
-	sessionController := controllers.NewSessionController(
+	opts := controllers.SessionControllerOptions{
+		LBSharingKey: *lbSharingKey,
+	}
+
+	// Lobby Controller — owns StatefulSets, ResourceClaims, and pod/node discovery.
+	lobbyController := controllers.NewLobbyController(
 		k8sClient,
-		gatewayClient.GatewayV1().TCPRoutes(*namespace),
-		gatewayClient.GatewayV1().UDPRoutes(*namespace),
-		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
-		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
+		direwolfClient.DirewolfV1alpha1().Lobbies(*namespace),
+		generic.NewInformer[*direwolfv1alpha1.Lobby](lobbyInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
 		generic.NewInformer[*direwolfv1alpha1.Profile](profileInformer),
 		generic.NewInformer[*appsv1.StatefulSet](statefulsetInformer),
-		controllers.SessionControllerOptions{
-			WolfAgentImage:           *wolfAgentImage,
-			WolfAgentImagePullPolicy: *wolfAgentImagePullPolicy,
-			LBSharingKey:             *lbSharingKey,
-		},
+		opts,
+	)
+
+	// Session Controller — binds sessions to lobbies and builds stream URLs.
+	sessionController := controllers.NewSessionController(
+		k8sClient,
+		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
+		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
+		generic.NewInformer[*direwolfv1alpha1.Lobby](lobbyInformer),
+		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
+		generic.NewInformer[*direwolfv1alpha1.Profile](profileInformer),
+		opts,
 	)
 
 	leaderelection.RunOrDie(appContext, leaderelection.LeaderElectionConfig{
@@ -111,6 +109,15 @@ func main() {
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(_ context.Context) {
 				klog.Info("started leading")
+
+				go func() {
+					err := lobbyController.Run(appContext)
+					if err != nil && !errors.Is(err, context.Canceled) {
+						klog.Errorf("error running lobby controller: %v", err)
+						appCancel()
+					}
+				}()
+
 				err := sessionController.Run(appContext)
 				if err != nil && !errors.Is(err, context.Canceled) {
 					klog.Errorf("error running session controller: %v", err)

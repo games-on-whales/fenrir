@@ -68,7 +68,7 @@ pushd "${SCRIPT_ROOT}" >/dev/null
 # Generate CRD manifests for all types using controller-gen
 echo "Generating crd manifests..." >&2
 go run sigs.k8s.io/controller-tools/cmd/controller-gen \
-  crd:generateEmbeddedObjectMeta=true \
+  crd:generateEmbeddedObjectMeta=true,allowDangerousTypes=true \
   paths="${PKG_NAME}/..." \
   output:dir="${SCRIPT_ROOT}/crds"
 echo "CRD manifests generated" >&2

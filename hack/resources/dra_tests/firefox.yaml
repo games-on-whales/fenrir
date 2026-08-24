@@ -1,0 +1,117 @@
+# Direwolf operator or moonlight proxy will be responsible
+# for creating this resource claim
+# I'm not sure yet
+# however, this resource claim here is for testing the dra
+# users generally should not be using this directly
+# but the option is here
+---
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  name: firefox-lobby-claim
+  namespace: direwolf-dev
+spec:
+  devices:
+    requests:
+    - name: lobby
+      exactly:
+        deviceClassName: default-wolf
+        # Since we're using consumable capcity,
+        # we need to specify the capacity or
+        # else it'll take the entire device
+        capacity:
+          requests:
+            slots: "1"
+    config:
+    - requests:
+      - lobby
+      opaque:
+        driver: wolf.dra.io
+        parameters:
+          # The parameters here are supposed to be a json object similar
+          # to the lobby creation request from wolf
+          multi_user: true
+          video_settings:
+            width: 1920
+            height: 1080
+            refresh_rate: 30
+            video_producer_buffer_caps: "video/x-raw(memory:DMABuf), drm-format={NV12,YV12,YU12,P012,YUYV,YU24,AB24,AR24,XB24,XR24}"
+          audio_settings:
+            channel_count: 2
+          client_settings:
+            h_scroll_acceleration: 1
+            mouse_acceleration: 1
+            run_gid: 1000
+            run_uid: 1000
+            v_scroll_acceleration: 1
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  # This translates to a lobby named: direwolf-dev-firefox in wolf
+  # basically <namespace name>-<pod name> in case we make fenrir multi namespace
+  name: firefox
+  namespace: direwolf-dev
+spec:
+  # for fast termination
+  terminationGracePeriodSeconds: 1
+  containers:
+  - name: app
+    image: ghcr.io/games-on-whales/firefox:edge
+    # securityContext:
+    #   runAsUser: 1000
+    #   runAsGroup: 1000
+    env:
+    # We can setup application container specific env vars from here
+    # or from the app
+      - name: RUN_SWAY
+        value: "1"
+    resources:
+      claims:
+      - name: lobby
+      limits:
+        devic.es/gpu: "1"
+        cpu: 2
+        memory: 4G
+      requests:
+        devic.es/gpu: "1"
+        cpu: 2
+        memory: 4G
+  resourceClaims:
+  - name: lobby
+    resourceClaimName: firefox-lobby-claim
+---
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: Session
+metadata:
+  name: example-session
+  namespace: direwolf-dev
+  labels:
+    app: direwolf
+spec:
+  profileReference:
+    name: default
+  gameReference:
+    name: videogame
+  pairingReference:
+    name: moonlight-pairing
+  gateway:
+    name: example-gateway
+
+  # Wolf-specific streaming config
+  # passed to wolf
+  config:
+    clientIP: "192.168.1.100"
+    aesKey: "d2F0Y2hZb3VyS2V5SGVyZTEyMw=="
+    aesIV: "d2F0Y2hZb3VySVZIZXJlMTIz"
+    videoWidth: 1920
+    videoHeight: 1080
+    videoRefreshRate: 60
+    surroundAudioFlags: 2
+
+  # The lobby this session should join. The wolf-dra driver watches for
+  # this value and matches it against the lobbies it currently manages.
+  # This is the lobby enabled pod name
+  lobbyName: "firefox"
+
+  # This lobby name has the namespace prepended to it by the DRA: direwolf-dev/firefox
