@@ -59,6 +59,12 @@ spec:
                 required:
                 - channelCount
                 type: object
+              deviceClassName:
+                description: |-
+                  DeviceClassName is copied from the referenced App at lobby creation time.
+                  Used for the Wolf Lobby creation, in case the user has a non-standard render node name
+                  And other wolf configs / defaults
+                type: string
               multiUser:
                 type: boolean
               profileReference:
