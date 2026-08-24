@@ -19,6 +19,11 @@
           "format": "byte",
           "type": "string"
         },
+        "deviceClassName": {
+          "default": "default-wolf",
+          "description": "DeviceClassName is the Kubernetes DRA DeviceClass used for wolf\nresource claims when running this app.",
+          "type": "string"
+        },
         "id": {
           "description": "Globally unique ID of the application. If there is a collision, the app\nwill be excluded from the list of available apps.",
           "type": "integer"
@@ -7642,91 +7647,6 @@
           },
           "type": "array",
           "x-kubernetes-preserve-unknown-fields": true
-        },
-        "wolfConfig": {
-          "description": "Unstructured wolf configuration for app to be merged with the default\nconfiguration",
-          "properties": {
-            "audio": {
-              "properties": {
-                "sink": {
-                  "type": "string"
-                },
-                "source": {
-                  "type": "string"
-                }
-              },
-              "type": "object",
-              "additionalProperties": false
-            },
-            "id": {
-              "type": "string"
-            },
-            "runner": {
-              "properties": {
-                "runCommand": {
-                  "type": "string"
-                },
-                "type": {
-                  "type": "string"
-                }
-              },
-              "type": "object",
-              "additionalProperties": false
-            },
-            "runtimeVariables": {
-              "description": "Additional wolf configs to use.",
-              "properties": {
-                "logLevel": {
-                  "default": "DEBUG",
-                  "description": "Logging level for wolf.",
-                  "enum": [
-                    "ERROR",
-                    "WARNING",
-                    "INFO",
-                    "DEBUG",
-                    "TRACE"
-                  ],
-                  "type": "string"
-                },
-                "renderNode": {
-                  "default": "/dev/dri/renderD128",
-                  "description": "RenderNode specifies the filepath to the DRM render node device.\nWolf defaults to: \"/dev/dri/renderD128\"",
-                  "type": "string"
-                },
-                "timeZone": {
-                  "default": "UTC",
-                  "description": "Time zone for the wolf container",
-                  "type": "string"
-                }
-              },
-              "type": "object",
-              "additionalProperties": false
-            },
-            "startAudioServer": {
-              "type": "boolean"
-            },
-            "startVirtualCompositor": {
-              "type": "boolean"
-            },
-            "title": {
-              "type": "string"
-            },
-            "video": {
-              "properties": {
-                "sink": {
-                  "type": "string"
-                },
-                "source": {
-                  "type": "string"
-                }
-              },
-              "type": "object",
-              "additionalProperties": false
-            }
-          },
-          "type": "object",
-          "x-kubernetes-preserve-unknown-fields": true,
-          "additionalProperties": false
         }
       },
       "required": [

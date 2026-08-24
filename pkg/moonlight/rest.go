@@ -624,6 +624,7 @@ func (s *RESTServer) launchOrResume(w http.ResponseWriter, r *http.Request, isRe
 					},
 					MultiUser:              true,
 					StopWhenEveryoneLeaves: false,
+					DeviceClassName:        app.Spec.DeviceClassName,
 				},
 			}
 			if _, err := s.LobbyClient.Create(r.Context(), lobby, metav1.CreateOptions{}); err != nil {

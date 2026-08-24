@@ -39,6 +39,10 @@
           "type": "object",
           "additionalProperties": false
         },
+        "deviceClassName": {
+          "description": "DeviceClassName is copied from the referenced App at lobby creation time.\nUsed for the Wolf Lobby creation, in case the user has a non-standard render node name\nAnd other wolf configs / defaults",
+          "type": "string"
+        },
         "multiUser": {
           "type": "boolean"
         },

@@ -45,6 +45,12 @@ type LobbySpec struct {
 	// If provided, overrides the default runner command (which is "sleep infinity")
 	//+kubebuilder:validation:Optional
 	RunnerOverride string `json:"runnerOverride,omitempty"`
+
+	// DeviceClassName is copied from the referenced App at lobby creation time.
+	// Used for the Wolf Lobby creation, in case the user has a non-standard render node name
+	// And other wolf configs / defaults
+	// +kubebuilder:validation:Optional
+	DeviceClassName string `json:"deviceClassName,omitempty"`
 }
 
 type LobbyVideoSettings struct {

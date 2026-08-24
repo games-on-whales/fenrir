@@ -343,7 +343,7 @@ func (c *LobbyController) reconcileResourceClaim(ctx context.Context, lobby *dir
 						WithExactly(resourcev1ac.ExactDeviceRequest().
 							WithAllocationMode("ExactCount").
 							WithCount(1).
-							WithDeviceClassName("default-wolf").
+							WithDeviceClassName(lobby.Spec.DeviceClassName).
 							WithCapacity(
 								resourcev1ac.CapacityRequirements().
 									WithRequests(map[resourceapi.QualifiedName]resource.Quantity{

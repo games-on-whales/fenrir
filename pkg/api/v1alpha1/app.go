@@ -38,17 +38,16 @@ type AppSpec struct {
 	// PNG image of the app
 	AppAssetWebP []byte `json:"appAssetWebP" xml:"-"`
 
+	// DeviceClassName is the Kubernetes DRA DeviceClass used for wolf
+	// resource claims when running this app.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="default-wolf"
+	DeviceClassName string `json:"deviceClassName,omitempty"`
+
 	// The pod manifest for the application, it defines the pod
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	Template corev1.PodTemplateSpec `json:"template" xml:"-"`
-
-	// Unstructured wolf configuration for app to be merged with the default
-	// configuration
-	// TODO remove this
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:pruning:PreserveUnknownFields
-	WolfConfig WolfConfig `json:"wolfConfig" xml:"-"`
 
 	// A template for a PersistentVolumeClaim to be created for the app
 	// If provided, the operator will include them in the pvc
@@ -56,59 +55,6 @@ type AppSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:pruning:PreserveUnknownFields
 	VolumeClaimTemplates []corev1.PersistentVolumeClaim `json:"volumeClaimTemplates,omitempty"  xml:"-"`
-}
-
-// RuntimeWolfVariables will be removed into the DRA config
-// TODO so I can easily find it
-// This entire implementation needs a rework
-// It'll be modified later to better inject env vars and configs.
-type RuntimeWolfVariables struct {
-	// RenderNode specifies the filepath to the DRM render node device.
-	// Wolf defaults to: "/dev/dri/renderD128"
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default="/dev/dri/renderD128"
-	RenderNode string `json:"renderNode,omitempty"`
-
-	// Time zone for the wolf container
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=UTC
-	TimeZone string `json:"timeZone,omitempty"`
-
-	// Logging level for wolf.
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Enum=ERROR;WARNING;INFO;DEBUG;TRACE
-	// +kubebuilder:default:="DEBUG"
-	LogLevel string `json:"logLevel,omitempty"`
-}
-
-type WolfConfig struct {
-	StartAudioServer       *bool `json:"startAudioServer,omitempty" toml:"start_audio_server,omitempty"`
-	StartVirtualCompositor *bool `json:"startVirtualCompositor,omitempty" toml:"start_video_compositor,omitempty"`
-
-	Title string `json:"title,omitempty" toml:"title,omitempty"`
-	ID    string `json:"id,omitempty" toml:"id,omitempty"`
-
-	Audio *WolfStreamConfig `json:"audio,omitempty" toml:"audio,omitempty"`
-	Video *WolfStreamConfig `json:"video,omitempty" toml:"video,omitempty"`
-
-	Runner *WolfRunnerConfig `json:"runner,omitempty" toml:"runner,omitempty"`
-
-	// Additional wolf configs to use.
-	// +kubebuilder:validation:Optional
-	RuntimeVariables *RuntimeWolfVariables `json:"runtimeVariables,omitempty"`
-}
-
-type WolfStreamConfig struct {
-	// +kubebuilder:validation:Optional
-	Source string `json:"source,omitempty" toml:"source,omitempty"`
-
-	// +kubebuilder:validation:Optional
-	Sink string `json:"sink,omitempty" toml:"sink,omitempty"`
-}
-
-type WolfRunnerConfig struct {
-	Type       string `json:"type,omitempty" toml:"type,omitempty"`
-	RunCommand string `json:"runCommand,omitempty" toml:"run_cmd,omitempty"`
 }
 
 // AppList

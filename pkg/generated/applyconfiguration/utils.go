@@ -64,8 +64,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.ProfileReferenceApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("ProfileSpec"):
 		return &apiv1alpha1.ProfileSpecApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("RuntimeWolfVariables"):
-		return &apiv1alpha1.RuntimeWolfVariablesApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("Session"):
 		return &apiv1alpha1.SessionApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionInfo"):
@@ -76,12 +74,6 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &apiv1alpha1.SessionSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("SessionStatus"):
 		return &apiv1alpha1.SessionStatusApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WolfConfig"):
-		return &apiv1alpha1.WolfConfigApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WolfRunnerConfig"):
-		return &apiv1alpha1.WolfRunnerConfigApplyConfiguration{}
-	case v1alpha1.SchemeGroupVersion.WithKind("WolfStreamConfig"):
-		return &apiv1alpha1.WolfStreamConfigApplyConfiguration{}
 
 	}
 	return nil
