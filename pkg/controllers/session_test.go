@@ -187,6 +187,10 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get deployment from fake k8s: %v", err)
 	}
+	// The nri-input plugin grants input devices only to pods carrying this label.
+	if got := dep.Spec.Template.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
+		t.Errorf("pod template label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
+	}
 	out, err := sigsyaml.Marshal(dep)
 	if err != nil {
 		t.Fatalf("failed to marshal deployment: %v", err)

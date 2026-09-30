@@ -829,6 +829,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	podToCreate.Labels["app"] = "direwolf-worker"
 	podToCreate.Labels["direwolf/app"] = session.Spec.GameReference.Name
 	podToCreate.Labels["direwolf/user"] = session.Spec.UserReference.Name
+	podToCreate.Labels[v1alpha1types.SessionPodLabel] = v1alpha1types.SessionPodLabelValue
 
 	// if podToCreate.Spec.SecurityContext == nil {
 	// 	podToCreate.Spec.SecurityContext = &corev1.PodSecurityContext{}

@@ -17,6 +17,7 @@ jobs:
           - wolf-agent
           - moonlight-proxy
           - operator
+          - nri-input
     steps:
       - name: Checkout
         uses: actions/checkout@v4
