@@ -21,14 +21,15 @@ package v1alpha1
 // WolfConfigApplyConfiguration represents a declarative configuration of the WolfConfig type for use
 // with apply.
 type WolfConfigApplyConfiguration struct {
-	StartAudioServer       *bool                                   `json:"startAudioServer,omitempty"`
-	StartVirtualCompositor *bool                                   `json:"startVirtualCompositor,omitempty"`
-	Title                  *string                                 `json:"title,omitempty"`
-	ID                     *string                                 `json:"id,omitempty"`
-	Audio                  *WolfStreamConfigApplyConfiguration     `json:"audio,omitempty"`
-	Video                  *WolfStreamConfigApplyConfiguration     `json:"video,omitempty"`
-	Runner                 *WolfRunnerConfigApplyConfiguration     `json:"runner,omitempty"`
-	RuntimeVariables       *RuntimeWolfVariablesApplyConfiguration `json:"runtimeVariables,omitempty"`
+	StartAudioServer       *bool                               `json:"startAudioServer,omitempty"`
+	StartVirtualCompositor *bool                               `json:"startVirtualCompositor,omitempty"`
+	Title                  *string                             `json:"title,omitempty"`
+	ID                     *string                             `json:"id,omitempty"`
+	Audio                  *WolfStreamConfigApplyConfiguration `json:"audio,omitempty"`
+	Video                  *WolfStreamConfigApplyConfiguration `json:"video,omitempty"`
+	Runner                 *WolfRunnerConfigApplyConfiguration `json:"runner,omitempty"`
+	// Additional wolf configs to use.
+	RuntimeVariables *RuntimeWolfVariablesApplyConfiguration `json:"runtimeVariables,omitempty"`
 }
 
 // WolfConfigApplyConfiguration constructs a declarative configuration of the WolfConfig type for use with

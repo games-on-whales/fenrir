@@ -27,8 +27,11 @@ import (
 
 // UserApplyConfiguration represents a declarative configuration of the User type for use
 // with apply.
+//
+// Represents a User CRD
 type UserApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
+	// Standard object metadata; More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *UserSpecApplyConfiguration `json:"spec,omitempty"`
 	Status                           *apiv1alpha1.UserStatus     `json:"status,omitempty"`
@@ -44,6 +47,8 @@ func User(name, namespace string) *UserApplyConfiguration {
 	b.WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1")
 	return b
 }
+
+func (b UserApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
@@ -219,8 +224,24 @@ func (b *UserApplyConfiguration) WithStatus(value apiv1alpha1.UserStatus) *UserA
 	return b
 }
 
+// GetKind retrieves the value of the Kind field in the declarative configuration.
+func (b *UserApplyConfiguration) GetKind() *string {
+	return b.TypeMetaApplyConfiguration.Kind
+}
+
+// GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
+func (b *UserApplyConfiguration) GetAPIVersion() *string {
+	return b.TypeMetaApplyConfiguration.APIVersion
+}
+
 // GetName retrieves the value of the Name field in the declarative configuration.
 func (b *UserApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
+}
+
+// GetNamespace retrieves the value of the Namespace field in the declarative configuration.
+func (b *UserApplyConfiguration) GetNamespace() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.ObjectMetaApplyConfiguration.Namespace
 }

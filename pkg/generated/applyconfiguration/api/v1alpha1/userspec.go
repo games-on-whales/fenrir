@@ -25,8 +25,15 @@ import (
 // UserSpecApplyConfiguration represents a declarative configuration of the UserSpec type for use
 // with apply.
 type UserSpecApplyConfiguration struct {
-	Resources       *v1.ResourceRequirements           `json:"resources,omitempty"`
-	Volumes         []v1.Volume                        `json:"volumes,omitempty"`
+	// Resources defines the maximum resource requests and limits that the app
+	// container can have. If an app requests exceeds these values,
+	// the app will fail to start.
+	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
+	// Volumes defines the volumes that can be mounted by the session's pods.
+	Volumes []v1.Volume `json:"volumes,omitempty"`
+	// SidecarPolicies defines the resource requests and limits for the injected
+	// sidecar containers. If a policy for a sidecar is not defined here, the
+	// operator will use its own built-in default values.
 	SidecarPolicies *SidecarPoliciesApplyConfiguration `json:"sidecarPolicies,omitempty"`
 }
 

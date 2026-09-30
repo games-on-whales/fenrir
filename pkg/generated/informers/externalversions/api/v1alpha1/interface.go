@@ -25,13 +25,13 @@ import (
 // Interface provides access to all the informers in this group version.
 type Interface interface {
 	// Apps returns a AppInformer.
-	Apps() AppInformer
+	Apps() TypedAppInformer
 	// Pairings returns a PairingInformer.
-	Pairings() PairingInformer
+	Pairings() TypedPairingInformer
 	// Sessions returns a SessionInformer.
-	Sessions() SessionInformer
+	Sessions() TypedSessionInformer
 	// Users returns a UserInformer.
-	Users() UserInformer
+	Users() TypedUserInformer
 }
 
 type version struct {
@@ -45,22 +45,22 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// Apps returns a AppInformer.
-func (v *version) Apps() AppInformer {
+// Apps returns a TypedAppInformer.
+func (v *version) Apps() TypedAppInformer {
 	return &appInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// Pairings returns a PairingInformer.
-func (v *version) Pairings() PairingInformer {
+// Pairings returns a TypedPairingInformer.
+func (v *version) Pairings() TypedPairingInformer {
 	return &pairingInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// Sessions returns a SessionInformer.
-func (v *version) Sessions() SessionInformer {
+// Sessions returns a TypedSessionInformer.
+func (v *version) Sessions() TypedSessionInformer {
 	return &sessionInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
-// Users returns a UserInformer.
-func (v *version) Users() UserInformer {
+// Users returns a TypedUserInformer.
+func (v *version) Users() TypedUserInformer {
 	return &userInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }

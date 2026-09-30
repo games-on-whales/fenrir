@@ -28,16 +28,45 @@ import (
 	apiv1alpha1 "games-on-whales.github.io/direwolf/pkg/generated/listers/api/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 )
 
 // UserInformer provides access to a shared informer and lister for
-// Users.
+// Users. Prefer using the type-safe variant (see [TypedUserInformer]).
 type UserInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() apiv1alpha1.UserLister
 }
+
+// TypedUserInformer provides access to a shared informer and lister for
+// Users, including the type-safe TypedInformer variant.
+// It is a superset of UserInformer.
+type TypedUserInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() UserIndexInformer
+	Lister() apiv1alpha1.UserLister
+}
+
+// UserIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type UserIndexInformer cache.TypedSharedIndexInformer[*pkgapiv1alpha1.User]
+
+// UserHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for User.
+type UserHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*pkgapiv1alpha1.User]
+
+// UserDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for User.
+type UserDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*pkgapiv1alpha1.User]
+
+// UserFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for User.
+type UserFilteringHandler = cache.TypedFilteringResourceEventHandler[*pkgapiv1alpha1.User]
+
+// UserIndexers is a specialization of [cache.TypedIndexers] for User.
+type UserIndexers = cache.TypedIndexers[*pkgapiv1alpha1.User]
+
+// DeletedUser is a specialization of [cache.DeletedObject] for User.
+type DeletedUser = cache.DeletedObject[*pkgapiv1alpha1.User]
 
 type userInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,55 +77,132 @@ type userInformer struct {
 // NewUserInformer constructs a new informer for User type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedUserInformer]).
 func NewUserInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredUserInformer(client, namespace, resyncPeriod, indexers, nil)
+	return NewUserInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedUserInformer constructs a new informer for User type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedUserInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers UserIndexers) UserIndexInformer {
+	return NewTypedUserInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredUserInformer constructs a new informer for User type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredUserInformer]).
 func NewFilteredUserInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+	return NewTypedUserInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredUserInformer constructs a new informer for User type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredUserInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers UserIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) UserIndexInformer {
+	return NewTypedUserInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewUserInformerWithOptions constructs a new informer for User type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedUserInformerWithOptions]).
+func NewUserInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedUserInformerWithOptions(client, namespace, options)
+}
+
+// NewTypedUserInformerWithOptions constructs a new informer for User type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedUserInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) UserIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "direwolf.games-on-whales.github.io", Version: "v1alpha1", Resource: "users"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.User](cache.NewSharedIndexInformerWithOptions(
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Users(namespace).List(context.Background(), options)
+				return client.DirewolfV1alpha1().Users(namespace).List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Users(namespace).Watch(context.Background(), options)
+				return client.DirewolfV1alpha1().Users(namespace).Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Users(namespace).List(ctx, options)
+				return client.DirewolfV1alpha1().Users(namespace).List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Users(namespace).Watch(ctx, options)
+				return client.DirewolfV1alpha1().Users(namespace).Watch(ctx, opts)
 			},
-		},
+		}, client),
 		&pkgapiv1alpha1.User{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *userInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredUserInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedUserInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *userInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&pkgapiv1alpha1.User{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *userInformer) TypedInformer() UserIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.User](f.factory.InformerFor(&pkgapiv1alpha1.User{}, f.defaultInformer))
 }
 
 func (f *userInformer) Lister() apiv1alpha1.UserLister {
 	return apiv1alpha1.NewUserLister(f.Informer().GetIndexer())
+}
+
+// ToTypedUserInformer converts an untyped informer into a TypedUserInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *User. If that is not the case, calling type-safe methods of the returned
+// TypedUserInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedUserInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedUserInformer(informer UserInformer) TypedUserInformer {
+	if informer, ok := informer.(TypedUserInformer); ok {
+		return informer
+	}
+	return &userTypedInformerAdapter{informer}
+}
+
+type userTypedInformerAdapter struct {
+	UserInformer
+}
+
+func (a *userTypedInformerAdapter) TypedInformer() UserIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.User](a.Informer())
+}
+
+// ToUserIndexInformer converts an untyped informer into a UserIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *User. If that is not the case, calling type-safe methods of the returned
+// UserIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a UserIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToUserIndexInformer(informer cache.SharedIndexInformer) UserIndexInformer {
+	if informer, ok := informer.(UserIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.User](informer)
 }

@@ -24,12 +24,26 @@ import (
 
 // SidecarPolicyApplyConfiguration represents a declarative configuration of the SidecarPolicy type for use
 // with apply.
+//
+// TODO
+// This will also need rework
+// Since I forgot that we might actually need to inject more than
+// Just the volume mounts and security context
+// for example the env vars.
+// SidecarPolicy defines the policy for a single sidecar container.
 type SidecarPolicyApplyConfiguration struct {
-	Env             []v1.EnvVar              `json:"env,omitempty"`
-	Resources       *v1.ResourceRequirements `json:"resources,omitempty"`
-	VolumeMounts    []v1.VolumeMount         `json:"volumeMounts,omitempty"`
-	SecurityContext *v1.SecurityContext      `json:"securityContext,omitempty"`
-	HostIPC         *bool                    `json:"hostIPC,omitempty"`
+	// Environment variables appended to the sidecar
+	Env []v1.EnvVar `json:"env,omitempty"`
+	// Resources for the sidecar
+	Resources *v1.ResourceRequirements `json:"resources,omitempty"`
+	// VolumeMounts specifies the volumes to mount into the sidecar.
+	VolumeMounts []v1.VolumeMount `json:"volumeMounts,omitempty"`
+	// SecurityContext defines the security options the container should be run with.
+	SecurityContext *v1.SecurityContext `json:"securityContext,omitempty"`
+	// HostIPC requests that the pod share the host's IPC namespace.
+	// This is a pod-level setting. If any sidecar policy requests it, it will be enabled for the entire pod.
+	// I'm not sure if this is safe.
+	HostIPC *bool `json:"hostIPC,omitempty"`
 }
 
 // SidecarPolicyApplyConfiguration constructs a declarative configuration of the SidecarPolicy type for use with

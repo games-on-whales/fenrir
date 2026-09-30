@@ -27,7 +27,8 @@ import (
 // AppApplyConfiguration represents a declarative configuration of the App type for use
 // with apply.
 type AppApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
+	// Standard object metadata; More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	Spec                             *AppSpecApplyConfiguration `json:"spec,omitempty"`
 }
@@ -42,6 +43,8 @@ func App(name, namespace string) *AppApplyConfiguration {
 	b.WithAPIVersion("direwolf.games-on-whales.github.io/v1alpha1")
 	return b
 }
+
+func (b AppApplyConfiguration) IsApplyConfiguration() {}
 
 // WithKind sets the Kind field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
@@ -209,8 +212,24 @@ func (b *AppApplyConfiguration) WithSpec(value *AppSpecApplyConfiguration) *AppA
 	return b
 }
 
+// GetKind retrieves the value of the Kind field in the declarative configuration.
+func (b *AppApplyConfiguration) GetKind() *string {
+	return b.TypeMetaApplyConfiguration.Kind
+}
+
+// GetAPIVersion retrieves the value of the APIVersion field in the declarative configuration.
+func (b *AppApplyConfiguration) GetAPIVersion() *string {
+	return b.TypeMetaApplyConfiguration.APIVersion
+}
+
 // GetName retrieves the value of the Name field in the declarative configuration.
 func (b *AppApplyConfiguration) GetName() *string {
 	b.ensureObjectMetaApplyConfigurationExists()
 	return b.ObjectMetaApplyConfiguration.Name
+}
+
+// GetNamespace retrieves the value of the Namespace field in the declarative configuration.
+func (b *AppApplyConfiguration) GetNamespace() *string {
+	b.ensureObjectMetaApplyConfigurationExists()
+	return b.ObjectMetaApplyConfiguration.Namespace
 }

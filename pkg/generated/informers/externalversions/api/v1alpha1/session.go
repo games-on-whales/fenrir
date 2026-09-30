@@ -28,16 +28,45 @@ import (
 	apiv1alpha1 "games-on-whales.github.io/direwolf/pkg/generated/listers/api/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 )
 
 // SessionInformer provides access to a shared informer and lister for
-// Sessions.
+// Sessions. Prefer using the type-safe variant (see [TypedSessionInformer]).
 type SessionInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() apiv1alpha1.SessionLister
 }
+
+// TypedSessionInformer provides access to a shared informer and lister for
+// Sessions, including the type-safe TypedInformer variant.
+// It is a superset of SessionInformer.
+type TypedSessionInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() SessionIndexInformer
+	Lister() apiv1alpha1.SessionLister
+}
+
+// SessionIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type SessionIndexInformer cache.TypedSharedIndexInformer[*pkgapiv1alpha1.Session]
+
+// SessionHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for Session.
+type SessionHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*pkgapiv1alpha1.Session]
+
+// SessionDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for Session.
+type SessionDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*pkgapiv1alpha1.Session]
+
+// SessionFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for Session.
+type SessionFilteringHandler = cache.TypedFilteringResourceEventHandler[*pkgapiv1alpha1.Session]
+
+// SessionIndexers is a specialization of [cache.TypedIndexers] for Session.
+type SessionIndexers = cache.TypedIndexers[*pkgapiv1alpha1.Session]
+
+// DeletedSession is a specialization of [cache.DeletedObject] for Session.
+type DeletedSession = cache.DeletedObject[*pkgapiv1alpha1.Session]
 
 type sessionInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,55 +77,132 @@ type sessionInformer struct {
 // NewSessionInformer constructs a new informer for Session type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSessionInformer]).
 func NewSessionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredSessionInformer(client, namespace, resyncPeriod, indexers, nil)
+	return NewSessionInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedSessionInformer constructs a new informer for Session type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSessionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers SessionIndexers) SessionIndexInformer {
+	return NewTypedSessionInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredSessionInformer constructs a new informer for Session type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredSessionInformer]).
 func NewFilteredSessionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+	return NewTypedSessionInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredSessionInformer constructs a new informer for Session type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredSessionInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers SessionIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) SessionIndexInformer {
+	return NewTypedSessionInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewSessionInformerWithOptions constructs a new informer for Session type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedSessionInformerWithOptions]).
+func NewSessionInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedSessionInformerWithOptions(client, namespace, options)
+}
+
+// NewTypedSessionInformerWithOptions constructs a new informer for Session type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedSessionInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) SessionIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "direwolf.games-on-whales.github.io", Version: "v1alpha1", Resource: "sessions"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Session](cache.NewSharedIndexInformerWithOptions(
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Sessions(namespace).List(context.Background(), options)
+				return client.DirewolfV1alpha1().Sessions(namespace).List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Sessions(namespace).Watch(context.Background(), options)
+				return client.DirewolfV1alpha1().Sessions(namespace).Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Sessions(namespace).List(ctx, options)
+				return client.DirewolfV1alpha1().Sessions(namespace).List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Sessions(namespace).Watch(ctx, options)
+				return client.DirewolfV1alpha1().Sessions(namespace).Watch(ctx, opts)
 			},
-		},
+		}, client),
 		&pkgapiv1alpha1.Session{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *sessionInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredSessionInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedSessionInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *sessionInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&pkgapiv1alpha1.Session{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *sessionInformer) TypedInformer() SessionIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Session](f.factory.InformerFor(&pkgapiv1alpha1.Session{}, f.defaultInformer))
 }
 
 func (f *sessionInformer) Lister() apiv1alpha1.SessionLister {
 	return apiv1alpha1.NewSessionLister(f.Informer().GetIndexer())
+}
+
+// ToTypedSessionInformer converts an untyped informer into a TypedSessionInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Session. If that is not the case, calling type-safe methods of the returned
+// TypedSessionInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedSessionInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedSessionInformer(informer SessionInformer) TypedSessionInformer {
+	if informer, ok := informer.(TypedSessionInformer); ok {
+		return informer
+	}
+	return &sessionTypedInformerAdapter{informer}
+}
+
+type sessionTypedInformerAdapter struct {
+	SessionInformer
+}
+
+func (a *sessionTypedInformerAdapter) TypedInformer() SessionIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Session](a.Informer())
+}
+
+// ToSessionIndexInformer converts an untyped informer into a SessionIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Session. If that is not the case, calling type-safe methods of the returned
+// SessionIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a SessionIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToSessionIndexInformer(informer cache.SharedIndexInformer) SessionIndexInformer {
+	if informer, ok := informer.(SessionIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Session](informer)
 }

@@ -84,6 +84,14 @@ func (t *testInformer) RemoveEventHandler(registration cache.ResourceEventHandle
 	return t.SharedIndexInformer.RemoveEventHandler(registration)
 }
 
+// noWatchList marks the tracker-backed ListWatch as not supporting WatchList.
+// client-go >= 0.35 enables the WatchListClient gate by default, and the
+// reflector then waits for an initial-events bookmark that the fake tracker
+// never sends, so the informer never syncs.
+type noWatchList struct{ *cache.ListWatch }
+
+func (noWatchList) IsWatchListSemanticsUnSupported() bool { return true }
+
 var (
 	scheme  *runtime.Scheme             = runtime.NewScheme()
 	codecs  serializer.CodecFactory     = serializer.NewCodecFactory(scheme)
@@ -113,14 +121,14 @@ func setupTest(ctx context.Context, customReconciler func(string, string, runtim
 
 	// Set up fake informers that return instances of mock Policy definitoins
 	// and mock policy bindings
-	informer = &testInformer{SharedIndexInformer: cache.NewSharedIndexInformer(&cache.ListWatch{
+	informer = &testInformer{SharedIndexInformer: cache.NewSharedIndexInformer(noWatchList{&cache.ListWatch{
 		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 			return tracker.List(fakeGVR, fakeGVK, "")
 		},
 		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 			return tracker.Watch(fakeGVR, "")
 		},
-	}, &unstructured.Unstructured{}, 30*time.Second, nil)}
+	}}, &unstructured.Unstructured{}, 30*time.Second, nil)}
 
 	reconciler := func(namespace, name string, newObj *unstructured.Unstructured) error {
 		var err error
