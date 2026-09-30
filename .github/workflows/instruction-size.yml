@@ -1,0 +1,34 @@
+name: Instruction File Size
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'CLAUDE.md'
+      - 'CLAUDE.local.md'
+      - '**/CLAUDE.md'
+      - '.claude/rules/**'
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # Claude Code warns and adherence drops past 40,000 characters (wc -m, not bytes).
+      - name: Check instruction files are under 40k characters
+        run: |
+          set -euo pipefail
+          fail=0
+          while IFS= read -r -d '' f; do
+            n=$(wc -m < "$f")
+            echo "$f: $n chars"
+            if [ "$n" -ge 40000 ]; then
+              echo "::error file=$f::$n characters (limit 40000); split into path-scoped .claude/rules/*.md"
+              fail=1
+            fi
+          done < <(find . -path ./.git -prune -o \( -name CLAUDE.md -o -name CLAUDE.local.md -o -path './.claude/rules/*.md' \) -type f -print0)
+          exit $fail
