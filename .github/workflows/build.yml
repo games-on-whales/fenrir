@@ -35,3 +35,36 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}
           build-args: |
             APP_NAME=${{ matrix.app }}
+
+  # Packages the chart exactly as builder.yml does on main (CRDs copied in,
+  # dependencies fetched), without pushing, so a broken chart fails the PR
+  # instead of the first build after merge.
+  verify_chart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: 'v3.12.0'
+
+      - name: Copy CRDs into chart
+        run: |
+          mkdir -p charts/direwolf-operator/crds
+          cp crds/*.yaml charts/direwolf-operator/crds/
+
+      - name: Fetch chart dependencies
+        run: helm dependency update charts/direwolf-operator
+
+      - name: Lint chart
+        run: helm lint --strict charts/direwolf-operator
+
+      # helm template defaults to a Kubernetes version below the chart's
+      # kubeVersion floor (>=1.28), so it has to be stated.
+      - name: Render chart
+        run: helm template direwolf charts/direwolf-operator --include-crds --kube-version 1.36.0 > /dev/null
+
+      - name: Package chart
+        run: helm package charts/direwolf-operator -d packaged

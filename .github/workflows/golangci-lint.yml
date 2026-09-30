@@ -4,6 +4,8 @@ on:
 
 permissions:
   contents: read
+  # only-new-issues reads the PR's diff through the API.
+  pull-requests: read
 
 jobs:
   golangci:
@@ -18,3 +20,6 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12
+          # main carries ~500 findings from before this config was added, so
+          # a full run fails every PR. Report only what the PR introduces.
+          only-new-issues: true
