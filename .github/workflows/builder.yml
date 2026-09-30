@@ -95,15 +95,20 @@ jobs:
       - name: Get chart version
         id: get_version
         uses: mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d # v4.53.3
+        # Refs reach the script as environment variables, never as ${{ }}
+        # splices: a tag name is attacker-shaped text (it may contain $(...)).
+        env:
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
         with:
           cmd: |
             set -euo pipefail
                         
-            REF="${{ github.ref }}"
             CHART_PATH="charts/direwolf-operator"
 
             if [[ "$REF" == refs/tags/* ]]; then
-              FULL_VERSION="${{ github.ref_name }}"
+              FULL_VERSION="${REF_NAME}"
             else
               if [ ! -f "$CHART_PATH/Chart.yaml" ]; then
                 echo "Chart.yaml not found at $CHART_PATH" >&2
@@ -115,7 +120,6 @@ jobs:
                 echo "Could not determine chart version" >&2
                 exit 1
               fi
-              RUN_ID="${{ github.run_id }}"
               FULL_VERSION="${BASE_VERSION}-${RUN_ID}-SNAPSHOT"
               #FULL_VERSION="${BASE_VERSION}-SNAPSHOT"
             fi
@@ -154,19 +158,21 @@ jobs:
 
       - name: Update Helm chart image tags
         uses: mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d # v4.53.3
+        env:
+          REF_NAME: ${{ github.ref_name }}
         with:
           cmd: |   
             VALUES_FILE=charts/direwolf-operator/values.yaml
             
             OP_DIGEST="$(cat operator-artifact/image-digest-operator.txt)"
             yq e -i ".controllers.direwolf_operator.containers.operator.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/direwolf-operator\\"" "$VALUES_FILE"
-            yq e -i ".controllers.direwolf_operator.containers.operator.image.tag = \\"${{ github.ref_name }}@${OP_DIGEST}\\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.image.tag = \\"${REF_NAME}@${OP_DIGEST}\\"" "$VALUES_FILE"
             
             AG_DIGEST="$(cat agent-artifact/image-digest-wolf-agent.txt)"
-            yq e -i ".controllers.direwolf_operator.containers.operator.env.AGENT_IMAGE = \\"ghcr.io/${{ github.repository_owner }}/fenrir/wolf-agent:${{ github.ref_name }}@${AG_DIGEST}\\"" "$VALUES_FILE"
+            yq e -i ".controllers.direwolf_operator.containers.operator.env.AGENT_IMAGE = \\"ghcr.io/${{ github.repository_owner }}/fenrir/wolf-agent:${REF_NAME}@${AG_DIGEST}\\"" "$VALUES_FILE"
 
             PX_DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
-            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \\"${{ github.ref_name }}@${PX_DIGEST}\\"" "$VALUES_FILE"
+            yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \\"${REF_NAME}@${PX_DIGEST}\\"" "$VALUES_FILE"
             yq e -i ".controllers.moonlight_proxy.containers.proxy.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\\"" "$VALUES_FILE"
             
             echo "Updated $VALUES_FILE"
