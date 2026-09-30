@@ -18,6 +18,10 @@ jobs:
           - moonlight-proxy
           - operator
           - nri-input
+        # Non-Go images: own build context under images/, own Dockerfile.
+        include:
+          - app: library
+            context: images/library
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,9 +34,10 @@ jobs:
       - name: Build image (no push)
         uses: docker/build-push-action@v6.15.0
         with:
+          context: ${{ matrix.context || '{{defaultContext}}' }}
           platforms: linux/amd64
           push: false
-          cache-from: type=gha
+          cache-from: type=gha,scope=${{ matrix.app }}
           tags: ghcr.io/${{ github.repository_owner }}/fenrir/${{ matrix.app == 'operator' && 'direwolf-operator' || matrix.app }}
           build-args: |
             APP_NAME=${{ matrix.app }}

@@ -1,0 +1,21 @@
+#! /bin/bash
+
+# Heroic counterpart of the base image's /usr/bin/wrapped-steam: same gamepad
+# preloads, same Wayland switch, same user-namespace fallback.
+
+# 64 and 32 bit input interposers and fake udev for gamepads
+export LD_PRELOAD="/usr/lib/selkies_input_interposer.so:/usr/lib/libudev.so.1.0.0-fake:/usr/lib/selkies_input_interposer_32.so:/usr/lib/libudev.so.1.0.0-fake_32"
+HEROIC_ARGS=()
+
+if [ "${PIXELFLUX_WAYLAND,,}" == "true" ]; then
+  HEROIC_ARGS+=(--ozone-platform=wayland)
+fi
+
+# Electron's sandbox needs unprivileged user namespaces, which a default
+# container seccomp profile denies.
+if ! env -u LD_PRELOAD bwrap --ro-bind / / --dev /dev --proc /proc --unshare-pid /bin/true >/dev/null 2>&1; then
+  echo "wrapped-heroic: user namespaces are not available, running without the Chromium sandbox"
+  HEROIC_ARGS+=(--no-sandbox)
+fi
+
+exec /opt/Heroic/heroic "${HEROIC_ARGS[@]}" "$@"

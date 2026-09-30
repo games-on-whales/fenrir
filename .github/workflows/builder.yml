@@ -18,12 +18,18 @@ jobs:
   build_and_push_containers:
     runs-on: ubuntu-latest
     strategy:
+      # A failed library build must not cancel the Go images the chart needs.
+      fail-fast: false
       matrix:
         app:
           - wolf-agent
           - moonlight-proxy
           - operator
           - nri-input
+        # Non-Go images: own build context under images/, own Dockerfile.
+        include:
+          - app: library
+            context: images/library
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -58,10 +64,11 @@ jobs:
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
+          context: ${{ matrix.context || '{{defaultContext}}' }}
           platforms: linux/amd64
           push: ${{ !github.event.pull_request.head.repo.fork }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           build-args: |
@@ -82,6 +89,9 @@ jobs:
   build_and_push_chart:
     runs-on: ubuntu-latest
     needs: build_and_push_containers
+    # Runs even if a matrix leg failed: the chart only needs the Go image
+    # digests, and a missing one fails its download step below.
+    if: ${{ !cancelled() }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

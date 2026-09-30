@@ -4,5 +4,15 @@
     "config:recommended",
     "docker:enableMajor",
     "helpers:pinGitHubActionDigestsToSemver"
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "ARG versions in images/*/Dockerfile annotated with a # renovate: comment",
+      "managerFilePatterns": ["/^images/.+/Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG \\S+=(?<currentValue>\\S+)"
+      ]
+    }
   ]
 }
