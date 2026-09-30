@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -587,10 +589,10 @@ func (c *SessionController) reconcileService(ctx context.Context, session *v1alp
 								"direwolf/app":  session.Spec.GameReference.Name,
 								"direwolf/user": session.Spec.UserReference.Name,
 							}).
+						// wolf-agent is deliberately NOT published here: it
+						// proxies Wolf's API, which can run arbitrary
+						// containers. The operator dials the pod IP directly.
 						WithPorts(
-							v1ac.ServicePort().
-								WithName("wa"). // wolf-agent
-								WithPort(8443),
 							v1ac.ServicePort().
 								WithName("rtsp"). // moonlight-rtsp
 								WithPort(session.Status.Ports.RTSP),
@@ -752,8 +754,11 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 
 	// If deployment already exists, just skip
 	deploymentName := c.deploymentName(session)
-	if _, err := c.deploymentController.Informer().Namespaced(session.Namespace).Get(deploymentName); err == nil {
+	if existing, getErr := c.deploymentController.Informer().Namespaced(session.Namespace).Get(deploymentName); getErr == nil {
 		klog.Infof("Deployment %s/%s already exists, just updating metadata", session.Namespace, deploymentName)
+		if tokenErr := c.reconcileAgentToken(ctx, existing); tokenErr != nil {
+			return tokenErr
+		}
 		c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
 			context.Background(),
 			appsv1ac.Deployment(deploymentName, session.Namespace).
@@ -1046,12 +1051,13 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// ImagePullPolicy: corev1.PullIfNotPresent,
 			Args: []string{
 				"--socket=/etc/wolf/wolf.sock",
-				"--port=8443",
+				fmt.Sprintf("--port=%d", wolfAgentPort),
+				"--token-file=" + wolfAgentTokenMountPath + "/" + wolfAgentTokenKey,
 			},
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "wa",
-					ContainerPort: 8443,
+					ContainerPort: wolfAgentPort,
 				},
 			},
 			Env: append([]corev1.EnvVar{
@@ -1101,7 +1107,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
 						Path:   "/readyz",
-						Port:   intstr.FromInt(8443),
+						Port:   intstr.FromInt(wolfAgentPort),
 						Scheme: corev1.URISchemeHTTPS,
 					},
 				},
@@ -1110,7 +1116,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				ProbeHandler: corev1.ProbeHandler{
 					HTTPGet: &corev1.HTTPGetAction{
 						Path:   "/livez",
-						Port:   intstr.FromInt(8443),
+						Port:   intstr.FromInt(wolfAgentPort),
 						Scheme: corev1.URISchemeHTTPS,
 					},
 				},
@@ -1125,6 +1131,11 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 				{
 					Name:      "wolf-runtime",
 					MountPath: "/tmp/.X11-unix",
+				},
+				{
+					Name:      "wolf-agent-token",
+					MountPath: wolfAgentTokenMountPath,
+					ReadOnly:  true,
 				},
 			}, wolfAgentVolumeMounts...),
 		},
@@ -1260,6 +1271,16 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:         "wolf-data",
 			VolumeSource: wolfDataVolumeSource,
 		},
+		// Created by reconcileAgentToken once the Deployment exists; the
+		// kubelet retries the mount until then.
+		corev1.Volume{
+			Name: "wolf-agent-token",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: agentTokenSecretName(c.deploymentName(session)),
+				},
+			},
+		},
 		// corev1.Volume{ //Needs to be changed into something more secure, without host path
 		// 	Name: "dev-input",
 		// 	VolumeSource: corev1.VolumeSource{
@@ -1342,7 +1363,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		return fmt.Errorf("failed to convert unstructured to deployment: %s", err)
 	}
 
-	_, err = c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
+	applied, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
 		ctx,
 		&deploymentApplyConfig,
 		metav1.ApplyOptions{
@@ -1353,7 +1374,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		return fmt.Errorf("failed to apply deployment: %s", err)
 	}
 
-	return nil
+	return c.reconcileAgentToken(ctx, applied)
 }
 
 // func (c *SessionController) reconcileConfigMap(
@@ -1577,13 +1598,27 @@ func (c *SessionController) reconcileActiveStreams(
 		return fmt.Errorf("failed to get service: %s", err)
 	}
 
+	token, err := c.agentToken(ctx, deployment)
+	if err != nil {
+		return err
+	}
+	podIP, err := c.agentPodIP(ctx, deployment)
+	if err != nil {
+		return err
+	}
+
 	// List all the "sessions".
 	// Ensure they match each of our k8s sessions. Hash on AESKey/IV
 	// In the future it might make sense to just match on ClientID/ClientCertFingerprint
 	// but that is hardcoded for now :)
-	wolfclient := wolfapi.NewClient(fmt.Sprintf("https://%s:8443", service.Spec.ClusterIP), &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	wolfclient := wolfapi.NewClient("https://"+net.JoinHostPort(podIP, strconv.Itoa(wolfAgentPort)), &http.Client{
+		Transport: &wolfapi.BearerTokenTransport{
+			Token: token,
+			Base: &http.Transport{
+				// wolf-agent serves a self-signed cert. XERK-1320 tracks
+				// pinning it; until then the token goes to an unverified peer.
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // see above
+			},
 		},
 	})
 	sessions, err := wolfclient.ListSessions(ctx)

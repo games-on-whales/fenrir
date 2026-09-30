@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"os"
+	"slices"
 	"testing"
 	"time"
 
@@ -191,6 +192,43 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if got := dep.Spec.Template.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
 		t.Errorf("pod template label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
 	}
+	// wolf-agent must never be published on the (LoadBalancer) session Service.
+	svc, err := fakeK8s.CoreV1().Services(user.Namespace).Get(ctx, sess.Status.ServiceName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("failed to get service: %v", err)
+	}
+	for _, p := range svc.Spec.Ports {
+		if p.Port == wolfAgentPort || p.Name == "wa" {
+			t.Errorf("session service publishes wolf-agent port: %+v", p)
+		}
+	}
+
+	// wolf-agent must be started with the token file mounted from its Secret.
+	var agent *corev1.Container
+	for i := range dep.Spec.Template.Spec.Containers {
+		if dep.Spec.Template.Spec.Containers[i].Name == "wolf-agent" {
+			agent = &dep.Spec.Template.Spec.Containers[i]
+		}
+	}
+	if agent == nil {
+		t.Fatal("no wolf-agent container")
+	}
+	if !slices.Contains(agent.Args, "--token-file="+wolfAgentTokenMountPath+"/"+wolfAgentTokenKey) {
+		t.Errorf("wolf-agent args missing --token-file: %v", agent.Args)
+	}
+	var tokenVolume bool
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Name == "wolf-agent-token" && v.Secret != nil && v.Secret.SecretName == agentTokenSecretName(deploymentName) {
+			tokenVolume = true
+		}
+	}
+	if !tokenVolume {
+		t.Error("pod has no wolf-agent-token secret volume")
+	}
+	if _, tokenErr := sc.agentToken(ctx, dep); tokenErr != nil {
+		t.Errorf("token secret not created by reconcilePod: %v", tokenErr)
+	}
+
 	out, err := sigsyaml.Marshal(dep)
 	if err != nil {
 		t.Fatalf("failed to marshal deployment: %v", err)

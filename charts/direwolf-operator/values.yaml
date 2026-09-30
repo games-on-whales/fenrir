@@ -133,6 +133,14 @@ rbac:
         - apiGroups: [""]
           resources: ["services", "persistentvolumeclaims", "configmaps"]
           verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        # Per-session wolf-agent bearer token (create, replace if stale).
+        - apiGroups: [""]
+          resources: ["secrets"]
+          verbs: ["get", "create", "delete"]
+        # wolf-agent is reached on its pod IP, not the session Service.
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list"]
     moonlight_proxy:
       forceRename: *proxyName
       type: Role

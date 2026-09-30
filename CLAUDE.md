@@ -44,6 +44,9 @@ Three binaries in `cmd/`, all sharing `pkg/`:
   Wolf's HTTP API over a mounted unix socket.
   - Syncs desired sessions into Wolf and emulates udev (writes `/run/udev/data`, a volume shared
     with the game container) so SDL/Steam see hotplugged controllers.
+  - Its `/api/v1/` proxy drives Wolf (can run arbitrary containers): never publish its port on the
+    session Service. It requires a per-Deployment bearer token (Secret `<deploy>-wolf-agent-token`,
+    `pkg/controllers/agent_token.go`); the operator dials the pod IP. Wolf's API stays on the socket.
   - `fakeudev` is Linux-only for real work (`fakeudev_linux.go` vs `fakeudev_other.go` stub);
     tests touching it behave differently on Windows/macOS.
 - **`pkg/generic`**: typed generic wrappers over client-go informers/listers plus a reusable

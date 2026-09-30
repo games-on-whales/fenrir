@@ -71,6 +71,18 @@ It is responsible for synchronizing the intended list of sessions in Kubernetes
 with the currently active sessions in wolf, as well as calling `fake-udev` for
 controller support.
 
+Wolf's API is only ever served on its unix socket inside the pod. wolf-agent
+proxies it over HTTPS on `--port` (8443 in session pods) and rejects every
+`/api/v1/` request without `Authorization: Bearer <token>`; `/readyz` and
+`/livez` stay open for kubelet probes.
+
+| Flag | Default | Description |
+|---|---|---|
+| `--token-file` | _(required)_ | File holding the bearer token. The operator generates one per session Deployment (Secret `<user>-<app>-wolf-agent-token`) and mounts it. wolf-agent refuses to start without it. |
+
+The wolf-agent port is not published on the session `Service`; the operator
+dials the pod IP directly.
+
 ## Operator
 
 The operator is a component which runs a leader election and control loops
