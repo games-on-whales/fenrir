@@ -13,12 +13,10 @@ import (
 )
 
 // wolf-agent proxies Wolf's unauthenticated API (which can run arbitrary
-// containers), so it is never published on the session Service and it
-// rejects any /api/v1/ request without the per-Deployment bearer token below.
-// The token matters even though the port is unpublished: the pod IP is
-// reachable cluster-wide, and on the node IP once pods use hostNetwork.
+// containers), so it rejects any /api/v1/ request without the per-Deployment
+// bearer token below. Session pods use hostNetwork, so its port (from the
+// session's port block) is reachable on the node IP by anything on the LAN.
 const (
-	wolfAgentPort           = 8443
 	wolfAgentTokenKey       = "token"
 	wolfAgentTokenMountPath = "/etc/wolf-agent"
 )

@@ -187,12 +187,23 @@ spec:
               deploymentName:
                 type: string
               ports:
-                description: The ports allocated to the session on the shared gateway.
+                description: |-
+                  The host ports allocated to the session's pod. Freed when the last
+                  Session sharing the pod is deleted.
                 properties:
                   audioRTP:
                     format: int32
                     type: integer
                   control:
+                    format: int32
+                    type: integer
+                  http:
+                    description: |-
+                      Wolf's own pairing server; bound but unused, moved off the defaults so
+                      it does not collide with moonlight-proxy or another session.
+                    format: int32
+                    type: integer
+                  https:
                     format: int32
                     type: integer
                   rtsp:
@@ -201,9 +212,11 @@ spec:
                   videoRTP:
                     format: int32
                     type: integer
+                  wolfAgent:
+                    description: wolf-agent's HTTPS port (bearer-token protected).
+                    format: int32
+                    type: integer
                 type: object
-              serviceName:
-                type: string
               streamURL:
                 type: string
               wolfSessionID:

@@ -13,9 +13,6 @@ metadata:
   labels:
     app: direwolf
     component: moonlight-proxy
-  annotations:
-    "lbipam.cilium.io/sharing-key": "direwolf"
-    "metallb.universe.tf/allow-shared-ip": "direwolf"
 spec:
   type: LoadBalancer
   selector:
@@ -180,7 +177,7 @@ rules:
   resources: ["deployments"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: [""]
-  resources: ["services", "persistentvolumeclaims", "configmaps"]
+  resources: ["persistentvolumeclaims", "configmaps"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

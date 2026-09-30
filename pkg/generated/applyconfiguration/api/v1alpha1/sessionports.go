@@ -21,20 +21,44 @@ package v1alpha1
 // SessionPortsApplyConfiguration represents a declarative configuration of the SessionPorts type for use
 // with apply.
 //
-// Each session will have 4 ports allocated to it on the shared gateway.
-// Using port forward allows us to avoid the need for a separate IP per session
-// or a relay which could add latency to the stream.
+// SessionPorts is a session pod's block of host ports. Session pods use
+// hostNetwork and share the node IP with moonlight-proxy
+// (Moonlight can be redirected to another port, not another host), so each
+// session pod gets its own contiguous block of host ports from the operator's
+// configured range. Wolf is started with the matching WOLF_*_PORT variables.
 type SessionPortsApplyConfiguration struct {
+	// Wolf's own pairing server; bound but unused, moved off the defaults so
+	// it does not collide with moonlight-proxy or another session.
+	HTTP     *int32 `json:"http,omitempty"`
+	HTTPS    *int32 `json:"https,omitempty"`
 	RTSP     *int32 `json:"rtsp,omitempty"`
 	Control  *int32 `json:"control,omitempty"`
 	VideoRTP *int32 `json:"videoRTP,omitempty"`
 	AudioRTP *int32 `json:"audioRTP,omitempty"`
+	// wolf-agent's HTTPS port (bearer-token protected).
+	WolfAgent *int32 `json:"wolfAgent,omitempty"`
 }
 
 // SessionPortsApplyConfiguration constructs a declarative configuration of the SessionPorts type for use with
 // apply.
 func SessionPorts() *SessionPortsApplyConfiguration {
 	return &SessionPortsApplyConfiguration{}
+}
+
+// WithHTTP sets the HTTP field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HTTP field is set to the value of the last call.
+func (b *SessionPortsApplyConfiguration) WithHTTP(value int32) *SessionPortsApplyConfiguration {
+	b.HTTP = &value
+	return b
+}
+
+// WithHTTPS sets the HTTPS field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the HTTPS field is set to the value of the last call.
+func (b *SessionPortsApplyConfiguration) WithHTTPS(value int32) *SessionPortsApplyConfiguration {
+	b.HTTPS = &value
+	return b
 }
 
 // WithRTSP sets the RTSP field in the declarative configuration to the given value
@@ -66,5 +90,13 @@ func (b *SessionPortsApplyConfiguration) WithVideoRTP(value int32) *SessionPorts
 // If called multiple times, the AudioRTP field is set to the value of the last call.
 func (b *SessionPortsApplyConfiguration) WithAudioRTP(value int32) *SessionPortsApplyConfiguration {
 	b.AudioRTP = &value
+	return b
+}
+
+// WithWolfAgent sets the WolfAgent field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WolfAgent field is set to the value of the last call.
+func (b *SessionPortsApplyConfiguration) WithWolfAgent(value int32) *SessionPortsApplyConfiguration {
+	b.WolfAgent = &value
 	return b
 }

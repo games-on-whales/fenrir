@@ -5,6 +5,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -36,15 +37,21 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if got := dep.Spec.Template.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
 		t.Errorf("pod template label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
 	}
-	// wolf-agent must never be published on the (LoadBalancer) session Service.
-	svc, err := fakeK8s.CoreV1().Services(sess.Namespace).Get(ctx, sess.Status.ServiceName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("failed to get service: %v", err)
+	// No per-session Service any more: the pod is on the host network.
+	if svcs, _ := fakeK8s.CoreV1().Services(sess.Namespace).List(ctx, metav1.ListOptions{}); len(svcs.Items) != 0 {
+		t.Errorf("reconcile created Services: %+v", svcs.Items)
 	}
-	for _, p := range svc.Spec.Ports {
-		if p.Port == wolfAgentPort || p.Name == "wa" {
-			t.Errorf("session service publishes wolf-agent port: %+v", p)
-		}
+	// The pre-created Deployment has no port-block annotation (like one from
+	// before this operator version), so it must have been re-applied in full.
+	if got := dep.Annotations[portBlockAnnotation]; got != strconv.Itoa(int(sess.Status.Ports.HTTP)) {
+		t.Errorf("deployment %s = %q, want %d", portBlockAnnotation, got, sess.Status.Ports.HTTP)
+	}
+	podSpec := dep.Spec.Template.Spec
+	if !podSpec.HostNetwork || podSpec.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
+		t.Errorf("pod hostNetwork=%v dnsPolicy=%q, want true/%q", podSpec.HostNetwork, podSpec.DNSPolicy, corev1.DNSClusterFirstWithHostNet)
+	}
+	if got := podSpec.NodeSelector["kubernetes.io/hostname"]; got != "talos04" {
+		t.Errorf("nodeSelector kubernetes.io/hostname = %q, want talos04", got)
 	}
 
 	// wolf-agent must be started with the token file mounted from its Secret.
@@ -59,6 +66,42 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	}
 	if !slices.Contains(agent.Args, "--token-file="+wolfAgentTokenMountPath+"/"+wolfAgentTokenKey) {
 		t.Errorf("wolf-agent args missing --token-file: %v", agent.Args)
+	}
+
+	// Every listener must be on the session's block, so session pods sharing
+	// the node IP never collide.
+	ports := sess.Status.Ports
+	if ports != blockPorts(20000) {
+		t.Fatalf("session ports = %+v, want the first block", ports)
+	}
+	if !slices.Contains(agent.Args, "--port=20006") || agent.Ports[0].ContainerPort != ports.WolfAgent ||
+		agent.ReadinessProbe.HTTPGet.Port.IntVal != ports.WolfAgent {
+		t.Errorf("wolf-agent not on port %d: args %v ports %+v", ports.WolfAgent, agent.Args, agent.Ports)
+	}
+	var wolf *corev1.Container
+	for i := range podSpec.Containers {
+		if podSpec.Containers[i].Name == "wolf" {
+			wolf = &podSpec.Containers[i]
+		}
+	}
+	if wolf == nil {
+		t.Fatal("no wolf container")
+	}
+	wantEnv := map[string]int32{
+		"WOLF_HTTP_PORT":       ports.HTTP,
+		"WOLF_HTTPS_PORT":      ports.HTTPS,
+		"WOLF_RTSP_SETUP_PORT": ports.RTSP,
+		"WOLF_CONTROL_PORT":    ports.Control,
+		"WOLF_VIDEO_PING_PORT": ports.VideoRTP,
+		"WOLF_AUDIO_PING_PORT": ports.AudioRTP,
+	}
+	for name, port := range wantEnv {
+		if !slices.Contains(wolf.Env, corev1.EnvVar{Name: name, Value: strconv.Itoa(int(port))}) {
+			t.Errorf("wolf env missing %s=%d", name, port)
+		}
+		if !slices.ContainsFunc(wolf.Ports, func(p corev1.ContainerPort) bool { return p.ContainerPort == port }) {
+			t.Errorf("wolf does not declare container port %d (%s)", port, name)
+		}
 	}
 	var tokenVolume bool
 	for _, v := range dep.Spec.Template.Spec.Volumes {
@@ -135,7 +178,10 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 		appInformer,
 		userInformer,
 		deploymentInformer,
-		SessionControllerOptions{},
+		SessionControllerOptions{
+			SessionPortRange:    PortRange{Min: 20000, Max: 20999},
+			SessionNodeSelector: map[string]string{"kubernetes.io/hostname": "talos04"},
+		},
 	)
 
 	// Start informers and wait for caches
@@ -221,21 +267,6 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 	// 4) reconcilePod (creates/updates Deployment)
 	if err := sc.reconcilePod(ctx, sess); err != nil {
 		t.Fatalf("reconcilePod failed: %v", err)
-	}
-
-	// Pre-create a minimal service so Apply will succeed
-	svcName := sess.Name + "-rtp"
-	_, err = fakeK8s.CoreV1().Services(user.Namespace).Create(ctx, &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: svcName, Namespace: user.Namespace},
-		Spec:       corev1.ServiceSpec{Selector: map[string]string{"app": "direwolf-worker"}},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("failed to pre-create service: %v", err)
-	}
-
-	// 5) reconcileService (creates Service)
-	if err := sc.reconcileService(ctx, sess); err != nil {
-		t.Fatalf("reconcileService failed: %v", err)
 	}
 
 	dep, err := fakeK8s.AppsV1().Deployments(user.Namespace).Get(ctx, sc.deploymentName(sess), metav1.GetOptions{})

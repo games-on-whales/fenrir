@@ -36,23 +36,35 @@ Three binaries in `cmd/`, all sharing `pkg/`:
     into `Session.status` (bounded by `--launch-timeout` and the client connection).
 - **operator** (`pkg/controllers/session.go`): leader-elected (lease); only `SessionController` runs.
   - Per `Session` it creates the pod (game container + wolf + wolf-agent + pulseaudio sidecars,
-    sharing `XDG_RUNTIME_DIR`), PVCs, and a LoadBalancer `Service` for RTSP/RTP/ENet ports.
-  - Port forwarding relies on Cilium's `lb-sharing-key` annotation so the per-session Service shares
-    the moonlight-proxy IP. Gateway API code in `session.go` is commented-out experimentation.
+    sharing `XDG_RUNTIME_DIR`) and PVCs. No Service: pods use `hostNetwork` on the node Moonlight
+    clients stream from (`--session-node-selector`), since Moonlight only accepts a port redirect.
+  - Every pod listener (Wolf HTTP/HTTPS too, wolf-agent) must come from the session's port block
+    (`pkg/controllers/ports.go`, `--session-port-range`), or pods on the node collide.
+    - Blocks are keyed by Deployment (sessions sharing it share the pod); `status.ports` is the
+      record, replayed via `Claim` on operator start. Tests: `ports_test.go`.
+    - Ports stay declared as containerPorts: under hostNetwork they become hostPorts, so the
+      scheduler holds a pod whose block a terminating predecessor still binds.
+    - A Deployment records its block in the `port-block` annotation; `reconcilePod` re-applies
+      one whose block differs from `status.ports`, else the advertised ports go unserved.
+    - Exception: Wolf's mDNS (UDP 5353, SO_REUSEPORT) is hardcoded and outside the block.
+  - Chart: moonlight-proxy is host-networked with a nodeSelector that must match the operator's
+    `--session-node-selector`.
+  - Gateway API code in `session.go` is commented-out experimentation.
   - Also watches `App`, `User`, `Deployment` to clean up dependent sessions.
 - **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to
   Wolf's HTTP API over a mounted unix socket.
   - Syncs desired sessions into Wolf and emulates udev (writes `/run/udev/data`, a volume shared
     with the game container) so SDL/Steam see hotplugged controllers.
-  - Its `/api/v1/` proxy drives Wolf (can run arbitrary containers): never publish its port on the
-    session Service. It requires a per-Deployment bearer token (Secret `<deploy>-wolf-agent-token`,
-    `pkg/controllers/agent_token.go`); the operator dials the pod IP. Wolf's API stays on the socket.
+  - Its `/api/v1/` proxy drives Wolf (can run arbitrary containers) and, under hostNetwork, is
+    reachable on the node IP. It requires a per-Deployment bearer token (Secret
+    `<deploy>-wolf-agent-token`, `pkg/controllers/agent_token.go`); the operator dials the pod IP.
+    Wolf's API stays on the socket.
   - `fakeudev` is Linux-only for real work (`fakeudev_linux.go` vs `fakeudev_other.go` stub);
     tests touching it behave differently on Windows/macOS.
 - **`pkg/generic`**: typed generic wrappers over client-go informers/listers plus a reusable
   `Controller[T]` reconcile loop. New controllers should build on it, not raw `cache.SharedIndexInformer`.
 - Game containers must wait for the `WAYLAND_DISPLAY` socket before starting, or the pod never goes
-  Ready and the Service never forwards.
+  Ready and the stream is never started.
 
 ## CI (`.github/workflows`)
 
