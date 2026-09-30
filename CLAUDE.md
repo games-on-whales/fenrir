@@ -51,8 +51,10 @@ Three binaries in `cmd/`, all sharing `pkg/`:
     - A Deployment records its block in the `port-block` annotation; `reconcilePod` re-applies
       one whose block differs from `status.ports`, else the advertised ports go unserved.
     - Exception: Wolf's mDNS (UDP 5353, SO_REUSEPORT) is hardcoded and outside the block.
-  - Chart: moonlight-proxy is host-networked with a nodeSelector that must match the operator's
-    `--session-node-selector`.
+  - Chart: moonlight-proxy is host-networked with a nodeSelector and tolerations that must match
+    the operator's `--session-node-selector` / `--session-tolerations`.
+    - Talos labels `kubernetes.io/hostname` with the FQDN (`talos04.xerktech.com`), and talos04
+      is tainted `nvidia.com/gpu=present:NoSchedule`; miss either and every pod stays Pending.
   - Gateway API code in `session.go` is commented-out experimentation.
   - Also watches `App`, `User`, `Deployment` to clean up dependent sessions.
 - **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to

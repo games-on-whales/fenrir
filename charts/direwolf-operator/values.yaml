@@ -41,7 +41,9 @@ controllers:
         args:
           # Session pods use hostNetwork on this node and share its IP with
           # moonlight-proxy; keep in sync with moonlight_proxy's nodeSelector.
-          - --session-node-selector=kubernetes.io/hostname=talos04
+          - --session-node-selector=kubernetes.io/hostname=talos04.xerktech.com
+          # talos04 is a GPU node; keep in sync with moonlight_proxy's tolerations.
+          - --session-tolerations=nvidia.com/gpu=present:NoSchedule
           - --session-port-range=20000-20999
         image:
           repository: ghcr.io/games-on-whales/fenrir/direwolf-operator
@@ -76,7 +78,12 @@ controllers:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
-        kubernetes.io/hostname: talos04
+        kubernetes.io/hostname: talos04.xerktech.com
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Equal
+          value: present
+          effect: NoSchedule
     containers:
       proxy:
         args:

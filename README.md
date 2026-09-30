@@ -132,8 +132,9 @@ Pod will never be `READY` and the stream is never started.
 
 Moonlight streams from the same host it paired with, and can only be redirected
 to a different *port*. So session pods run with `hostNetwork` on one node (pinned
-with the operator's `--session-node-selector`, e.g. `kubernetes.io/hostname=talos04`)
-and share that node's IP with `moonlight-proxy`, which must also be reachable on
+with the operator's `--session-node-selector`, e.g.
+`kubernetes.io/hostname=talos04.xerktech.com`; Talos nodes carry their FQDN in
+that label) and share that node's IP with `moonlight-proxy`, which must also be reachable on
 it at 47984/47989 (e.g. a host-networked proxy pinned to the same node).
 
 For each session Deployment the operator allocates a block of 7 host ports from
@@ -143,8 +144,9 @@ Wolf is started with the matching `WOLF_*_PORT` variables, and the RTSP URL retu
 by `/launch` carries the session's RTSP port. The block is freed once no `Session`
 uses that Deployment. Firewalls between clients and the node must allow the range.
 
-The chart runs `moonlight-proxy` host-networked with the same node selector as the
-operator's `--session-node-selector`; keep the two in sync. Host networking needs the
+The chart runs `moonlight-proxy` host-networked with the same node selector and
+tolerations as the operator's `--session-node-selector` and `--session-tolerations`
+(talos04 carries `nvidia.com/gpu=present:NoSchedule`); keep them in sync. Host networking needs the
 release namespace to allow it (PodSecurity `privileged`). App templates must not
 declare their own container ports: on the host network they become host ports and
 collide between sessions. Wolf's mDNS responder (UDP 5353, shared via SO_REUSEPORT)

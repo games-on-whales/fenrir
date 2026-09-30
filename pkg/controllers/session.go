@@ -64,6 +64,8 @@ type SessionControllerOptions struct {
 	// Node labels session pods are pinned to. Session pods use hostNetwork, so
 	// this selects the node whose IP Moonlight clients stream from.
 	SessionNodeSelector map[string]string
+	// Taints of that node session pods tolerate.
+	SessionTolerations []corev1.Toleration
 }
 
 // Session Controller manages the lifecycle of a streaming session for
@@ -999,6 +1001,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		maps.Copy(podToCreate.Spec.NodeSelector, c.SessionNodeSelector)
 	}
+	podToCreate.Spec.Tolerations = append(podToCreate.Spec.Tolerations, c.SessionTolerations...)
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{

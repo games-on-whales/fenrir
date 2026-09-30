@@ -38,7 +38,9 @@ func main() {
 	sessionPortRange := flag.String("session-port-range", "20000-20999",
 		"Host port range (MIN-MAX) session pods get their port blocks from")
 	sessionNodeSelector := flag.String("session-node-selector", "",
-		"Node labels session pods are pinned to, e.g. kubernetes.io/hostname=talos04")
+		"Node labels session pods are pinned to, e.g. kubernetes.io/hostname=talos04.xerktech.com")
+	sessionTolerations := flag.String("session-tolerations", "",
+		"Comma-separated taints (key[=value]:Effect) session pods tolerate, e.g. nvidia.com/gpu=present:NoSchedule")
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -49,6 +51,10 @@ func main() {
 	nodeSelector, err := labels.ConvertSelectorToLabelsMap(*sessionNodeSelector)
 	if err != nil {
 		klog.Fatalf("--session-node-selector: %v", err)
+	}
+	tolerations, err := controllers.ParseTolerations(*sessionTolerations)
+	if err != nil {
+		klog.Fatalf("--session-tolerations: %v", err)
 	}
 
 	k8sClient, direwolfClient, gatewayClient, _, err := util.GetKubernetesClients()
@@ -104,6 +110,7 @@ func main() {
 			WolfAgentImage:      *wolfAgentImage,
 			SessionPortRange:    portRange,
 			SessionNodeSelector: nodeSelector,
+			SessionTolerations:  tolerations,
 		},
 	)
 

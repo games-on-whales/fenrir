@@ -53,6 +53,9 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if got := podSpec.NodeSelector["kubernetes.io/hostname"]; got != "talos04" {
 		t.Errorf("nodeSelector kubernetes.io/hostname = %q, want talos04", got)
 	}
+	if !slices.ContainsFunc(podSpec.Tolerations, func(tol corev1.Toleration) bool { return tol.Key == "nvidia.com/gpu" }) {
+		t.Errorf("pod does not tolerate the pinned node's taint: %+v", podSpec.Tolerations)
+	}
 
 	// wolf-agent must be started with the token file mounted from its Secret.
 	var agent *corev1.Container
@@ -181,6 +184,9 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 		SessionControllerOptions{
 			SessionPortRange:    PortRange{Min: 20000, Max: 20999},
 			SessionNodeSelector: map[string]string{"kubernetes.io/hostname": "talos04"},
+			SessionTolerations: []corev1.Toleration{
+				{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpEqual, Value: "present", Effect: corev1.TaintEffectNoSchedule},
+			},
 		},
 	)
 
