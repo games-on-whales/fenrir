@@ -6,36 +6,25 @@ metadata:
   name: alex
   namespace: direwolf
 spec:
+  # The GPU is not a resource here: it comes from the App's DRA claim.
   resources:
     limits:
-      nvidia.com/gpu: "1"
       cpu: 4000m
       memory: 8G
     requests:
-      nvidia.com/gpu: "1"
       cpu: 4000m
       memory: 8G
   sidecarPolicies:
     # We are overriding the default resources for some sidecars for this user.
+    # wolf needs no GPU resource or NVIDIA_* env: the operator gives it the
+    # App's GPU claim, and the DRA driver injects the device via CDI.
     wolf:
-      # # add needed runtime env vars
-      env:
-      - name: NVIDIA_DRIVER_CAPABILITIES
-        value: all
-      - name: NVIDIA_VISIBLE_DEVICES
-        value: all
       resources:
         requests:
-          nvidia.com/gpu: "1"
           squat.ai/uinput: "1"
           cpu: 1000m
           memory: 2G
         limits:
-          nvidia.com/gpu: "1"
           squat.ai/uinput: "1"
           cpu: 1000m
           memory: 2G
-      ## Not needed most of the time.
-      # securityContext:
-      #   privileged: true
-    # pulseaudio:

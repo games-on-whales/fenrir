@@ -1,0 +1,15 @@
+---
+# One NVIDIA GPU per session, allocated through DRA (NVIDIA DRA driver,
+# DeviceClass gpu.nvidia.com). Referenced by the App's pod template.
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaimTemplate
+metadata:
+  name: nvidia-gpu
+  namespace: direwolf
+spec:
+  spec:
+    devices:
+      requests:
+      - name: gpu
+        exactly:
+          deviceClassName: gpu.nvidia.com

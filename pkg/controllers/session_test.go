@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"os"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -28,15 +29,70 @@ import (
 // controller would use to create the Deployment from the App/User/Session CRs.
 func TestSessionControllerReconcilePath(t *testing.T) {
 	ctx := context.Background()
+	sc, fakeK8s, sess, dep := reconcileFixtures(t, "../../examples/user.yaml", "../../examples/steam.yaml")
+	deploymentName := dep.Name
 
-	// Read fixtures
-	userYamlData, err := os.ReadFile("../../examples/user.yaml")
-	if err != nil {
-		t.Fatalf("failed to read user.yaml: %v", err)
+	// The nri-input plugin grants input devices only to pods carrying this label.
+	if got := dep.Spec.Template.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
+		t.Errorf("pod template label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
 	}
-	steamYamlData, err := os.ReadFile("../../examples/steam.yaml")
+	// wolf-agent must never be published on the (LoadBalancer) session Service.
+	svc, err := fakeK8s.CoreV1().Services(sess.Namespace).Get(ctx, sess.Status.ServiceName, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("failed to read steam.yaml: %v", err)
+		t.Fatalf("failed to get service: %v", err)
+	}
+	for _, p := range svc.Spec.Ports {
+		if p.Port == wolfAgentPort || p.Name == "wa" {
+			t.Errorf("session service publishes wolf-agent port: %+v", p)
+		}
+	}
+
+	// wolf-agent must be started with the token file mounted from its Secret.
+	var agent *corev1.Container
+	for i := range dep.Spec.Template.Spec.Containers {
+		if dep.Spec.Template.Spec.Containers[i].Name == "wolf-agent" {
+			agent = &dep.Spec.Template.Spec.Containers[i]
+		}
+	}
+	if agent == nil {
+		t.Fatal("no wolf-agent container")
+	}
+	if !slices.Contains(agent.Args, "--token-file="+wolfAgentTokenMountPath+"/"+wolfAgentTokenKey) {
+		t.Errorf("wolf-agent args missing --token-file: %v", agent.Args)
+	}
+	var tokenVolume bool
+	for _, v := range dep.Spec.Template.Spec.Volumes {
+		if v.Name == "wolf-agent-token" && v.Secret != nil && v.Secret.SecretName == agentTokenSecretName(deploymentName) {
+			tokenVolume = true
+		}
+	}
+	if !tokenVolume {
+		t.Error("pod has no wolf-agent-token secret volume")
+	}
+	if _, tokenErr := sc.agentToken(ctx, dep); tokenErr != nil {
+		t.Errorf("token secret not created by reconcilePod: %v", tokenErr)
+	}
+
+	out, err := sigsyaml.Marshal(dep)
+	if err != nil {
+		t.Fatalf("failed to marshal deployment: %v", err)
+	}
+	t.Logf("Generated Deployment YAML:\n%s", string(out))
+}
+
+// reconcileFixtures runs the controller's reconcile helpers for the given User and
+// App fixtures and returns the resulting session Deployment.
+func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionController, *k8sfake.Clientset, *v1alpha1api.Session, *appsv1.Deployment) {
+	t.Helper()
+	ctx := context.Background()
+
+	userYamlData, err := os.ReadFile(userPath)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", userPath, err)
+	}
+	steamYamlData, err := os.ReadFile(appPath)
+	if err != nil {
+		t.Fatalf("failed to read %s: %v", appPath, err)
 	}
 
 	// Unmarshal into API types
@@ -182,58 +238,11 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		t.Fatalf("reconcileService failed: %v", err)
 	}
 
-	// Fetch the created deployment and log YAML
-	deploymentName := sc.deploymentName(sess)
-	dep, err := fakeK8s.AppsV1().Deployments(user.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	dep, err := fakeK8s.AppsV1().Deployments(user.Namespace).Get(ctx, sc.deploymentName(sess), metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("failed to get deployment from fake k8s: %v", err)
 	}
-	// The nri-input plugin grants input devices only to pods carrying this label.
-	if got := dep.Spec.Template.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
-		t.Errorf("pod template label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
-	}
-	// wolf-agent must never be published on the (LoadBalancer) session Service.
-	svc, err := fakeK8s.CoreV1().Services(user.Namespace).Get(ctx, sess.Status.ServiceName, metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("failed to get service: %v", err)
-	}
-	for _, p := range svc.Spec.Ports {
-		if p.Port == wolfAgentPort || p.Name == "wa" {
-			t.Errorf("session service publishes wolf-agent port: %+v", p)
-		}
-	}
-
-	// wolf-agent must be started with the token file mounted from its Secret.
-	var agent *corev1.Container
-	for i := range dep.Spec.Template.Spec.Containers {
-		if dep.Spec.Template.Spec.Containers[i].Name == "wolf-agent" {
-			agent = &dep.Spec.Template.Spec.Containers[i]
-		}
-	}
-	if agent == nil {
-		t.Fatal("no wolf-agent container")
-	}
-	if !slices.Contains(agent.Args, "--token-file="+wolfAgentTokenMountPath+"/"+wolfAgentTokenKey) {
-		t.Errorf("wolf-agent args missing --token-file: %v", agent.Args)
-	}
-	var tokenVolume bool
-	for _, v := range dep.Spec.Template.Spec.Volumes {
-		if v.Name == "wolf-agent-token" && v.Secret != nil && v.Secret.SecretName == agentTokenSecretName(deploymentName) {
-			tokenVolume = true
-		}
-	}
-	if !tokenVolume {
-		t.Error("pod has no wolf-agent-token secret volume")
-	}
-	if _, tokenErr := sc.agentToken(ctx, dep); tokenErr != nil {
-		t.Errorf("token secret not created by reconcilePod: %v", tokenErr)
-	}
-
-	out, err := sigsyaml.Marshal(dep)
-	if err != nil {
-		t.Fatalf("failed to marshal deployment: %v", err)
-	}
-	t.Logf("Generated Deployment YAML:\n%s", string(out))
+	return sc, fakeK8s, sess, dep
 }
 
 // cacheWaitForSync waits for both informer factories to sync (typed and direwolf)
@@ -252,5 +261,80 @@ func cacheWaitForSync(k8sFactory informers.SharedInformerFactory, dwFactory gene
 		return true
 	case <-ctx.Done():
 		return false
+	}
+}
+
+// TestSessionPodGPUFromDRAClaim checks the GPU reaches the session pod only through
+// the App's DRA ResourceClaim: the pod keeps spec.resourceClaims, and both the game
+// container and the wolf sidecar (NVENC) reference the claim.
+func TestSessionPodGPUFromDRAClaim(t *testing.T) {
+	_, _, _, dep := reconcileFixtures(t, "../../examples/nvidia_devices/user.yaml", "../../examples/nvidia_devices/firefox.yaml") //nolint:dogsled // only the Deployment matters here
+	spec := dep.Spec.Template.Spec
+
+	want := corev1.PodResourceClaim{Name: "gpu", ResourceClaimTemplateName: new("nvidia-gpu")}
+	if len(spec.ResourceClaims) != 1 || !reflect.DeepEqual(spec.ResourceClaims[0], want) {
+		t.Errorf("pod resourceClaims = %+v, want [%+v]", spec.ResourceClaims, want)
+	}
+	if spec.RuntimeClassName != nil {
+		t.Errorf("runtimeClassName = %q, want unset", *spec.RuntimeClassName)
+	}
+
+	claimed := map[string]bool{}
+	for _, c := range spec.Containers {
+		if slices.Contains(c.Resources.Claims, corev1.ResourceClaim{Name: "gpu"}) {
+			claimed[c.Name] = true
+		}
+		for _, e := range c.Env {
+			if e.Name == "NVIDIA_VISIBLE_DEVICES" {
+				t.Errorf("container %s has NVIDIA_VISIBLE_DEVICES=%q", c.Name, e.Value)
+			}
+		}
+		if c.SecurityContext != nil && c.SecurityContext.Privileged != nil && *c.SecurityContext.Privileged {
+			t.Errorf("container %s is privileged", c.Name)
+		}
+	}
+	for _, name := range []string{"app", "wolf"} {
+		if !claimed[name] {
+			t.Errorf("container %s does not reference the gpu claim", name)
+		}
+	}
+	for _, name := range []string{"wolf-agent", "pulseaudio"} {
+		if claimed[name] {
+			t.Errorf("sidecar %s should not reference the gpu claim", name)
+		}
+	}
+}
+
+func TestMergeResourceRequirementsKeepsClaims(t *testing.T) {
+	defaults := corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}}}
+	overrides := &corev1.ResourceRequirements{Claims: []corev1.ResourceClaim{{Name: "gpu"}, {Name: "nic", Request: "vf"}}}
+
+	got := mergeResourceRequirements(defaults, overrides)
+	want := []corev1.ResourceClaim{{Name: "gpu"}, {Name: "nic", Request: "vf"}}
+	if !reflect.DeepEqual(got.Claims, want) {
+		t.Errorf("merged claims = %+v, want %+v", got.Claims, want)
+	}
+	if len(defaults.Claims) != 1 {
+		t.Errorf("defaults mutated: %+v", defaults.Claims)
+	}
+}
+
+// Server-side apply keys resources.claims by name alone, so one name must never
+// appear twice; a whole-claim entry wins over a single-request one.
+func TestAppendResourceClaimsOneEntryPerName(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		dst, add  []corev1.ResourceClaim
+		wantClaim []corev1.ResourceClaim
+	}{
+		{"request then whole", []corev1.ResourceClaim{{Name: "gpu", Request: "gpu"}}, []corev1.ResourceClaim{{Name: "gpu"}}, []corev1.ResourceClaim{{Name: "gpu"}}},
+		{"whole then request", []corev1.ResourceClaim{{Name: "gpu"}}, []corev1.ResourceClaim{{Name: "gpu", Request: "gpu"}}, []corev1.ResourceClaim{{Name: "gpu"}}},
+		{"two requests", nil, []corev1.ResourceClaim{{Name: "gpu", Request: "a"}, {Name: "gpu", Request: "b"}}, []corev1.ResourceClaim{{Name: "gpu"}}},
+		{"same request", nil, []corev1.ResourceClaim{{Name: "gpu", Request: "a"}, {Name: "gpu", Request: "a"}}, []corev1.ResourceClaim{{Name: "gpu", Request: "a"}}},
+		{"distinct names", []corev1.ResourceClaim{{Name: "gpu"}}, []corev1.ResourceClaim{{Name: "nic", Request: "vf"}}, []corev1.ResourceClaim{{Name: "gpu"}, {Name: "nic", Request: "vf"}}},
+	} {
+		if got := appendResourceClaims(tc.dst, tc.add...); !reflect.DeepEqual(got, tc.wantClaim) {
+			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.wantClaim)
+		}
 	}
 }

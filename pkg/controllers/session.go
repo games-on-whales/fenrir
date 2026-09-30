@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"time"
 
@@ -647,7 +648,36 @@ func mergeResourceRequirements(defaults corev1.ResourceRequirements, overrides *
 		merged.Requests[resourceName] = quantity
 	}
 
+	merged.Claims = appendResourceClaims(merged.Claims, overrides.Claims...)
+
 	return *merged
+}
+
+// appendResourceClaims appends claims to dst, keeping one entry per claim name:
+// server-side apply keys resources.claims by name alone, so duplicates fail the
+// apply. When entries for one name differ (whole claim vs. a single request, or
+// two requests), the whole claim is kept, as it covers every request.
+func appendResourceClaims(dst []corev1.ResourceClaim, claims ...corev1.ResourceClaim) []corev1.ResourceClaim {
+	for _, claim := range claims {
+		i := slices.IndexFunc(dst, func(c corev1.ResourceClaim) bool { return c.Name == claim.Name })
+		switch {
+		case i < 0:
+			dst = append(dst, claim)
+		case dst[i] != claim:
+			dst[i] = corev1.ResourceClaim{Name: claim.Name}
+		}
+	}
+	return dst
+}
+
+// appResourceClaims returns the DRA claims referenced by the App's containers.
+// Wolf gets the same claims so it encodes (NVENC) on the card the game renders on.
+func appResourceClaims(containers []corev1.Container) []corev1.ResourceClaim {
+	var claims []corev1.ResourceClaim
+	for _, c := range containers {
+		claims = appendResourceClaims(claims, c.Resources.Claims...)
+	}
+	return claims
 }
 
 // validateAppResources checks if the app's resource requirements are within the user's policy.
@@ -775,11 +805,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	if err != nil {
 		return fmt.Errorf("failed to get app: %s", err)
 	}
-	// Prepare environment variables for the wolf container
-	// commenting these out was the main reason nvidia stuff wasn't working.
-	// specifically the NVIDIA_VISIBLE_DEVICES
-	// I need a better method of injecting env vars / configs to the pod
-	// TODO
+	// Prepare environment variables for the wolf container.
+	// The GPU is not selected here: it comes only from the App's DRA
+	// ResourceClaims (see appResourceClaims), which the DRA driver injects via CDI.
+	// TODO: find a better method of injecting env vars / configs into the pod.
 	wolfEnvVars := map[string]string{
 		"PUID":                   "1000",
 		"PGID":                   "1000",
@@ -798,8 +827,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		// "GST_VAAPI_ALL_DRIVERS":      "1",
 		// "GST_DEBUG":                  "2",
 		// "__GL_SYNC_TO_VBLANK":        "0",
-		// "NVIDIA_VISIBLE_DEVICES":     "all",
-		// "NVIDIA_DRIVER_CAPABILITIES": "all",
 		// "LIBVA_DRIVER_NAME":          "nvidia",
 		// "LD_LIBRARY_PATH":            "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib",
 	}
@@ -891,8 +918,6 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			// yeah now no audio, probably because i'm developing on an integrated amd gpu.
 			{Name: "LIBVA_DRIVER_NAME", Value: "nvidia"},
 			{Name: "LD_LIBRARY_PATH", Value: "/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/lib"},
-			{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "all"},
-			{Name: "NVIDIA_VISIBLE_DEVICES", Value: "all"},
 			{Name: "GST_VAAPI_ALL_DRIVERS", Value: "1"},
 			{Name: "GST_DEBUG", Value: "2"},
 
@@ -1039,6 +1064,9 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			}
 		}
 	}
+
+	// Captured before the sidecars are appended: these are the App's containers only.
+	wolfResources.Claims = appendResourceClaims(wolfResources.Claims, appResourceClaims(podToCreate.Spec.Containers)...)
 
 	// Apply HostIPC setting to the pod spec if requested by any sidecar policy
 	podToCreate.Spec.HostIPC = podHostIPC

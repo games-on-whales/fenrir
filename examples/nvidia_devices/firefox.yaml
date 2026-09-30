@@ -20,17 +20,21 @@ spec:
       # clientIP: 10.244.1.1
   template:
     spec:
-      runtimeClassName: nvidia
+      # The GPU comes only from this DRA claim (see gpu-claim.yaml). The operator
+      # also attaches it to the wolf sidecar so it encodes on the same card.
+      resourceClaims:
+      - name: gpu
+        resourceClaimTemplateName: nvidia-gpu
       containers:
       - name: app
         image: ghcr.io/games-on-whales/firefox:edge
         resources:
+          claims:
+          - name: gpu
           limits:
-            nvidia.com/gpu: "1"
             cpu: 2000m
             memory: 4G
           requests:
-            nvidia.com/gpu: "1"
             cpu: 2000m
             memory: 4G
         command:
