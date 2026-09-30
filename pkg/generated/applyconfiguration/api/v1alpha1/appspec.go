@@ -25,12 +25,24 @@ import (
 // AppSpecApplyConfiguration represents a declarative configuration of the AppSpec type for use
 // with apply.
 type AppSpecApplyConfiguration struct {
-	Title               *string                           `json:"title,omitempty"`
-	ID                  *int                              `json:"id,omitempty"`
-	IsHDRSupported      *bool                             `json:"isHDRSupported,omitempty"`
-	AppAssetWebP        []byte                            `json:"appAssetWebP,omitempty"`
-	Template            *v1.PodTemplateSpec               `json:"template,omitempty"`
-	WolfConfig          *WolfConfigApplyConfiguration     `json:"wolfConfig,omitempty"`
+	// Name of the app to be presented to the user
+	Title *string `json:"title,omitempty"`
+	// Globally unique ID of the application. If there is a collision, the app
+	// will be excluded from the list of available apps.
+	ID *int `json:"id,omitempty"`
+	// Whether the app supports HDR
+	IsHDRSupported *bool `json:"isHDRSupported,omitempty"`
+	// PNG image of the app
+	AppAssetWebP []byte              `json:"appAssetWebP,omitempty"`
+	Template     *v1.PodTemplateSpec `json:"template,omitempty"`
+	// Unstructured wolf configuration for app to be merged with the default
+	// configuration
+	WolfConfig *WolfConfigApplyConfiguration `json:"wolfConfig,omitempty"`
+	// A template for a PersistentVolumeClaim to be created for the app's
+	// home directory. If provided, the operator will create a PVC from
+	// this template and mount it at /home/retro.
+	// If not provided, an emptyDir volume will be used.
+	// all other volumes must be defined in the pod template's spec.volumes field.
 	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
 }
 

@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -49,10 +48,10 @@ type controller[T runtime.Object] struct {
 
 	options ControllerOptions
 
-	// must hold a func() bool or nil
-	notificationsDelivered atomic.Value
-
-	hasProcessed synctrack.AsyncTracker[string]
+	// Synced once the informer has delivered its initial list and every key
+	// from that list has been reconciled. client-go >= 0.37 makes the tracker
+	// push-based: it has to be told when upstream has synced (see Run).
+	hasProcessed *synctrack.AsyncTracker[string]
 }
 
 type ControllerOptions struct {
@@ -77,20 +76,13 @@ func NewController[T runtime.Object](
 		options.Name = fmt.Sprintf("%T-controller", *new(T))
 	}
 
-	c := &controller[T]{
-		options:    options,
-		informer:   informer,
-		reconciler: reconciler,
-		queue:      nil,
+	return &controller[T]{
+		options:      options,
+		informer:     informer,
+		reconciler:   reconciler,
+		queue:        nil,
+		hasProcessed: synctrack.NewAsyncTracker[string](options.Name),
 	}
-	c.hasProcessed.UpstreamHasSynced = func() bool {
-		f := c.notificationsDelivered.Load()
-		if f == nil {
-			return false
-		}
-		return f.(func() bool)()
-	}
-	return c
 }
 
 func (c *controller[T]) Enqueue(namespace, name string) {
@@ -174,12 +166,17 @@ func (c *controller[T]) Run(ctx context.Context) error {
 		return err
 	}
 
-	c.notificationsDelivered.Store(registration.HasSynced)
+	// Tell the tracker once the handler has seen the informer's initial list;
+	// it then reports synced as soon as every key from that list is finished.
+	go func() {
+		if cache.WaitForCacheSync(ctx.Done(), registration.HasSynced) {
+			c.hasProcessed.UpstreamHasSynced()
+		}
+	}()
 
 	// Make sure event handler is removed from informer in case return early from
 	// an error
 	defer func() {
-		c.notificationsDelivered.Store(func() bool { return false })
 		// Remove event handler and Handle Error here. Error should only be raised
 		// for improper usage of event handler API.
 		if err := c.informer.RemoveEventHandler(registration); err != nil {

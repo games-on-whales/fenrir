@@ -28,16 +28,45 @@ import (
 	apiv1alpha1 "games-on-whales.github.io/direwolf/pkg/generated/listers/api/v1alpha1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 )
 
 // PairingInformer provides access to a shared informer and lister for
-// Pairings.
+// Pairings. Prefer using the type-safe variant (see [TypedPairingInformer]).
 type PairingInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() apiv1alpha1.PairingLister
 }
+
+// TypedPairingInformer provides access to a shared informer and lister for
+// Pairings, including the type-safe TypedInformer variant.
+// It is a superset of PairingInformer.
+type TypedPairingInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() PairingIndexInformer
+	Lister() apiv1alpha1.PairingLister
+}
+
+// PairingIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type PairingIndexInformer cache.TypedSharedIndexInformer[*pkgapiv1alpha1.Pairing]
+
+// PairingHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for Pairing.
+type PairingHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*pkgapiv1alpha1.Pairing]
+
+// PairingDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for Pairing.
+type PairingDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*pkgapiv1alpha1.Pairing]
+
+// PairingFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for Pairing.
+type PairingFilteringHandler = cache.TypedFilteringResourceEventHandler[*pkgapiv1alpha1.Pairing]
+
+// PairingIndexers is a specialization of [cache.TypedIndexers] for Pairing.
+type PairingIndexers = cache.TypedIndexers[*pkgapiv1alpha1.Pairing]
+
+// DeletedPairing is a specialization of [cache.DeletedObject] for Pairing.
+type DeletedPairing = cache.DeletedObject[*pkgapiv1alpha1.Pairing]
 
 type pairingInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,55 +77,132 @@ type pairingInformer struct {
 // NewPairingInformer constructs a new informer for Pairing type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedPairingInformer]).
 func NewPairingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredPairingInformer(client, namespace, resyncPeriod, indexers, nil)
+	return NewPairingInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedPairingInformer constructs a new informer for Pairing type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedPairingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers PairingIndexers) PairingIndexInformer {
+	return NewTypedPairingInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredPairingInformer constructs a new informer for Pairing type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredPairingInformer]).
 func NewFilteredPairingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+	return NewTypedPairingInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredPairingInformer constructs a new informer for Pairing type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredPairingInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers PairingIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) PairingIndexInformer {
+	return NewTypedPairingInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewPairingInformerWithOptions constructs a new informer for Pairing type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedPairingInformerWithOptions]).
+func NewPairingInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedPairingInformerWithOptions(client, namespace, options)
+}
+
+// NewTypedPairingInformerWithOptions constructs a new informer for Pairing type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedPairingInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) PairingIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "direwolf.games-on-whales.github.io", Version: "v1alpha1", Resource: "pairings"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Pairing](cache.NewSharedIndexInformerWithOptions(
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Pairings(namespace).List(context.Background(), options)
+				return client.DirewolfV1alpha1().Pairings(namespace).List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Pairings(namespace).Watch(context.Background(), options)
+				return client.DirewolfV1alpha1().Pairings(namespace).Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Pairings(namespace).List(ctx, options)
+				return client.DirewolfV1alpha1().Pairings(namespace).List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.DirewolfV1alpha1().Pairings(namespace).Watch(ctx, options)
+				return client.DirewolfV1alpha1().Pairings(namespace).Watch(ctx, opts)
 			},
-		},
+		}, client),
 		&pkgapiv1alpha1.Pairing{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *pairingInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredPairingInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedPairingInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *pairingInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&pkgapiv1alpha1.Pairing{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *pairingInformer) TypedInformer() PairingIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Pairing](f.factory.InformerFor(&pkgapiv1alpha1.Pairing{}, f.defaultInformer))
 }
 
 func (f *pairingInformer) Lister() apiv1alpha1.PairingLister {
 	return apiv1alpha1.NewPairingLister(f.Informer().GetIndexer())
+}
+
+// ToTypedPairingInformer converts an untyped informer into a TypedPairingInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Pairing. If that is not the case, calling type-safe methods of the returned
+// TypedPairingInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedPairingInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedPairingInformer(informer PairingInformer) TypedPairingInformer {
+	if informer, ok := informer.(TypedPairingInformer); ok {
+		return informer
+	}
+	return &pairingTypedInformerAdapter{informer}
+}
+
+type pairingTypedInformerAdapter struct {
+	PairingInformer
+}
+
+func (a *pairingTypedInformerAdapter) TypedInformer() PairingIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Pairing](a.Informer())
+}
+
+// ToPairingIndexInformer converts an untyped informer into a PairingIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *Pairing. If that is not the case, calling type-safe methods of the returned
+// PairingIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a PairingIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToPairingIndexInformer(informer cache.SharedIndexInformer) PairingIndexInformer {
+	if informer, ok := informer.(PairingIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*pkgapiv1alpha1.Pairing](informer)
 }

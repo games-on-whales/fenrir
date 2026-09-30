@@ -29,7 +29,7 @@ import (
 )
 
 type Interface interface {
-	Discovery() discovery.DiscoveryInterface
+	Discovery() discovery.DiscoveryInterfaces
 	DirewolfV1alpha1() direwolfv1alpha1.DirewolfV1alpha1Interface
 }
 
@@ -45,7 +45,7 @@ func (c *Clientset) DirewolfV1alpha1() direwolfv1alpha1.DirewolfV1alpha1Interfac
 }
 
 // Discovery retrieves the DiscoveryClient
-func (c *Clientset) Discovery() discovery.DiscoveryInterface {
+func (c *Clientset) Discovery() discovery.DiscoveryInterfaces {
 	if c == nil {
 		return nil
 	}
