@@ -14,21 +14,22 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
-	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
-	"games-on-whales.github.io/direwolf/pkg/generic"
-	"games-on-whales.github.io/direwolf/pkg/util"
 	"golang.org/x/image/webp"
-
 	v1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+
+	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
+	v1alpha1client "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/typed/api/v1alpha1"
+	"games-on-whales.github.io/direwolf/pkg/generic"
+	"games-on-whales.github.io/direwolf/pkg/util"
 )
 
 type RESTServerOptions struct {
@@ -47,6 +48,10 @@ type RESTServerOptions struct {
 	// PinPage.Port is 0; there is deliberately no fallback onto Port, which
 	// Moonlight clients reach directly.
 	PinPage PinPageOptions
+
+	// shutdownTimeout bounds graceful shutdown; defaults to 5s. Overridden by
+	// tests.
+	shutdownTimeout time.Duration
 }
 
 type RESTServer struct {
@@ -176,15 +181,30 @@ func (s *RESTServer) Run(ctx context.Context) error {
 
 	<-ctx.Done()
 	klog.Info("Shutting down server...")
-	server.Shutdown(context.Background())
-	secureServer.Shutdown(context.Background())
-	if pinServer != nil {
-		shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancelShutdown()
-		if err := pinServer.Shutdown(shutdownCtx); err != nil {
-			klog.Errorf("Pairing page shutdown: %s", err)
-		}
+
+	// Shut every listener down at once, with a deadline. A pair request can
+	// block indefinitely waiting for its PIN; shutting down one server after
+	// another would leave the next one (HTTPS: /launch) serving until the
+	// process is killed.
+	timeout := s.shutdownTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
 	}
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+	defer cancelShutdown()
+	var wg sync.WaitGroup
+	for _, srv := range []*http.Server{server, secureServer, pinServer} {
+		if srv == nil {
+			continue
+		}
+		wg.Go(func() {
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				klog.Warningf("Server %s did not shut down gracefully (%s), closing", srv.Addr, err)
+				_ = srv.Close()
+			}
+		})
+	}
+	wg.Wait()
 
 	if err := error.Load(); err != nil {
 		klog.Errorf("Server failed: %s", *err)

@@ -5,7 +5,9 @@ import (
 	"flag"
 	"net/netip"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -20,7 +22,9 @@ import (
 )
 
 func main() {
-	appContext, appCancel := context.WithCancel(context.Background())
+	// SIGTERM (pod stop) cancels the context so Run shuts the servers down
+	// instead of the process dying mid-request.
+	appContext, appCancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
 	defer appCancel()
 
 	serverCertPath := flag.String("tls-cert", "server.crt", "Path to server cert")
@@ -90,6 +94,10 @@ func main() {
 	klog.Info("Waiting for caches to sync")
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
+	if appContext.Err() != nil {
+		klog.Info("Shutting down before caches synced")
+		return
+	}
 	klog.Info("Caches synced")
 
 	pairingManager := moonlight.NewPairingManager(
@@ -118,11 +126,10 @@ func main() {
 		},
 	)
 
-	go func() {
-		defer appCancel()
-		restServer.Run(appContext)
-	}()
-
-	<-appContext.Done()
-	klog.Info("Shutting down")
+	// Run returns once its servers are shut down; its graceful shutdown is
+	// bounded, so this cannot hang the pod stop.
+	if err := restServer.Run(appContext); err != nil {
+		klog.Fatalf("Server failed: %s", err)
+	}
+	klog.Info("Shut down")
 }
