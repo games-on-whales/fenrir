@@ -1,0 +1,59 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## What this is
+
+- Kubernetes orchestration for multiple [Wolf](https://github.com/games-on-whales/wolf) game-streaming
+  instances ("direwolf"). README says it is not yet usable; expect POC-grade code.
+- Go module path is `games-on-whales.github.io/direwolf` (not the GitHub repo name `fenrir`).
+- CRD API group: `direwolf.games-on-whales.github.io/v1alpha1` — kinds `App`, `User`, `Session`, `Pairing`.
+
+## Commands
+
+- Test (matches CI): `make test` → `go test -race -shuffle=on -timeout 5m ./...`
+- Single test: `go test -race -run TestName ./pkg/controllers/`
+- Lint / format: `make lint`, `make fmt` (golangci-lint v2, config in `.golangci.yml`); `make vet`.
+- Build one binary: `go build ./cmd/<operator|moonlight-proxy|wolf-agent>`
+- Image: `docker build --build-arg APP_NAME=<cmd name> .` — one Dockerfile, `APP_NAME` picks the cmd.
+- Codegen after editing `pkg/api/v1alpha1/*.go`: `hack/update-codegen.sh` (bash + python3).
+  - Regenerates `zz_generated.*`, `pkg/generated/` (clientset/listers/informers/applyconfig),
+    `crds/`, and `schemas/`. All are committed — never hand-edit them.
+- Chart: `charts/direwolf-operator` has no `crds/` dir in git; CI copies `crds/*.yaml` in before
+  `helm lint --strict` / `helm template --kube-version 1.36.0` (kubeVersion floor is >=1.28).
+
+## Architecture
+
+Three binaries in `cmd/`, all sharing `pkg/`:
+
+- **moonlight-proxy** (`pkg/moonlight`): the Moonlight HTTP/HTTPS server users connect to.
+  - Pairing creates a `Pairing` CR mapping client-cert fingerprint → `User`; HTTPS requests are
+    authorized by fingerprint lookup.
+  - App list is rendered from `App` CRs.
+  - `/launch` / `/resume` create a `Session` CR, then block until the operator writes an RTSP URL
+    into `Session.status` (bounded by `--launch-timeout` and the client connection).
+- **operator** (`pkg/controllers/session.go`): leader-elected (lease); only `SessionController` runs.
+  - Per `Session` it creates the pod (game container + wolf + wolf-agent + pulseaudio sidecars,
+    sharing `XDG_RUNTIME_DIR`), PVCs, and a LoadBalancer `Service` for RTSP/RTP/ENet ports.
+  - Port forwarding relies on Cilium's `lb-sharing-key` annotation so the per-session Service shares
+    the moonlight-proxy IP. Gateway API code in `session.go` is commented-out experimentation.
+  - Also watches `App`, `User`, `Deployment` to clean up dependent sessions.
+- **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to
+  Wolf's HTTP API over a mounted unix socket.
+  - Syncs desired sessions into Wolf and emulates udev (writes `/run/udev/data`, a volume shared
+    with the game container) so SDL/Steam see hotplugged controllers.
+  - `fakeudev` is Linux-only for real work (`fakeudev_linux.go` vs `fakeudev_other.go` stub);
+    tests touching it behave differently on Windows/macOS.
+- **`pkg/generic`**: typed generic wrappers over client-go informers/listers plus a reusable
+  `Controller[T]` reconcile loop. New controllers should build on it, not raw `cache.SharedIndexInformer`.
+- Game containers must wait for the `WAYLAND_DISPLAY` socket before starting, or the pod never goes
+  Ready and the Service never forwards.
+
+## CI (`.github/workflows`)
+
+- PRs: `go test -race`, govulncheck, golangci-lint, Docker build of all three images, and chart
+  lint/template/package.
+- Push to main / release (`builder.yml`): pushes images to `ghcr.io/<owner>/fenrir/*` (operator image
+  is named `direwolf-operator`), then rewrites chart `values.yaml` image refs to digests and pushes
+  the chart as OCI.
+  - Pass `github.ref*` into scripts via `env:`, never `${{ }}` splices — tag names are untrusted.
