@@ -62,6 +62,8 @@ spec:
           # Requires modified moonlight client.
           # - name: HARDCODED_PIN
           #   value: "1111"
+          # - name: HARDCODED_PIN_USER  # User the pairing is mapped to
+          #   value: "alice"
           - name: POD_NAME
             valueFrom:
               fieldRef:

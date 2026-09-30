@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -30,12 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-
-	_ "embed"
 )
-
-//go:embed pin.html
-var pinHTML string
 
 type RESTServerOptions struct {
 	Port       int
@@ -48,6 +42,11 @@ type RESTServerOptions struct {
 	// so this is exposed as a knob instead of hard-coded. Defaults to 60s if
 	// unset.
 	LaunchTimeout time.Duration
+
+	// PinPage serves the pairing page on its own listener. Disabled when
+	// PinPage.Port is 0; there is deliberately no fallback onto Port, which
+	// Moonlight clients reach directly.
+	PinPage PinPageOptions
 }
 
 type RESTServer struct {
@@ -98,7 +97,6 @@ func NewRESTServer(
 	ps.router.HandleFunc("/serverinfo", ps.serverInfoHandler)
 	ps.router.HandleFunc("/pair", ps.pairHandler)
 	ps.router.HandleFunc("/unpair", ps.unpairHandler)
-	ps.router.HandleFunc("/pin/", ps.pinHandler)
 
 	ps.router.HandleFunc("/readyz", ps.readyzHandler)
 	ps.router.HandleFunc("/livez", ps.livezHandler)
@@ -136,6 +134,15 @@ func (s *RESTServer) Run(ctx context.Context) error {
 		},
 	}
 
+	var pinServer *http.Server
+	if s.PinPage.Port != 0 {
+		pinServer = &http.Server{
+			Addr:              fmt.Sprintf(":%d", s.PinPage.Port),
+			Handler:           loggingMiddleware(NewPinPageHandler(s.manager, s.UserLister, s.PinPage)),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	var error atomic.Pointer[error]
 	go func() {
@@ -156,10 +163,28 @@ func (s *RESTServer) Run(ctx context.Context) error {
 		}
 	}()
 
+	if pinServer != nil {
+		go func() {
+			defer cancel()
+			klog.Infof("Pairing page listening on %s", pinServer.Addr)
+			if err := pinServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				klog.Errorf("Pairing page server failed: %s", err)
+				error.CompareAndSwap(nil, &err)
+			}
+		}()
+	}
+
 	<-ctx.Done()
 	klog.Info("Shutting down server...")
 	server.Shutdown(context.Background())
 	secureServer.Shutdown(context.Background())
+	if pinServer != nil {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelShutdown()
+		if err := pinServer.Shutdown(shutdownCtx); err != nil {
+			klog.Errorf("Pairing page shutdown: %s", err)
+		}
+	}
 
 	if err := error.Load(); err != nil {
 		klog.Errorf("Server failed: %s", *err)
@@ -262,7 +287,7 @@ func (s *RESTServer) pairHandler(w http.ResponseWriter, r *http.Request) {
 		salt := r.URL.Query().Get("salt")
 		clientCertStr := r.URL.Query().Get("clientcert")
 
-		sendXML(w, s.manager.pairPhase1(cacheKey, salt, clientCertStr))
+		sendXML(w, s.manager.pairPhase1(r.Context(), cacheKey, salt, clientCertStr))
 		return
 	} else if r.URL.Query().Has("clientchallenge") {
 		klog.Infof("Pairing phase 2 with %s\n", cacheKey)
@@ -309,54 +334,6 @@ func (s *RESTServer) unpairHandler(w http.ResponseWriter, r *http.Request) {
 
 		sendXML(w, Response{StatusCode: 200})
 	}
-}
-
-func (s *RESTServer) pinHandler(w http.ResponseWriter, r *http.Request) {
-	klog.Infof("Handling %v pin request from %s", r.Method, r.RemoteAddr)
-	// Handle GET /pin/<secret>
-	if r.Method == "GET" {
-		// Just post the static pin page
-		w.Header().Set("Content-Type", "text/html")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(pinHTML))
-		return
-	}
-
-	// Handle POST /pin
-	if r.Method == "POST" {
-		type PinRequest struct {
-			Pin    string `json:"pin"`
-			Secret string `secret:"secret"`
-		}
-
-		var req PinRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request"))
-			return
-		}
-
-		if req.Pin == "" || req.Secret == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Invalid request"))
-			return
-		}
-
-		// Provide the pin to the pair manager
-		klog.Infof("Received pin %s for secret %s", req.Pin, req.Secret)
-		err := s.manager.PostPin(req.Secret, req.Pin)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(err.Error()))
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
-		return
-	}
-
-	w.WriteHeader(http.StatusBadRequest)
-	w.Write([]byte("Invalid pin request"))
 }
 
 func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {

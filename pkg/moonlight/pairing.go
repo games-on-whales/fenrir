@@ -13,7 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -25,12 +27,36 @@ import (
 	metav1apply "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
-func hardcodedPin() (string, bool) {
-	val, ok := os.LookupEnv("HARDCODED_PIN")
+// hardcodedPin skips the pairing page for debugging (requires a modified
+// Moonlight client). The pairing still needs an owner, so HARDCODED_PIN_USER
+// names the User it is mapped to.
+func hardcodedPin() (pin string, username string, ok bool) {
+	pin, ok = os.LookupEnv("HARDCODED_PIN")
 	if !ok {
-		return "", false
+		return "", "", false
 	}
-	return val, true
+	return pin, os.Getenv("HARDCODED_PIN_USER"), true
+}
+
+// pinSubmission is what the pairing page hands to a blocked pairPhase1: the
+// PIN Moonlight displayed and the authenticated User who typed it in.
+type pinSubmission struct {
+	Pin      string
+	Username string
+}
+
+// pendingPin is a phase 1 request waiting for its PIN.
+type pendingPin struct {
+	ch       chan pinSubmission
+	client   string
+	received time.Time
+}
+
+// PendingPairing describes a waiting pair request for the pairing page.
+type PendingPairing struct {
+	Secret   string
+	Client   string
+	Received time.Time
 }
 
 type PairingResponse struct {
@@ -59,10 +85,10 @@ type PairingManager struct {
 	// value: pendingPairCacheEntry
 	PairingCache sync.Map // Go's equivalent of an immer::map for thread safety
 
-	// Map of pairing secret to <-chan string for pin code where a request is
+	// Map of pairing secret to *pendingPin for pin code where a request is
 	// pending
 	// key: randomly generated ephemeral secret for /pair request
-	// value: channel to send pin code
+	// value: *pendingPin
 	PendingPins sync.Map
 
 	// Certificate of the secure serving endpoint used for pairing
@@ -86,21 +112,44 @@ func failPair(statusMsg string) PairingResponse {
 	return PairingResponse{Paired: 0, Response: Response{StatusCode: 400, StatusMessage: statusMsg}}
 }
 
-func (m *PairingManager) PostPin(secret string, pin string) error {
-	channel, found := m.PendingPins.Load(secret)
+var errNoPendingPin = errors.New("no pending pairing request")
+
+// PendingPairings lists the pair requests currently waiting for a PIN, oldest
+// first.
+func (m *PairingManager) PendingPairings() []PendingPairing {
+	var out []PendingPairing
+	m.PendingPins.Range(func(k, v any) bool {
+		secret, _ := k.(string)
+		if p, ok := v.(*pendingPin); ok {
+			out = append(out, PendingPairing{Secret: secret, Client: p.client, Received: p.received})
+		}
+		return true
+	})
+	slices.SortFunc(out, func(a, b PendingPairing) int { return a.Received.Compare(b.Received) })
+	return out
+}
+
+// PostPin hands the PIN for the pending request identified by secret to the
+// blocked pairPhase1, together with the User the pairing will belong to. Each
+// request accepts exactly one PIN: a wrong one fails the handshake and the
+// client has to start over, so the 4-digit PIN cannot be brute forced.
+func (m *PairingManager) PostPin(secret, pin, username string) error {
+	// LoadAndDelete so a second submission for the same request is refused
+	// rather than racing the first.
+	v, found := m.PendingPins.LoadAndDelete(secret)
 	if !found {
-		err := fmt.Errorf("no pending pin for secret %s", secret)
-		return err
+		return errNoPendingPin
+	}
+	pending, ok := v.(*pendingPin)
+	if !ok {
+		return errNoPendingPin
 	}
 
-	select {
-	case channel.(chan string) <- pin:
-		klog.Infof("Sent pin %s to channel for secret %s", pin, secret)
-		return nil
-	default:
-		err := fmt.Errorf("failed to send pin %s to channel for secret %s. Either full buffer or closed channel", pin, secret)
-		return err
-	}
+	// Buffered with capacity 1 and only ever sent to by whoever won the
+	// LoadAndDelete above, so this never blocks.
+	pending.ch <- pinSubmission{Pin: pin, Username: username}
+	klog.Infof("PIN submitted by user %s for pending pairing of %s", username, pending.client)
+	return nil
 }
 
 func (m *PairingManager) Unpair(cacheKey string) error {
@@ -119,7 +168,7 @@ func (m *PairingManager) Unpair(cacheKey string) error {
  *
  * At this stage we only have to send back our public certificate (`plaincert`).
  */
-func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr string) PairingResponse {
+func (m *PairingManager) pairPhase1(ctx context.Context, cacheKey string, salt string, clientCertStr string) PairingResponse {
 	// Check if pairing session exists
 	if _, found := m.PairingCache.Load(cacheKey); found {
 		m.PairingCache.Delete(cacheKey)
@@ -132,6 +181,9 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	}
 
 	clientCertDER, _ := pem.Decode(clientCertData)
+	if clientCertDER == nil {
+		return failPair("Failed to decode client cert: no PEM block")
+	}
 	clientCert, err := x509.ParseCertificate(clientCertDER.Bytes)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to parse client cert: %s", err))
@@ -140,6 +192,8 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	saltData, err := hex.DecodeString(salt)
 	if err != nil {
 		return failPair(fmt.Sprintf("Failed to decode salt: %s", err))
+	} else if len(saltData) < 16 {
+		return failPair("Invalid salt")
 	}
 
 	// Create a new pairing session
@@ -149,22 +203,27 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	}
 	pinSecretHex := hex.EncodeToString(pinSecret)
 
-	// Store the pin secret
-	pinChannel := make(chan string, 1)
-	defer close(pinChannel)
-	defer m.PendingPins.Delete(pinSecretHex)
-	m.PendingPins.Store(pinSecretHex, pinChannel)
-
-	//!TODO: Get proper hostname
-	klog.Infof("Insert pin at http://%s/pin/#%s", "127.0.0.1:47989", pinSecretHex)
-
-	// Hardcoded pin for testing in debug builds if debugger is attached
-	var pin string
-	if hardcoded, ok := hardcodedPin(); ok {
-		klog.Infof("Debugger attached, using hardcoded pin")
-		pin = hardcoded
+	var sub pinSubmission
+	if pin, username, ok := hardcodedPin(); ok {
+		klog.Infof("Using hardcoded pin for user %q", username)
+		sub = pinSubmission{Pin: pin, Username: username}
 	} else {
-		pin = <-pinChannel
+		// Wait for the user to enter the PIN on the pairing page. Moonlight
+		// holds this request open until then; if it gives up, ctx is
+		// cancelled and the request disappears from the page.
+		pending := &pendingPin{ch: make(chan pinSubmission, 1), client: cacheKey, received: time.Now()}
+		m.PendingPins.Store(pinSecretHex, pending)
+		defer m.PendingPins.Delete(pinSecretHex)
+		klog.Infof("Pairing request from %s waiting for PIN on the pairing page", cacheKey)
+
+		select {
+		case sub = <-pending.ch:
+		case <-ctx.Done():
+			return failPair("Pairing request cancelled before a PIN was entered")
+		}
+	}
+	if sub.Username == "" {
+		return failPair("No user to map the pairing to")
 	}
 
 	// Generate server cert and AES key
@@ -172,8 +231,8 @@ func (m *PairingManager) pairPhase1(cacheKey string, salt string, clientCertStr 
 	m.PairingCache.Store(cacheKey, pendingPairCacheEntry{
 		ClientCert: clientCert,
 		LastPhase:  "GETSERVERCERT",
-		Username:   "alex", // TODO: TEMPORARY: We should serve the PIN auth page under authenticated SSL to get username
-		AESKey:     util.Hash(saltData[:16], []byte(pin))[:16],
+		Username:   sub.Username,
+		AESKey:     util.Hash(saltData[:16], []byte(sub.Pin))[:16],
 	})
 
 	// Send hex encoded server cert pem

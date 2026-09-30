@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"flag"
+	"net/netip"
 	"os"
+	"strings"
 	"time"
 
 	direwolfv1alpha1 "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -26,6 +28,9 @@ func main() {
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
 	launchTimeout := flag.Duration("launch-timeout", 60*time.Second, "How long to wait for a session to become ready when launching an app (cold starts may need more time)")
+	pinPort := flag.Int("pin-port", 0, "Port for the pairing page, to be reached only through the Authentik outpost. 0 disables it")
+	pinTrustedProxies := flag.String("pin-trusted-proxies", "", "Comma-separated CIDRs of the proxy allowed to assert the user via --pin-user-header. Required with --pin-port")
+	pinUserHeader := flag.String("pin-user-header", moonlight.DefaultPinUserHeader, "Header carrying the authenticated username; must match a User name")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	klog.InitFlags(nil)
 	flag.Parse()
@@ -37,6 +42,22 @@ func main() {
 	klog.Info("Secure Port: ", *securePort)
 	klog.Info("Launch timeout: ", *launchTimeout)
 	klog.Info("Namespace: ", *namespace)
+
+	var trustedProxies []netip.Prefix
+	if *pinTrustedProxies != "" {
+		for cidr := range strings.SplitSeq(*pinTrustedProxies, ",") {
+			prefix, err := netip.ParsePrefix(strings.TrimSpace(cidr))
+			if err != nil {
+				klog.Fatalf("Invalid --pin-trusted-proxies entry %q: %s", cidr, err)
+			}
+			trustedProxies = append(trustedProxies, prefix.Masked())
+		}
+	}
+	if *pinPort != 0 && len(trustedProxies) == 0 {
+		klog.Fatal("--pin-port requires --pin-trusted-proxies")
+	}
+	klog.Info("Pairing page port: ", *pinPort)
+	klog.Info("Pairing page trusted proxies: ", trustedProxies)
 
 	tlsCert, err := util.LoadCertificates(*serverCertPath, *serverKeyPath)
 	if err != nil {
@@ -89,6 +110,11 @@ func main() {
 			SecurePort:    *securePort,
 			Cert:          tlsCert,
 			LaunchTimeout: *launchTimeout,
+			PinPage: moonlight.PinPageOptions{
+				Port:           *pinPort,
+				TrustedProxies: trustedProxies,
+				UserHeader:     *pinUserHeader,
+			},
 		},
 	)
 

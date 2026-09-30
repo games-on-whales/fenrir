@@ -31,6 +31,10 @@ Three binaries in `cmd/`, all sharing `pkg/`:
 - **moonlight-proxy** (`pkg/moonlight`): the Moonlight HTTP/HTTPS server users connect to.
   - Pairing creates a `Pairing` CR mapping client-cert fingerprint → `User`; HTTPS requests are
     authorized by fingerprint lookup.
+  - The PIN is entered on the pairing page (`pkg/moonlight/pinpage.go`, own `--pin-port`) behind
+    Authentik; the username header is trusted only from `--pin-trusted-proxies` peers.
+    - Never serve it on the Moonlight ports: those are on the LoadBalancer, where SNAT can make
+      an internet client look like a trusted in-cluster peer.
   - App list is rendered from `App` CRs.
   - `/launch` / `/resume` create a `Session` CR, then block until the operator writes an RTSP URL
     into `Session.status` (bounded by `--launch-timeout` and the client connection).

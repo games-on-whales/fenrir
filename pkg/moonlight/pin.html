@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Wolf - PIN</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Direwolf - Pair</title>
     <style>
         body {
             display: flex;
@@ -14,20 +15,32 @@
             background: linear-gradient(132deg, rgba(114, 0, 130, 1) 0%, rgba(63, 0, 195, 1) 50%, rgba(0, 71, 255, 1) 100%);
         }
 
-        form {
-            display: flex;
-            justify-content: center;
+        main {
             color: white;
+            max-width: 28rem;
+            padding: 1rem;
+            text-align: center;
         }
 
-        input {
-            margin: 0 0.5rem;
+        label.client {
+            display: block;
+            margin: 0.25rem 0;
+            text-align: left;
+        }
+
+        input.pin {
+            margin: 1rem 0;
             padding: 0.5rem;
             border: 1px solid white;
-            width: 50px;
-            height: 50px;
+            width: 8rem;
             text-align: center;
             font-size: 3rem;
+            letter-spacing: 0.5rem;
+        }
+
+        button, a {
+            color: white;
+            font-size: 1.25rem;
         }
 
         /* Chrome, Safari, Edge, Opera */
@@ -44,56 +57,48 @@
     </style>
 </head>
 <body>
-
-
-<div>
-    <form class="form">
-        <input type="number" min="0" max="9" step="1"/>
-        <input type="number" min="0" max="9" step="1"/>
-        <input type="number" min="0" max="9" step="1"/>
-        <input type="number" min="0" max="9" step="1"/>
+<main>
+    <p>Signed in as <strong>{{.User}}</strong></p>
+    {{if .Pending}}
+    <form id="pair">
+        <p>Enter the PIN Moonlight is showing.</p>
+        {{range $i, $p := .Pending}}
+        <label class="client">
+            <input type="radio" name="secret" value="{{$p.Secret}}" required {{if eq $i 0}}checked{{end}}>
+            {{$p.Client}} ({{$p.Age}} ago)
+        </label>
+        {{end}}
+        <input class="pin" name="pin" inputmode="numeric" autocomplete="off" pattern="[0-9]{4}" maxlength="4" required autofocus>
+        <br>
+        <button type="submit">Pair</button>
     </form>
-</div>
-
-
-</body>
-<script type="application/javascript">
-    const inputs = document.querySelectorAll("input");
-    const form = document.querySelector(".form");
-
-    function send(pin) {
-        let xhr = new XMLHttpRequest();
-        xhr.open("POST", "/pin/", true);
-        xhr.setRequestHeader("Content-Type", "application/json");
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState === 4) {
-                form.textContent = xhr.responseText;
+    <p id="result"></p>
+    {{else}}
+    <p>No Moonlight client is waiting to pair. Add this server in Moonlight, then reload this page.</p>
+    <a href="/pin/">Reload</a>
+    {{end}}
+</main>
+<script>
+    const form = document.getElementById("pair");
+    if (form) {
+        form.addEventListener("submit", async (ev) => {
+            ev.preventDefault();
+            const data = new FormData(form);
+            const result = document.getElementById("result");
+            result.textContent = "Sending...";
+            try {
+                const resp = await fetch("/pin/", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({pin: data.get("pin"), secret: data.get("secret")}),
+                });
+                result.textContent = await resp.text();
+                if (resp.ok) form.remove();
+            } catch (e) {
+                result.textContent = "Failed: " + e;
             }
-        };
-        const data = JSON.stringify({
-            "pin": pin,
-            "secret": window.location.hash.substring(1)
         });
-        form.textContent = "Sending " + pin + " ...";
-        xhr.send(data);
     }
-
-    inputs.forEach((input, key) => {
-        input.addEventListener("keyup", function (ev) {
-            if (ev.key === "Backspace" && key > 0) {
-                inputs[key - 1].focus();
-            }
-            if (input.value) {
-                if (key === 3) {
-                    const userCode = [...inputs].map((input) => input.value).join("");
-                    send(userCode);
-                    [...inputs].forEach((input) => input.remove());
-                } else {
-                    inputs[key + 1].focus();
-                }
-            }
-        });
-    });
-    inputs[0].focus();
 </script>
+</body>
 </html>
