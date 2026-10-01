@@ -29,6 +29,7 @@ import (
 const (
 	testNamespace = "direwolf"
 	trustedPeer   = "10.0.0.5:40000"
+	proxySecret   = "0123456789abcdef0123456789abcdef"
 )
 
 func newTestPinPage(t *testing.T, users ...string) (*PairingManager, http.Handler) {
@@ -43,7 +44,10 @@ func newTestPinPage(t *testing.T, users ...string) (*PairingManager, http.Handle
 	handler := NewPinPageHandler(
 		manager,
 		generic.NewLister[*v1alpha1types.User](indexer).Namespaced(testNamespace),
-		PinPageOptions{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")}},
+		PinPageOptions{
+			TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")},
+			ProxySecret:    []byte(proxySecret),
+		},
 	)
 	return manager, handler
 }
@@ -83,6 +87,7 @@ func postPin(h http.Handler, peer, user, body string, mutate ...func(*http.Reque
 	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/pin/", strings.NewReader(body))
 	req.RemoteAddr = peer
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(PinProxySecretHeader, proxySecret)
 	if user != "" {
 		req.Header.Set(DefaultPinUserHeader, user)
 	}
@@ -102,6 +107,7 @@ func TestPinHandoffMapsPairingToAuthenticatedUser(t *testing.T) {
 	// The page lists the waiting request for the signed-in user.
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/pin/", http.NoBody)
 	req.RemoteAddr = trustedPeer
+	req.Header.Set(PinProxySecretHeader, proxySecret)
 	req.Header.Set(DefaultPinUserHeader, "alice")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -155,6 +161,13 @@ func TestPinPageRejects(t *testing.T) {
 		{name: "untrusted peer forging the header", peer: "192.0.2.99:1234", user: "alice", body: `{"pin":"1234","secret":"%s"}`, want: http.StatusForbidden},
 		{name: "forwarded-for does not make a peer trusted", peer: "192.0.2.99:1234", user: "alice", body: `{"pin":"1234","secret":"%s"}`,
 			mutate: func(r *http.Request) { r.Header.Set("X-Forwarded-For", "10.0.0.5") }, want: http.StatusForbidden},
+		{name: "trusted peer without the proxy secret", peer: trustedPeer, user: "alice", body: `{"pin":"1234","secret":"%s"}`,
+			mutate: func(r *http.Request) { r.Header.Del(PinProxySecretHeader) }, want: http.StatusForbidden},
+		{name: "trusted peer with a wrong proxy secret", peer: trustedPeer, user: "alice", body: `{"pin":"1234","secret":"%s"}`,
+			mutate: func(r *http.Request) { r.Header.Set(PinProxySecretHeader, proxySecret[:31]+"x") }, want: http.StatusForbidden},
+		{name: "trusted peer with a truncated proxy secret", peer: trustedPeer, user: "alice", body: `{"pin":"1234","secret":"%s"}`,
+			mutate: func(r *http.Request) { r.Header.Set(PinProxySecretHeader, proxySecret[:31]) }, want: http.StatusForbidden},
+		{name: "proxy secret from an untrusted peer", peer: "192.0.2.99:1234", user: "alice", body: `{"pin":"1234","secret":"%s"}`, want: http.StatusForbidden},
 		{name: "no identity header", peer: trustedPeer, body: `{"pin":"1234","secret":"%s"}`, want: http.StatusUnauthorized},
 		{name: "identity without a User", peer: trustedPeer, user: "mallory", body: `{"pin":"1234","secret":"%s"}`, want: http.StatusForbidden},
 		{name: "form post (CSRF)", peer: trustedPeer, user: "alice", body: `{"pin":"1234","secret":"%s"}`,
@@ -189,6 +202,30 @@ func TestPinPageRejects(t *testing.T) {
 				t.Fatalf("phase 1 completed after a rejected PIN: %+v", resp)
 			}
 		})
+	}
+}
+
+func TestPinPageWithoutProxySecretRefusesEverything(t *testing.T) {
+	indexer := cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc})
+	// alice exists, so a 403 here can only come from the secret check.
+	if err := indexer.Add(&v1alpha1types.User{ObjectMeta: metav1.ObjectMeta{Name: "alice", Namespace: testNamespace}}); err != nil {
+		t.Fatal(err)
+	}
+	h := NewPinPageHandler(
+		NewPairingManager(tls.Certificate{}, nil),
+		generic.NewLister[*v1alpha1types.User](indexer).Namespaced(testNamespace),
+		PinPageOptions{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/24")}},
+	)
+	for _, sent := range []string{"", proxySecret} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/pin/", http.NoBody)
+		req.RemoteAddr = trustedPeer
+		req.Header.Set(PinProxySecretHeader, sent)
+		req.Header.Set(DefaultPinUserHeader, "alice")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("secret %q: GET /pin/ = %d, want 403", sent, rec.Code)
+		}
 	}
 }
 

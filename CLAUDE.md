@@ -36,7 +36,8 @@ Three binaries in `cmd/`, all sharing `pkg/`:
   - Pairing creates a `Pairing` CR mapping client-cert fingerprint → `User`; HTTPS requests are
     authorized by fingerprint lookup.
   - The PIN is entered on the pairing page (`pkg/moonlight/pinpage.go`, own `--pin-port`) behind
-    Authentik; the username header is trusted only from `--pin-trusted-proxies` peers.
+    Authentik; the username header is trusted only from `--pin-trusted-proxies` peers that also
+    send the `--pin-proxy-secret-file` secret.
     - Never serve it on the Moonlight ports: those are on the LoadBalancer, where SNAT can make
       an internet client look like a trusted in-cluster peer.
   - App list is rendered from `App` CRs.

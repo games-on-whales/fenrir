@@ -44,6 +44,13 @@ proxy's namespace. The `Pairing` created for the client belongs to that `User`.
 
 - The header is honoured only when the TCP peer is in `--pin-trusted-proxies`;
   any other peer gets a 403. `X-Forwarded-For` is ignored.
+- Every request must also carry `X-Direwolf-Proxy-Secret` equal to the contents of
+  `--pin-proxy-secret-file` (at least 32 bytes), or it gets a 403. Set it on the
+  Authentik provider with a property mapping returning
+  `{"ak_proxy": {"user_attributes": {"additionalHeaders": {...}}}}`. The source
+  check alone is not enough when the proxy is host-networked: traffic from the
+  outpost arrives masqueraded to its node's address, which every pod on that
+  node shares.
 - The page has its own listener and is not served on the Moonlight ports, so it
   must not be put on the LoadBalancer Service. Point the outpost at a ClusterIP
   Service for `--pin-port`, and set `--pin-trusted-proxies` to the outpost pods'
@@ -73,7 +80,8 @@ to have an `rtsp` URL added to its status by the `operator` to hand back to the 
 | `--tls-cert` | `server.crt` | Path to the server TLS certificate. |
 | `--tls-key` | `server.key` | Path to the server TLS key. |
 | `--namespace` | `$POD_NAMESPACE` | Namespace to watch for CRDs. |
-| `--pin-port` | `0` (off) | Port for the pairing page. Requires `--pin-trusted-proxies`. |
+| `--pin-port` | `0` (off) | Port for the pairing page. Requires `--pin-trusted-proxies` and `--pin-proxy-secret-file`. |
+| `--pin-proxy-secret-file` | | File holding the secret the proxy must send in `X-Direwolf-Proxy-Secret` (surrounding whitespace trimmed, at least 32 bytes). |
 | `--pin-trusted-proxies` | | Comma-separated CIDRs of the proxy (Authentik outpost) allowed to assert the user. |
 | `--pin-user-header` | `X-Authentik-Username` | Header carrying the authenticated username; must equal a `User` name. |
 | `--launch-timeout` | `60s` | How long `/launch` waits for the operator to create a session and expose its stream URL before giving up. The wait is still bounded by the client connection, so a disconnecting Moonlight client cancels it early. Raise this if cold starts (image pull + wolf boot + `wolf-agent` readiness) are getting cancelled with an HTTP 500; lower it to fail faster. |

@@ -36,3 +36,7 @@ packaged/
 /moonlight-proxy
 /wolf-agent
 /nri-input
+
+# Default --tls-cert/--tls-key paths; moonlight-proxy writes a throwaway pair here when run locally.
+/server.crt
+/server.key

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"os"
@@ -33,6 +34,7 @@ func main() {
 	maxSessions := flag.Int("max-concurrent-sessions", 1, "How many users may stream at once; further launches get Moonlight's busy error (-1 = unlimited)")
 	pinPort := flag.Int("pin-port", 0, "Port for the pairing page, to be reached only through the Authentik outpost. 0 disables it")
 	pinTrustedProxies := flag.String("pin-trusted-proxies", "", "Comma-separated CIDRs of the proxy allowed to assert the user via --pin-user-header. Required with --pin-port")
+	pinProxySecretFile := flag.String("pin-proxy-secret-file", "", "File holding the secret the proxy sends in "+moonlight.PinProxySecretHeader+". Required with --pin-port")
 	pinUserHeader := flag.String("pin-user-header", moonlight.DefaultPinUserHeader, "Header carrying the authenticated username; must match a User name")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	klog.InitFlags(nil)
@@ -60,6 +62,20 @@ func main() {
 	}
 	if *pinPort != 0 && len(trustedProxies) == 0 {
 		klog.Fatal("--pin-port requires --pin-trusted-proxies")
+	}
+	var proxySecret []byte
+	if *pinPort != 0 {
+		if *pinProxySecretFile == "" {
+			klog.Fatal("--pin-port requires --pin-proxy-secret-file")
+		}
+		raw, readErr := os.ReadFile(*pinProxySecretFile)
+		if readErr != nil {
+			klog.Fatalf("--pin-proxy-secret-file: %s", readErr)
+		}
+		proxySecret = bytes.TrimSpace(raw)
+		if len(proxySecret) < moonlight.MinPinProxySecretLen {
+			klog.Fatalf("--pin-proxy-secret-file: secret is %d bytes, want at least %d", len(proxySecret), moonlight.MinPinProxySecretLen)
+		}
 	}
 	klog.Info("Pairing page port: ", *pinPort)
 	klog.Info("Pairing page trusted proxies: ", trustedProxies)
@@ -124,6 +140,7 @@ func main() {
 			PinPage: moonlight.PinPageOptions{
 				Port:           *pinPort,
 				TrustedProxies: trustedProxies,
+				ProxySecret:    proxySecret,
 				UserHeader:     *pinUserHeader,
 			},
 		},

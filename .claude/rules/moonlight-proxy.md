@@ -29,3 +29,9 @@ paths:
 - `RESTServerOptions.BusyCheck` is the hook for anything besides Sessions that holds the host
   (the Library pod, via `LibraryBusyCheck`). A check error fails the launch closed.
   - It runs again after the Create and backs the Session out if busy (see `library.md`).
+- The pairing page needs BOTH the peer-address check and the proxy secret; never drop either.
+  - Host-networked, the outpost's traffic arrives SNATed to its node's IP, so the address check
+    alone trusts every pod on that node to assert any username (XERK-1342).
+  - An empty `ProxySecret` refuses every request; `--pin-port` without the secret file is fatal.
+  - Tests: `TestPinPageRejects`, `TestPinPageWithoutProxySecretRefusesEverything` in
+    `pkg/moonlight/pinpage_test.go`.
