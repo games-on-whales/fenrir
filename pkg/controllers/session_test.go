@@ -63,6 +63,16 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if !slices.ContainsFunc(podSpec.Tolerations, func(tol corev1.Toleration) bool { return tol.Key == "nvidia.com/gpu" }) {
 		t.Errorf("pod does not tolerate the pinned node's taint: %+v", podSpec.Tolerations)
 	}
+	// talos04 exposes GPUs only through DRA (allocatable nvidia.com/gpu is 0): a
+	// device-plugin request leaves the pod Pending.
+	for _, c := range podSpec.Containers {
+		if _, ok := c.Resources.Requests["nvidia.com/gpu"]; ok {
+			t.Errorf("container %s requests nvidia.com/gpu; GPUs come from DRA claims", c.Name)
+		}
+		if _, ok := c.Resources.Limits["nvidia.com/gpu"]; ok {
+			t.Errorf("container %s limits nvidia.com/gpu; GPUs come from DRA claims", c.Name)
+		}
+	}
 
 	// wolf-agent must be started with the token file mounted from its Secret.
 	var agent *corev1.Container

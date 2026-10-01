@@ -11,7 +11,7 @@ spec:
    - name: dev-input
      hostPath:
        path: /dev/input
-       type: File
+       type: Directory
    - name: host-udev
      hostPath:
        path: /run/udev
@@ -19,13 +19,8 @@ spec:
   sidecarPolicies:
     # Define policies for the 'wolf' sidecar container.
     wolf:
-      # Define resource requests and limits.
-      # give it the GPU device via nvidia operator plugin.
-      resources:
-        requests:
-          nvidia.com/gpu: "1"
-        limits:
-          nvidia.com/gpu: "1"
+      # No GPU resource here: the GPU comes from the App's DRA claim
+      # (App.spec.gpu, or a claim like examples/nvidia_devices/gpu-claim.yaml).
       # # Mount the hostPath volumes defined above into the 'wolf' sidecar
       volumeMounts:
         - name: dev-input
