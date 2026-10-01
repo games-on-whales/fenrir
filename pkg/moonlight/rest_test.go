@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,4 +127,50 @@ func heldCertPEM(t *testing.T) []byte {
 		t.Fatal(err)
 	}
 	return bytes.TrimSpace(certPEM)
+}
+
+func TestRemoteIP(t *testing.T) {
+	for _, tc := range []struct {
+		remoteAddr, want string
+		wantErr          bool
+	}{
+		{remoteAddr: "192.0.2.10:51234", want: "192.0.2.10"},
+		{remoteAddr: "[2001:db8::1]:51234", want: "2001:db8::1"},
+		{remoteAddr: "[::ffff:192.0.2.10]:51234", want: "192.0.2.10"},
+		{remoteAddr: "[fe80::1%eth0]:51234", want: "fe80::1"},
+		{remoteAddr: "", wantErr: true},
+		{remoteAddr: "192.0.2.10", wantErr: true},
+		{remoteAddr: "not-an-ip:1", wantErr: true},
+	} {
+		r := &http.Request{RemoteAddr: tc.remoteAddr}
+		got, err := remoteIP(r)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("remoteIP(%q) = %q, want error", tc.remoteAddr, got)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("remoteIP(%q) = %q, %v; want %q", tc.remoteAddr, got, err, tc.want)
+		}
+	}
+}
+
+// The handlers must take the client IP from remoteIP, not a ':' split that
+// accepts any RemoteAddr: an unparseable one is refused before anything else.
+func TestHandlersRejectUnparseableRemoteAddr(t *testing.T) {
+	s := &RESTServer{}
+	for name, h := range map[string]http.HandlerFunc{
+		"launch": s.launchHandler,
+		"pair":   s.pairHandler,
+		"unpair": s.unpairHandler,
+	} {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/"+name+"?uniqueid=x&appid=a&rikey=k&rikeyid=1", nil)
+		r.RemoteAddr = "[::1"
+		w := httptest.NewRecorder()
+		h(w, r)
+		if body := w.Body.String(); !strings.Contains(body, "unparseable client address") {
+			t.Errorf("%s: response %d %q does not reject the address", name, w.Code, body)
+		}
+	}
 }

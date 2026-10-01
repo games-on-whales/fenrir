@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
 	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/generic"
+	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
 const portsTestNS = "direwolf"
@@ -156,12 +158,16 @@ func TestClaimRecordedPortsOnStart(t *testing.T) {
 // block's RTSP port on the pod (= node) IP.
 func TestReconcileActiveStreamsUsesPortBlock(t *testing.T) {
 	var agentHits int
+	var added wolfapi.Session
 	agent := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		agentHits++
 		switch r.URL.Path {
 		case "/api/v1/sessions":
 			fmt.Fprint(w, `{"success":true,"sessions":[]}`)
 		case "/api/v1/sessions/add":
+			if err := json.NewDecoder(r.Body).Decode(&added); err != nil {
+				t.Errorf("decoding AddSession body: %v", err)
+			}
 			fmt.Fprint(w, `{"success":true,"session_id":"4242"}`)
 		default:
 			http.NotFound(w, r)
@@ -199,6 +205,7 @@ func TestReconcileActiveStreamsUsesPortBlock(t *testing.T) {
 		t.Fatalf("example app is %q; fixture Deployment assumes steam", f.app)
 	}
 	sess.Status.Ports = blockPorts(base)
+	sess.Spec.Config.ClientIP = "192.0.2.10"
 
 	if err := f.sc.reconcileActiveStreams(context.Background(), sess); err != nil {
 		t.Fatal(err)
@@ -211,6 +218,9 @@ func TestReconcileActiveStreamsUsesPortBlock(t *testing.T) {
 	}
 	if sess.Status.WolfSessionID != "4242" {
 		t.Errorf("WolfSessionID = %q", sess.Status.WolfSessionID)
+	}
+	if added.ClientIP != "192.0.2.10" {
+		t.Errorf("Wolf AddSession client_ip = %q, want the Moonlight client's IP", added.ClientIP)
 	}
 }
 
