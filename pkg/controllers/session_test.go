@@ -14,9 +14,7 @@ import (
 	generatedclient "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned/fake"
 	generatedinformers "games-on-whales.github.io/direwolf/pkg/generated/informers/externalversions"
 	"games-on-whales.github.io/direwolf/pkg/generic"
-	"k8s.io/utils/ptr"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/informers"
@@ -25,28 +23,35 @@ import (
 )
 
 // TestSessionControllerReconcilePath builds a session CR, runs the controller's
-// reconcile helper methods and logs the resulting Deployment YAML. This does
-// not call the full controller Run loop, but exercises the same code paths the
-// controller would use to create the Deployment from the App/User/Session CRs.
+// reconcile helper methods and logs the resulting Pod YAML. This does not call
+// the full controller Run loop, but exercises the same code paths the
+// controller would use to create the Pod from the App/User/Session CRs.
 func TestSessionControllerReconcilePath(t *testing.T) {
 	ctx := context.Background()
-	sc, fakeK8s, sess, dep := reconcileFixtures(t, "../../examples/user.yaml", "../../examples/steam.yaml")
-	deploymentName := dep.Name
+	sc, fakeK8s, sess, pod := reconcileFixtures(t, "../../examples/user.yaml", "../../examples/steam.yaml")
 
 	// The nri-input plugin grants input devices only to pods carrying this label.
-	if got := dep.Spec.Template.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
-		t.Errorf("pod template label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
+	if got := pod.Labels[v1alpha1types.SessionPodLabel]; got != v1alpha1types.SessionPodLabelValue {
+		t.Errorf("pod label %s = %q, want %q", v1alpha1types.SessionPodLabel, got, v1alpha1types.SessionPodLabelValue)
+	}
+	// Job-like: one run per Session, owned by it, never restarted.
+	if pod.Name != sess.Name {
+		t.Errorf("pod name = %q, want the session's %q", pod.Name, sess.Name)
+	}
+	if !metav1.IsControlledBy(pod, sess) {
+		t.Errorf("pod owners = %+v, want controlled by session %s", pod.OwnerReferences, sess.UID)
+	}
+	if pod.Spec.RestartPolicy != corev1.RestartPolicyNever {
+		t.Errorf("restartPolicy = %q, want Never", pod.Spec.RestartPolicy)
 	}
 	// No per-session Service any more: the pod is on the host network.
 	if svcs, _ := fakeK8s.CoreV1().Services(sess.Namespace).List(ctx, metav1.ListOptions{}); len(svcs.Items) != 0 {
 		t.Errorf("reconcile created Services: %+v", svcs.Items)
 	}
-	// The pre-created Deployment has no port-block annotation (like one from
-	// before this operator version), so it must have been re-applied in full.
-	if got := dep.Annotations[portBlockAnnotation]; got != strconv.Itoa(int(sess.Status.Ports.HTTP)) {
-		t.Errorf("deployment %s = %q, want %d", portBlockAnnotation, got, sess.Status.Ports.HTTP)
+	if got := pod.Annotations[portBlockAnnotation]; got != strconv.Itoa(int(sess.Status.Ports.HTTP)) {
+		t.Errorf("pod %s = %q, want %d", portBlockAnnotation, got, sess.Status.Ports.HTTP)
 	}
-	podSpec := dep.Spec.Template.Spec
+	podSpec := pod.Spec
 	if !podSpec.HostNetwork || podSpec.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
 		t.Errorf("pod hostNetwork=%v dnsPolicy=%q, want true/%q", podSpec.HostNetwork, podSpec.DNSPolicy, corev1.DNSClusterFirstWithHostNet)
 	}
@@ -59,9 +64,9 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 
 	// wolf-agent must be started with the token file mounted from its Secret.
 	var agent *corev1.Container
-	for i := range dep.Spec.Template.Spec.Containers {
-		if dep.Spec.Template.Spec.Containers[i].Name == "wolf-agent" {
-			agent = &dep.Spec.Template.Spec.Containers[i]
+	for i := range podSpec.Containers {
+		if podSpec.Containers[i].Name == "wolf-agent" {
+			agent = &podSpec.Containers[i]
 		}
 	}
 	if agent == nil {
@@ -107,28 +112,28 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 		}
 	}
 	var tokenVolume bool
-	for _, v := range dep.Spec.Template.Spec.Volumes {
-		if v.Name == "wolf-agent-token" && v.Secret != nil && v.Secret.SecretName == agentTokenSecretName(deploymentName) {
+	for _, v := range podSpec.Volumes {
+		if v.Name == "wolf-agent-token" && v.Secret != nil && v.Secret.SecretName == agentTokenSecretName(sess.Name) {
 			tokenVolume = true
 		}
 	}
 	if !tokenVolume {
 		t.Error("pod has no wolf-agent-token secret volume")
 	}
-	if _, tokenErr := sc.agentToken(ctx, dep); tokenErr != nil {
+	if _, tokenErr := sc.agentToken(ctx, sess); tokenErr != nil {
 		t.Errorf("token secret not created by reconcilePod: %v", tokenErr)
 	}
 
-	out, err := sigsyaml.Marshal(dep)
+	out, err := sigsyaml.Marshal(pod)
 	if err != nil {
-		t.Fatalf("failed to marshal deployment: %v", err)
+		t.Fatalf("failed to marshal pod: %v", err)
 	}
-	t.Logf("Generated Deployment YAML:\n%s", string(out))
+	t.Logf("Generated Pod YAML:\n%s", string(out))
 }
 
 // reconcileFixtures runs the controller's reconcile helpers for the given User and
-// App fixtures and returns the resulting session Deployment.
-func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionController, *k8sfake.Clientset, *v1alpha1api.Session, *appsv1.Deployment) {
+// App fixtures and returns the resulting session Pod.
+func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionController, *k8sfake.Clientset, *v1alpha1api.Session, *corev1.Pod) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -166,7 +171,7 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 	sessionInformer := generic.NewInformer[*v1alpha1types.Session](dwFactory.Direwolf().V1alpha1().Sessions().Informer())
 	appInformer := generic.NewInformer[*v1alpha1types.App](dwFactory.Direwolf().V1alpha1().Apps().Informer())
 	userInformer := generic.NewInformer[*v1alpha1types.User](dwFactory.Direwolf().V1alpha1().Users().Informer())
-	deploymentInformer := generic.NewInformer[*appsv1.Deployment](k8sFactory.Apps().V1().Deployments().Informer())
+	podInformer := generic.NewInformer[*corev1.Pod](k8sFactory.Core().V1().Pods().Informer())
 
 	// Create a session client scoped to the test namespace
 	sessionClient := fakeDirewolf.DirewolfV1alpha1().Sessions(user.Namespace)
@@ -180,7 +185,7 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 		sessionInformer,
 		appInformer,
 		userInformer,
-		deploymentInformer,
+		podInformer,
 		SessionControllerOptions{
 			SessionPortRange:    PortRange{Min: 20000, Max: 20999},
 			SessionNodeSelector: map[string]string{"kubernetes.io/hostname": "talos04"},
@@ -205,6 +210,7 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "sess-alex-steam",
 			Namespace: user.Namespace,
+			UID:       "sess-uid",
 		},
 		Spec: v1alpha1api.SessionSpec{
 			UserReference:    v1alpha1api.UserReference{Name: user.Name},
@@ -235,51 +241,17 @@ func reconcileFixtures(t *testing.T, userPath, appPath string) (*SessionControll
 	// Mark PortsAllocated condition so reconcilePod proceeds
 	sess.Status.Conditions = append(sess.Status.Conditions, metav1.Condition{Type: "PortsAllocated", Status: metav1.ConditionTrue, Reason: "Test", Message: "allocated"})
 
-	// Pre-create an empty ConfigMap that reconcileConfigMap will apply/patch.
-	cmName := sc.deploymentName(sess)
-	_, err = fakeK8s.CoreV1().ConfigMaps(user.Namespace).Create(ctx, &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      cmName,
-			Namespace: user.Namespace,
-		},
-	}, metav1.CreateOptions{})
-	if err != nil {
-		t.Fatalf("failed to pre-create configmap: %v", err)
-	}
-
-	// // 2) reconcileConfigMap
-	// if err := sc.reconcileConfigMap(ctx, sess); err != nil {
-	// 	t.Fatalf("reconcileConfigMap failed: %v", err)
-	// }
-
 	// 3) reconcilePVC
 	if err := sc.reconcilePVC(ctx, sess); err != nil {
 		t.Fatalf("reconcilePVC failed: %v", err)
 	}
 
-	// Pre-create a minimal deployment so the fake k8s client's Apply can update it
-	deployName := sc.deploymentName(sess)
-	_, err = fakeK8s.AppsV1().Deployments(user.Namespace).Create(ctx, &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      deployName,
-			Namespace: user.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{Replicas: ptr.To[int32](0)},
-	}, metav1.CreateOptions{})
+	// 4) reconcilePod (creates the Pod)
+	pod, err := sc.reconcilePod(ctx, sess)
 	if err != nil {
-		t.Fatalf("failed to pre-create deployment: %v", err)
-	}
-
-	// 4) reconcilePod (creates/updates Deployment)
-	if err := sc.reconcilePod(ctx, sess); err != nil {
 		t.Fatalf("reconcilePod failed: %v", err)
 	}
-
-	dep, err := fakeK8s.AppsV1().Deployments(user.Namespace).Get(ctx, sc.deploymentName(sess), metav1.GetOptions{})
-	if err != nil {
-		t.Fatalf("failed to get deployment from fake k8s: %v", err)
-	}
-	return sc, fakeK8s, sess, dep
+	return sc, fakeK8s, sess, pod
 }
 
 // cacheWaitForSync waits for both informer factories to sync (typed and direwolf)
@@ -305,8 +277,8 @@ func cacheWaitForSync(k8sFactory informers.SharedInformerFactory, dwFactory gene
 // the App's DRA ResourceClaim: the pod keeps spec.resourceClaims, and both the game
 // container and the wolf sidecar (NVENC) reference the claim.
 func TestSessionPodGPUFromDRAClaim(t *testing.T) {
-	_, _, _, dep := reconcileFixtures(t, "../../examples/nvidia_devices/user.yaml", "../../examples/nvidia_devices/firefox.yaml") //nolint:dogsled // only the Deployment matters here
-	spec := dep.Spec.Template.Spec
+	_, _, _, pod := reconcileFixtures(t, "../../examples/nvidia_devices/user.yaml", "../../examples/nvidia_devices/firefox.yaml") //nolint:dogsled // only the Pod matters here
+	spec := pod.Spec
 
 	want := corev1.PodResourceClaim{Name: "gpu", ResourceClaimTemplateName: new("nvidia-gpu")}
 	if len(spec.ResourceClaims) != 1 || !reflect.DeepEqual(spec.ResourceClaims[0], want) {

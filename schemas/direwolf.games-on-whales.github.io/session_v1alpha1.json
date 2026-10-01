@@ -117,6 +117,11 @@
     "status": {
       "description": "Session State machine\nPending -> Initializing -> WaitForPing -> Streaming -> Ended",
       "properties": {
+        "attachedGeneration": {
+          "description": "The metadata.generation whose spec.config the current (or last) Wolf\nsession was created from. /resume updates spec.config with the\nclient's new keys, so a generation above this one asks the operator to\nre-attach the running pod.",
+          "format": "int64",
+          "type": "integer"
+        },
         "conditions": {
           "description": "Represents the observations of a session's state.",
           "items": {
@@ -177,11 +182,13 @@
           ],
           "x-kubernetes-list-type": "map"
         },
-        "deploymentName": {
+        "disconnectedAt": {
+          "description": "When the client's stream went away. The pod is kept for the operator's\ndisconnect grace period so /resume can re-attach, then the Session is\ndeleted. Cleared on re-attach.",
+          "format": "date-time",
           "type": "string"
         },
         "ports": {
-          "description": "The host ports allocated to the session's pod. Freed when the last\nSession sharing the pod is deleted.",
+          "description": "The host ports allocated to the session's pod. Freed when the Session\nis deleted.",
           "properties": {
             "audioRTP": {
               "format": "int32",

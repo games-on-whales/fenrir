@@ -7,7 +7,8 @@ import (
 	"os"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/leaderelection"
@@ -41,6 +42,8 @@ func main() {
 		"Node labels session pods are pinned to, e.g. kubernetes.io/hostname=talos04.xerktech.com")
 	sessionTolerations := flag.String("session-tolerations", "",
 		"Comma-separated taints (key[=value]:Effect) session pods tolerate, e.g. nvidia.com/gpu=present:NoSchedule")
+	disconnectGracePeriod := flag.Duration("disconnect-grace-period", 10*time.Minute,
+		"How long a session's pod is kept after its Moonlight client disconnects, so /resume can re-attach")
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -55,6 +58,10 @@ func main() {
 	tolerations, err := controllers.ParseTolerations(*sessionTolerations)
 	if err != nil {
 		klog.Fatalf("--session-tolerations: %v", err)
+	}
+
+	if *disconnectGracePeriod < 0 {
+		klog.Fatalf("--disconnect-grace-period must not be negative, got %s", *disconnectGracePeriod)
 	}
 
 	k8sClient, direwolfClient, gatewayClient, _, err := util.GetKubernetesClients()
@@ -72,9 +79,15 @@ func main() {
 	direwolfFactory.Start(appContext.Done())
 	defer direwolfFactory.Shutdown()
 
+	// Only session pods: the operator has no business caching the rest.
 	k8sFactory := informers.NewSharedInformerFactoryWithOptions(
-		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace))
-	deploymentInformer := k8sFactory.Apps().V1().Deployments().Informer()
+		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace),
+		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+			o.LabelSelector = labels.SelectorFromSet(labels.Set{
+				direwolfv1alpha1.SessionPodLabel: direwolfv1alpha1.SessionPodLabelValue,
+			}).String()
+		}))
+	podInformer := k8sFactory.Core().V1().Pods().Informer()
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
 
@@ -105,12 +118,14 @@ func main() {
 		generic.NewInformer[*direwolfv1alpha1.Session](sessionInformer),
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
 		generic.NewInformer[*direwolfv1alpha1.User](userInformer),
-		generic.NewInformer[*appsv1.Deployment](deploymentInformer),
+		generic.NewInformer[*corev1.Pod](podInformer),
 		controllers.SessionControllerOptions{
 			WolfAgentImage:      *wolfAgentImage,
 			SessionPortRange:    portRange,
 			SessionNodeSelector: nodeSelector,
 			SessionTolerations:  tolerations,
+
+			DisconnectGracePeriod: *disconnectGracePeriod,
 		},
 	)
 

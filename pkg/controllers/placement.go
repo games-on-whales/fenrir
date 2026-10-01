@@ -34,7 +34,7 @@ func ParseTolerations(s string) ([]corev1.Toleration, error) {
 			t.Key, t.Value, t.Operator = key, value, corev1.TolerationOpEqual
 		}
 		// Validate here as the apiserver would: a typo must stop the operator
-		// at startup, not fail every session Deployment apply later.
+		// at startup, not fail every session pod create later.
 		errs := validation.IsQualifiedName(t.Key)
 		errs = append(errs, validation.IsValidLabelValue(t.Value)...)
 		if len(errs) > 0 {

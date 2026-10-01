@@ -18,6 +18,7 @@ package generic
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -42,6 +43,10 @@ type Controller[T runtime.Object] interface {
 	// Enqueues an object for processing as if it had been updated.
 	// Similar to a "touch" or "poke" operation.
 	Enqueue(namespace, name string)
+
+	// Enqueues an object for processing once after has elapsed, e.g. to poll
+	// state no informer event reports.
+	EnqueueAfter(namespace, name string, after time.Duration)
 }
 
 type NamespacedLister[T any] interface {

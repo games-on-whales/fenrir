@@ -8,14 +8,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"slices"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	sigsyaml "sigs.k8s.io/yaml"
@@ -67,8 +68,8 @@ func newPortsFixture(t *testing.T, k8sObjects ...runtime.Object) *portsFixture {
 		generic.NewInformer[*v1alpha1types.Session](dwF.Direwolf().V1alpha1().Sessions().Informer()),
 		generic.NewInformer[*v1alpha1types.App](dwF.Direwolf().V1alpha1().Apps().Informer()),
 		generic.NewInformer[*v1alpha1types.User](dwF.Direwolf().V1alpha1().Users().Informer()),
-		generic.NewInformer[*appsv1.Deployment](kF.Apps().V1().Deployments().Informer()),
-		SessionControllerOptions{SessionPortRange: PortRange{Min: 20000, Max: 20999}})
+		generic.NewInformer[*corev1.Pod](kF.Core().V1().Pods().Informer()),
+		SessionControllerOptions{SessionPortRange: PortRange{Min: 20000, Max: 20999}, DisconnectGracePeriod: 10 * time.Minute})
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 	dwF.Start(stop)
@@ -81,11 +82,11 @@ func newPortsFixture(t *testing.T, k8sObjects ...runtime.Object) *portsFixture {
 
 func (f *portsFixture) session(name, user string) *v1alpha1types.Session {
 	return &v1alpha1types.Session{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: portsTestNS},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: portsTestNS, UID: types.UID(name + "-uid")},
 		Spec: v1alpha1types.SessionSpec{
 			UserReference: v1alpha1types.UserReference{Name: user},
 			GameReference: v1alpha1types.GameReference{Name: f.app},
-			Config:        v1alpha1types.SessionInfo{AESKey: "k", AESIV: "i"},
+			Config:        v1alpha1types.SessionInfo{AESKey: "k", AESIV: "i", ClientIP: "192.0.2.10"},
 		},
 	}
 }
@@ -103,7 +104,7 @@ func (f *portsFixture) waitInformer(t *testing.T, name string, present bool) {
 	t.Fatalf("informer never saw %s present=%v", name, present)
 }
 
-// Deleting the last Session of a Deployment frees its block for the next one.
+// Deleting a Session frees its block for the next one.
 func TestSessionDeletionReleasesPorts(t *testing.T) {
 	ctx := context.Background()
 	f := newPortsFixture(t)
@@ -154,118 +155,111 @@ func TestClaimRecordedPortsOnStart(t *testing.T) {
 	}
 }
 
-// The operator dials wolf-agent on the block's agent port and advertises the
-// block's RTSP port on the pod (= node) IP.
-func TestReconcileActiveStreamsUsesPortBlock(t *testing.T) {
-	var agentHits int
-	var added wolfapi.Session
-	agent := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		agentHits++
+// fakeAgent is a wolf-agent stand-in: it lists the Wolf sessions in sessions
+// and records adds and stops.
+type fakeAgent struct {
+	*httptest.Server
+	sessions string // JSON array for /api/v1/sessions
+
+	mu      sync.Mutex
+	added   int
+	last    wolfapi.Session // body of the last add
+	stopped []string
+}
+
+func newFakeAgent(t *testing.T) *fakeAgent {
+	t.Helper()
+	a := &fakeAgent{sessions: "[]"}
+	a.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/sessions":
-			fmt.Fprint(w, `{"success":true,"sessions":[]}`)
+			fmt.Fprintf(w, `{"success":true,"sessions":%s}`, a.sessions)
 		case "/api/v1/sessions/add":
-			if err := json.NewDecoder(r.Body).Decode(&added); err != nil {
+			a.mu.Lock()
+			a.added++
+			if err := json.NewDecoder(r.Body).Decode(&a.last); err != nil {
 				t.Errorf("decoding AddSession body: %v", err)
 			}
+			a.mu.Unlock()
 			fmt.Fprint(w, `{"success":true,"session_id":"4242"}`)
+		case "/api/v1/sessions/stop":
+			var req struct {
+				SessionID string `json:"session_id"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			a.mu.Lock()
+			a.stopped = append(a.stopped, req.SessionID)
+			a.mu.Unlock()
+			fmt.Fprint(w, `{"success":true}`)
 		default:
 			http.NotFound(w, r)
 		}
 	}))
-	defer agent.Close()
-	addr, ok := agent.Listener.Addr().(*net.TCPAddr)
+	t.Cleanup(a.Close)
+	return a
+}
+
+// base is the port block whose wolf-agent port is the fake agent's.
+func (a *fakeAgent) base(t *testing.T) int32 {
+	t.Helper()
+	addr, ok := a.Listener.Addr().(*net.TCPAddr)
 	if !ok {
-		t.Fatalf("listener address %v is not TCP", agent.Listener.Addr())
+		t.Fatalf("listener address %v is not TCP", a.Listener.Addr())
 	}
-	agentPort := int32(addr.Port) //nolint:gosec // a TCP port fits in int32
-	base := agentPort - portOffsetWolfAgent
+	return int32(addr.Port) - portOffsetWolfAgent //nolint:gosec // a TCP port fits in int32
+}
 
-	selector := map[string]string{"direwolf/user": "alex"}
-	f := newPortsFixture(t,
-		&appsv1.Deployment{
-			ObjectMeta: metav1.ObjectMeta{Name: "alex-steam", Namespace: portsTestNS, Generation: 1},
-			Spec:       appsv1.DeploymentSpec{Selector: &metav1.LabelSelector{MatchLabels: selector}},
-			Status:     appsv1.DeploymentStatus{ObservedGeneration: 1, Replicas: 1, ReadyReplicas: 1},
+// readyPod is sess's running pod, as reconcilePod would have created it.
+func readyPod(sess *v1alpha1types.Session) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: sess.Name, Namespace: sess.Namespace,
+			Annotations: map[string]string{portBlockAnnotation: strconv.Itoa(int(sess.Status.Ports.HTTP))},
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1types.GroupVersion.String(), Kind: "Session",
+				Name: sess.Name, UID: sess.UID, Controller: new(true),
+			}},
 		},
-		&corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Name: "alex-steam-pod", Namespace: portsTestNS, Labels: selector},
-			Status: corev1.PodStatus{
-				Phase: corev1.PodRunning, PodIP: "127.0.0.1",
-				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
-			},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning, PodIP: "127.0.0.1",
+			Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
 		},
-		&corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{Name: agentTokenSecretName("alex-steam"), Namespace: portsTestNS},
-			Data:       map[string][]byte{wolfAgentTokenKey: []byte("token")},
-		},
-	)
-	sess := f.session("alex-1", "alex")
-	if f.app != "steam" {
-		t.Fatalf("example app is %q; fixture Deployment assumes steam", f.app)
 	}
-	sess.Status.Ports = blockPorts(base)
+}
+
+func tokenSecret(sess *v1alpha1types.Session) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: agentTokenSecretName(sess.Name), Namespace: sess.Namespace},
+		Data:       map[string][]byte{wolfAgentTokenKey: []byte("token")},
+	}
+}
+
+// The operator dials wolf-agent on the block's agent port and advertises the
+// block's RTSP port on the pod (= node) IP.
+func TestReconcileActiveStreamsUsesPortBlock(t *testing.T) {
+	agent := newFakeAgent(t)
+	probe := newPortsFixture(t)
+	sess := probe.session("alex-1", "alex")
+	sess.Status.Ports = blockPorts(agent.base(t))
 	sess.Spec.Config.ClientIP = "192.0.2.10"
-
-	if err := f.sc.reconcileActiveStreams(context.Background(), sess); err != nil {
+	f := newPortsFixture(t, tokenSecret(sess))
+	if _, err := f.dw.DirewolfV1alpha1().Sessions(portsTestNS).Create(context.Background(), sess, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if agentHits == 0 {
-		t.Error("wolf-agent on the block's agent port was never called")
+
+	if err := f.sc.reconcileActiveStreams(context.Background(), sess, readyPod(sess)); err != nil {
+		t.Fatal(err)
 	}
-	if want := fmt.Sprintf("rtsp://127.0.0.1:%d", base+portOffsetRTSP); sess.Status.StreamURL != want {
+	if agent.added != 1 {
+		t.Errorf("wolf-agent on the block's agent port got %d adds, want 1", agent.added)
+	}
+	if want := fmt.Sprintf("rtsp://127.0.0.1:%d", sess.Status.Ports.RTSP); sess.Status.StreamURL != want {
 		t.Errorf("StreamURL = %q, want %q", sess.Status.StreamURL, want)
 	}
 	if sess.Status.WolfSessionID != "4242" {
 		t.Errorf("WolfSessionID = %q", sess.Status.WolfSessionID)
 	}
-	if added.ClientIP != "192.0.2.10" {
-		t.Errorf("Wolf AddSession client_ip = %q, want the Moonlight client's IP", added.ClientIP)
+	if agent.last.ClientIP != "192.0.2.10" {
+		t.Errorf("Wolf AddSession client_ip = %q, want the Moonlight client's IP", agent.last.ClientIP)
 	}
-}
-
-// A Deployment built for another block (before an upgrade, or before its
-// block was released and re-allocated) is rebuilt on the session's block
-// rather than only having its owners updated.
-func TestReconcilePodRebuildsDeploymentOnOtherBlock(t *testing.T) {
-	ctx := context.Background()
-	stale := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace:   portsTestNS,
-			Annotations: map[string]string{portBlockAnnotation: "20000"},
-		},
-	}
-	f := newPortsFixture(t)
-	sess := f.session("s-1", f.user)
-	stale.Name = f.sc.deploymentName(sess)
-	if _, err := f.sc.K8sClient.AppsV1().Deployments(portsTestNS).Create(ctx, stale, metav1.CreateOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	for range 500 {
-		if _, err := f.sc.deploymentController.Informer().Namespaced(portsTestNS).Get(stale.Name); err == nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	sess.Status.Ports = blockPorts(20000 + sessionPortBlockSize)
-	sess.Status.Conditions = []metav1.Condition{{Type: "PortsAllocated", Status: metav1.ConditionTrue, Reason: "Test"}}
-	if err := f.sc.reconcilePod(ctx, sess); err != nil {
-		t.Fatal(err)
-	}
-
-	dep, err := f.sc.K8sClient.AppsV1().Deployments(portsTestNS).Get(ctx, stale.Name, metav1.GetOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := dep.Annotations[portBlockAnnotation]; got != "20007" {
-		t.Errorf("%s = %q, want 20007", portBlockAnnotation, got)
-	}
-	want := corev1.EnvVar{Name: "WOLF_RTSP_SETUP_PORT", Value: "20009"}
-	for _, c := range dep.Spec.Template.Spec.Containers {
-		if c.Name == "wolf" && slices.Contains(c.Env, want) {
-			return
-		}
-	}
-	t.Errorf("wolf not rebuilt with %s=%s", want.Name, want.Value)
 }

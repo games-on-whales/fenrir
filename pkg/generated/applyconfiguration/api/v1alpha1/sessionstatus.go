@@ -19,6 +19,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	v1 "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
@@ -30,13 +31,21 @@ import (
 type SessionStatusApplyConfiguration struct {
 	// Represents the observations of a session's state.
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// The host ports allocated to the session's pod. Freed when the last
-	// Session sharing the pod is deleted.
+	// The host ports allocated to the session's pod. Freed when the Session
+	// is deleted.
 	Ports *SessionPortsApplyConfiguration `json:"ports,omitempty"`
 	// The RTSP url to access the stream.
-	WolfSessionID  *string `json:"wolfSessionID,omitempty"`
-	StreamURL      *string `json:"streamURL,omitempty"`
-	DeploymentName *string `json:"deploymentName,omitempty"`
+	WolfSessionID *string `json:"wolfSessionID,omitempty"`
+	StreamURL     *string `json:"streamURL,omitempty"`
+	// The metadata.generation whose spec.config the current (or last) Wolf
+	// session was created from. /resume updates spec.config with the
+	// client's new keys, so a generation above this one asks the operator to
+	// re-attach the running pod.
+	AttachedGeneration *int64 `json:"attachedGeneration,omitempty"`
+	// When the client's stream went away. The pod is kept for the operator's
+	// disconnect grace period so /resume can re-attach, then the Session is
+	// deleted. Cleared on re-attach.
+	DisconnectedAt *metav1.Time `json:"disconnectedAt,omitempty"`
 }
 
 // SessionStatusApplyConfiguration constructs a declarative configuration of the SessionStatus type for use with
@@ -82,10 +91,18 @@ func (b *SessionStatusApplyConfiguration) WithStreamURL(value string) *SessionSt
 	return b
 }
 
-// WithDeploymentName sets the DeploymentName field in the declarative configuration to the given value
+// WithAttachedGeneration sets the AttachedGeneration field in the declarative configuration to the given value
 // and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the DeploymentName field is set to the value of the last call.
-func (b *SessionStatusApplyConfiguration) WithDeploymentName(value string) *SessionStatusApplyConfiguration {
-	b.DeploymentName = &value
+// If called multiple times, the AttachedGeneration field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithAttachedGeneration(value int64) *SessionStatusApplyConfiguration {
+	b.AttachedGeneration = &value
+	return b
+}
+
+// WithDisconnectedAt sets the DisconnectedAt field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the DisconnectedAt field is set to the value of the last call.
+func (b *SessionStatusApplyConfiguration) WithDisconnectedAt(value metav1.Time) *SessionStatusApplyConfiguration {
+	b.DisconnectedAt = &value
 	return b
 }

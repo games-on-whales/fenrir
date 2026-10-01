@@ -92,6 +92,13 @@ func (c *controller[T]) Enqueue(namespace, name string) {
 	}.String())
 }
 
+func (c *controller[T]) EnqueueAfter(namespace, name string, after time.Duration) {
+	c.queue.AddAfter(cache.ObjectName{
+		Namespace: namespace,
+		Name:      name,
+	}.String(), after)
+}
+
 // Runs the controller and returns an error explaining why running was stopped.
 // Reconciliation ends as soon as the context completes. If there are events
 // waiting to be processed at that itme, they will be dropped.

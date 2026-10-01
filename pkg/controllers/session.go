@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	stderrors "errors"
 	"fmt"
 	"maps"
 	"net"
@@ -22,7 +23,6 @@ import (
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 	// "github.com/pelletier/go-toml/v2"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -32,13 +32,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
-	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	v1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
 )
@@ -60,10 +59,27 @@ var (
 	}()
 )
 
-type userGame struct {
-	User string
-	Game string
-}
+// streamPollInterval is how often the operator asks wolf-agent whether an
+// attached stream is still up. Nothing else reports a Moonlight disconnect
+// (wolf-agent stops Wolf's session on pause, with no Kubernetes access).
+const streamPollInterval = 15 * time.Second
+
+// wolfAgentTimeout bounds each call to wolf-agent. The session controller has
+// two workers and polls every attached session: without a bound, two hung
+// agents would stall every Session's reconcile.
+const wolfAgentTimeout = 10 * time.Second
+
+// errSessionEnded is returned by reconcilePod once it has deleted the Session:
+// its pod finished, so there is nothing left to reconcile.
+var errSessionEnded = stderrors.New("session ended")
+
+// podCreatedCondition is True once the session's pod has been created. The pod
+// is never recreated, so a Session with it True and no pod has ended.
+const podCreatedCondition = "PodCreated"
+
+// legacyDeploymentCondition marks a Session from before sessions ran in bare
+// pods (see expiredReason).
+const legacyDeploymentCondition = "DeploymentCreated"
 
 type SessionControllerOptions struct {
 	WolfAgentImage string
@@ -74,6 +90,10 @@ type SessionControllerOptions struct {
 	SessionNodeSelector map[string]string
 	// Taints of that node session pods tolerate.
 	SessionTolerations []corev1.Toleration
+	// How long a session's pod outlives its client's disconnect, so /resume
+	// can re-attach to the still-running game. Zero ends the session on
+	// disconnect.
+	DisconnectGracePeriod time.Duration
 }
 
 // Session Controller manages the lifecycle of a streaming session for
@@ -99,12 +119,10 @@ type SessionController struct {
 
 	K8sClient kubernetes.Interface
 
-	trackedSessions map[userGame]sets.Set[string]
-	trackedGames    map[string]userGame
-	ports           *portAllocator
+	ports *portAllocator
 
-	controller           generic.Controller[*v1alpha1types.Session]
-	deploymentController generic.Controller[*appsv1.Deployment]
+	controller    generic.Controller[*v1alpha1types.Session]
+	podController generic.Controller[*corev1.Pod]
 	SessionControllerOptions
 }
 
@@ -117,7 +135,7 @@ func NewSessionController(
 	sessionInformer generic.Informer[*v1alpha1types.Session],
 	appInformer generic.Informer[*v1alpha1types.App],
 	userInformer generic.Informer[*v1alpha1types.User],
-	deploymentInformer generic.Informer[*appsv1.Deployment],
+	podInformer generic.Informer[*corev1.Pod],
 	options SessionControllerOptions,
 ) *SessionController {
 	res := &SessionController{
@@ -128,8 +146,6 @@ func NewSessionController(
 		SessionInformer:          sessionInformer,
 		AppInformer:              appInformer,
 		UserInformer:             userInformer,
-		trackedSessions:          make(map[userGame]sets.Set[string]),
-		trackedGames:             make(map[string]userGame),
 		ports:                    newPortAllocator(options.SessionPortRange),
 		SessionControllerOptions: options,
 	}
@@ -143,11 +159,10 @@ func NewSessionController(
 		},
 	)
 
-	//!TODO: Also watch any udproutes, services, deployments, etc. that we create
-	// and re-reconcile their sessions when they change.
-	res.deploymentController = generic.NewController(
-		deploymentInformer,
-		func(namepace, name string, newObj *appsv1.Deployment) error {
+	// A pod change (ready, a container exited) re-reconciles its Session.
+	res.podController = generic.NewController(
+		podInformer,
+		func(_, _ string, newObj *corev1.Pod) error {
 			// Load bearing. If we pass nil it will be casted to interface and
 			// not be comparable with nil :)
 			if newObj == nil {
@@ -156,7 +171,7 @@ func NewSessionController(
 			return res.reconcileDependant(newObj)
 		},
 		generic.ControllerOptions{
-			Name:    "session-controller-deployment",
+			Name:    "session-controller-pod",
 			Workers: 1,
 		},
 	)
@@ -178,28 +193,15 @@ func (c *SessionController) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to list sessions: %v", err)
 	}
 
-	for _, session := range sessions {
-		ug := userGame{
-			Game: session.Spec.GameReference.Name,
-			User: session.Spec.UserReference.Name,
-		}
-		if existing, ok := c.trackedSessions[ug]; ok {
-			existing.Insert(session.Name)
-		} else {
-			c.trackedSessions[ug] = sets.New(session.Name)
-		}
-
-		c.trackedGames[session.Name] = ug
-	}
 	// Before any reconcile runs, so a new session cannot be handed a block a
 	// running pod still listens on.
 	c.claimRecordedPorts(sessions)
 
 	go func() {
 		defer cancel()
-		err := c.deploymentController.Run(sessionCtx)
+		err := c.podController.Run(sessionCtx)
 		if err != nil {
-			klog.Errorf("Failed to run deployment controller: %v", err)
+			klog.Errorf("Failed to run pod controller: %v", err)
 		}
 	}()
 
@@ -247,45 +249,13 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	defer klog.Infof("Finished Reconciling session %s/%s", namespace, name)
 
 	if newObj == nil {
-		// Session was deleted. Stuff will be garbage collected by Kubernetes
-		// due to owner references. Nothing to do.
-		if gam, ok := c.trackedGames[name]; ok {
-			if existing, ok := c.trackedSessions[gam]; ok {
-				existing.Delete(name)
-				if existing.Len() == 0 {
-					delete(c.trackedSessions, gam)
-				}
-			}
-
-			delete(c.trackedGames, name)
-		}
+		// Session was deleted. Its pod, and through the pod its generated
+		// ResourceClaims, are garbage collected via owner references; the
+		// port block is ours to free.
 		return c.releaseUnusedPorts()
-	} else if newObj.Status.WolfSessionID == "" && newObj.CreationTimestamp.Add(unstartedSessionTTL).Before(time.Now()) {
-		klog.Infof("Session %s/%s is older than %s and has no wolf session ID, deleting", newObj.Namespace, newObj.Name, unstartedSessionTTL)
-		err := c.SessionClient.Delete(context.TODO(), newObj.Name, metav1.DeleteOptions{})
-		if err != nil && !errors.IsNotFound(err) {
-			klog.Errorf("Failed to delete session %s/%s: %v", newObj.Namespace, newObj.Name, err)
-			return err
-		}
-		return nil
+	} else if reason := c.expiredReason(newObj, time.Now()); reason != "" {
+		return c.endSession(context.TODO(), newObj, reason)
 	}
-	ug := userGame{
-		Game: newObj.Spec.GameReference.Name,
-		User: newObj.Spec.UserReference.Name,
-	}
-
-	if existing, ok := c.trackedSessions[ug]; ok {
-		existing.Insert(newObj.Name)
-	} else {
-		c.trackedSessions[ug] = sets.New(newObj.Name)
-	}
-	// Record the reverse mapping too: the deletion branch above relies on
-	// trackedGames to clean trackedSessions up. Without this, sessions created
-	// after startup are never removed from trackedSessions and every later
-	// reconcile of the same user/game spams "Failed to get session ... not
-	// found" while iterating the stale names.
-	c.trackedGames[newObj.Name] = ug
-
 	oldStatus := newObj.Status.DeepCopy()
 	portsError := c.allocatePorts(context.TODO(), newObj)
 
@@ -338,17 +308,21 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		})
 	}
 
-	if podError := c.reconcilePod(context.TODO(), newObj); podError != nil {
+	pod, podError := c.reconcilePod(context.TODO(), newObj)
+	switch {
+	case stderrors.Is(podError, errSessionEnded):
+		return nil
+	case podError != nil:
 		klog.Errorf("Failed to reconcile pod: %s", podError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:    "DeploymentCreated",
+			Type:    podCreatedCondition,
 			Status:  metav1.ConditionFalse,
 			Reason:  "PodCreationFailed",
 			Message: podError.Error(),
 		})
-	} else {
+	default:
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
-			Type:   "DeploymentCreated",
+			Type:   podCreatedCondition,
 			Status: metav1.ConditionTrue,
 			Reason: "Success",
 		})
@@ -371,8 +345,14 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	// 	})
 	// }
 
-	streamError := c.reconcileActiveStreams(context.TODO(), newObj)
-	if streamError != nil {
+	streamError := podError
+	if streamError == nil {
+		streamError = c.reconcileActiveStreams(context.TODO(), newObj, pod)
+	}
+	switch {
+	case stderrors.Is(streamError, errSessionEnded):
+		return nil
+	case streamError != nil:
 		klog.Errorf("Failed to reconcile active streams: %s", streamError)
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
 			Type:    "StreamStarted",
@@ -380,7 +360,7 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 			Reason:  "StreamStartFailed",
 			Message: streamError.Error(),
 		})
-	} else {
+	default:
 		meta.SetStatusCondition(&newObj.Status.Conditions, metav1.Condition{
 			Type:   "StreamStarted",
 			Status: metav1.ConditionTrue,
@@ -389,15 +369,8 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 	}
 
 	// Set the new status, if it is changed
-	if !reflect.DeepEqual(newObj.Status, oldStatus) {
-		_, err := c.SessionClient.UpdateStatus(
-			context.TODO(),
-			newObj,
-			metav1.UpdateOptions{
-				FieldManager: "session-controller-status",
-			},
-		)
-
+	if !reflect.DeepEqual(&newObj.Status, oldStatus) {
+		err := c.writeStatus(context.TODO(), newObj, oldStatus)
 		// Failed to update status....nothing to do but try again with
 		// exponential backoff. Could be API server issue. Depends on response
 		// code?
@@ -406,11 +379,22 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 		}
 	}
 
-	// Stream setup is inherently retriable: while the pod is starting up the
-	// deployment isn't ready and wolf-agent isn't listening yet ("connection
+	if streamError == nil {
+		switch {
+		case newObj.Status.WolfSessionID != "":
+			// Poll for the client going away.
+			c.controller.EnqueueAfter(namespace, name, streamPollInterval)
+		case newObj.Status.DisconnectedAt != nil:
+			// Wake up to end the session once the grace period is over.
+			c.controller.EnqueueAfter(namespace, name, time.Until(newObj.Status.DisconnectedAt.Add(c.DisconnectGracePeriod)))
+		}
+	}
+
+	// Stream setup is inherently retriable: while the pod is starting up it
+	// isn't ready and wolf-agent isn't listening yet ("connection
 	// refused"), and no informer event is guaranteed to arrive once it
 	// becomes ready. Returning nil here used to stall the session as soon as
-	// the status stopped changing, until the 1-minute dead-session reaper
+	// the status stopped changing, until the unstarted-session reaper
 	// deleted it and Moonlight timed out. Return the error so the workqueue
 	// requeues with backoff and the stream is started as soon as the agent
 	// is reachable.
@@ -636,84 +620,196 @@ func validateVolumeMounts(mounts []corev1.VolumeMount, validVolumes map[string]s
 	return nil
 }
 
-func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) error {
-	//!TODO: Just allocate a ton of ports on the container, we wont be able to
-	// change them while its running if another user connects
+// writeStatus writes session's status, computed from a read whose status was
+// oldStatus. On a conflict it re-applies the status to the latest object, but
+// only if that object's status is still oldStatus, i.e. only its spec moved
+// (e.g. /resume brought new keys). Dropping the write then would lose a
+// just-added Wolf session's ID, leaving that stream orphaned in Wolf.
+//
+// If the status moved too, this read was stale: another reconcile wrote a
+// newer status, and copying ours over it would erase what it recorded (the
+// current Wolf session ID), so the write is dropped and the error returned.
+func (c *SessionController) writeStatus(ctx context.Context, session *v1alpha1types.Session, oldStatus *v1alpha1types.SessionStatus) error {
+	toWrite := session
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		_, updateErr := c.SessionClient.UpdateStatus(ctx, toWrite, metav1.UpdateOptions{
+			FieldManager: "session-controller-status",
+		})
+		if updateErr == nil {
+			return nil
+		}
+		if errors.IsConflict(updateErr) {
+			latest, getErr := c.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
+			if getErr != nil {
+				return fmt.Errorf("failed to get session: %w", getErr)
+			}
+			if !reflect.DeepEqual(&latest.Status, oldStatus) {
+				return fmt.Errorf("session %s/%s status changed since it was read, not overwriting it", session.Namespace, session.Name)
+			}
+			latest.Status = session.Status
+			toWrite = latest
+		}
+		return fmt.Errorf("failed to update session status: %w", updateErr)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to write session status: %w", err)
+	}
+	return nil
+}
+
+// confirmFresh fails unless session is the live object. It guards every
+// change to Wolf: the informer can still hold the Session from before our own
+// last status write, and acting on that (re-adding or stopping a stream the
+// write already superseded) would leave Wolf and the recorded status apart.
+func (c *SessionController) confirmFresh(ctx context.Context, session *v1alpha1types.Session) error {
+	live, err := c.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get session %s/%s: %w", session.Namespace, session.Name, err)
+	}
+	if live.ResourceVersion != session.ResourceVersion {
+		return fmt.Errorf("session %s/%s changed since it was read (resourceVersion %s, have %s), retrying", session.Namespace, session.Name, live.ResourceVersion, session.ResourceVersion)
+	}
+	return nil
+}
+
+// expiredReason says why session should be deleted without further
+// reconciling, or "" if it should not:
+//   - its client disconnected longer than the grace period ago;
+//   - it never got a stream within unstartedSessionTTL of its creation (a
+//     launch that never became ready). A disconnected session is exempt: its grace period
+//     governs it.
+func (c *SessionController) expiredReason(session *v1alpha1types.Session, now time.Time) string {
+	if d := session.Status.DisconnectedAt; d != nil {
+		if now.Sub(d.Time) >= c.DisconnectGracePeriod {
+			return fmt.Sprintf("client disconnected at %s and did not resume within %s", d.Format(time.RFC3339), c.DisconnectGracePeriod)
+		}
+		return ""
+	}
+	if meta.FindStatusCondition(session.Status.Conditions, legacyDeploymentCondition) != nil &&
+		meta.FindStatusCondition(session.Status.Conditions, podCreatedCondition) == nil {
+		// Its game runs in a Deployment's pod, which this operator neither
+		// watches nor talks to; a new pod would only collide with it on the
+		// port block. Deleting the Session garbage-collects the Deployment.
+		return "started by an operator that ran sessions in Deployments"
+	}
+	if session.Status.WolfSessionID == "" && session.CreationTimestamp.Add(unstartedSessionTTL).Before(now) {
+		return fmt.Sprintf("older than %s and has no wolf session ID", unstartedSessionTTL)
+	}
+	return ""
+}
+
+// reconcilePod ensures the session's pod exists and returns it. The pod runs
+// once, like a Job's: restartPolicy Never, and never recreated. Once it has
+// finished (a container exited, or it was deleted), the Session is deleted and
+// errSessionEnded returned.
+func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1types.Session) (*corev1.Pod, error) {
 	if !meta.IsStatusConditionPresentAndEqual(session.Status.Conditions, "PortsAllocated", metav1.ConditionTrue) {
-		return fmt.Errorf("waiting for PortsAllocated")
+		return nil, stderrors.New("waiting for PortsAllocated")
 	}
 
+	podName := c.podName(session)
+	existing, err := c.podController.Informer().Namespaced(session.Namespace).Get(podName)
+	switch {
+	case err == nil:
+		return c.checkPod(ctx, session, existing)
+	case !errors.IsNotFound(err):
+		return nil, fmt.Errorf("failed to get pod %s/%s: %w", session.Namespace, podName, err)
+	case meta.IsStatusConditionTrue(session.Status.Conditions, podCreatedCondition):
+		// Created before, so either deleted since or not yet in the cache:
+		// ask the API server which.
+		live, getErr := c.K8sClient.CoreV1().Pods(session.Namespace).Get(ctx, podName, metav1.GetOptions{})
+		if errors.IsNotFound(getErr) {
+			return nil, c.endSessionErr(ctx, session, "its pod was deleted")
+		} else if getErr != nil {
+			return nil, fmt.Errorf("failed to get pod %s/%s: %w", session.Namespace, podName, getErr)
+		}
+		return c.checkPod(ctx, session, live)
+	}
+
+	pod, err := c.buildPod(session)
+	if err != nil {
+		return nil, err
+	}
+	// Before the pod, which mounts it.
+	if tokenErr := c.reconcileAgentToken(ctx, session); tokenErr != nil {
+		return nil, tokenErr
+	}
+	created, err := c.K8sClient.CoreV1().Pods(session.Namespace).Create(ctx, pod, metav1.CreateOptions{
+		FieldManager: "direwolf-session-controller-pod",
+	})
+	if errors.IsAlreadyExists(err) {
+		// Created by an earlier reconcile whose status update was lost.
+		live, getErr := c.K8sClient.CoreV1().Pods(session.Namespace).Get(ctx, podName, metav1.GetOptions{})
+		if getErr != nil {
+			return nil, fmt.Errorf("failed to get pod %s/%s: %w", session.Namespace, podName, getErr)
+		}
+		return c.checkPod(ctx, session, live)
+	} else if err != nil {
+		return nil, fmt.Errorf("failed to create pod: %w", err)
+	}
+	return created, nil
+}
+
+// checkPod returns pod if the session can still use it, and otherwise ends the
+// session. Nothing restarts a container of a restartPolicy Never pod, so one
+// exited container (the game quitting, or a sidecar crashing) ends it.
+func (c *SessionController) checkPod(ctx context.Context, session *v1alpha1types.Session, pod *corev1.Pod) (*corev1.Pod, error) {
+	if !metav1.IsControlledBy(pod, session) {
+		// Left over from an earlier Session of the same name; garbage
+		// collection removes it.
+		return nil, fmt.Errorf("pod %s/%s belongs to another session, waiting for its deletion", pod.Namespace, pod.Name)
+	}
+	switch {
+	case pod.DeletionTimestamp != nil:
+		return nil, c.endSessionErr(ctx, session, "its pod is being deleted")
+	case pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed:
+		return nil, c.endSessionErr(ctx, session, fmt.Sprintf("its pod %s", pod.Status.Phase))
+	case pod.Annotations[portBlockAnnotation] != strconv.Itoa(int(session.Status.Ports.HTTP)):
+		// Its block was re-allocated (e.g. lost across an operator restart),
+		// so the pod no longer serves the ports the session advertises.
+		return nil, c.endSessionErr(ctx, session, fmt.Sprintf("its pod is on port block %s, not %d", pod.Annotations[portBlockAnnotation], session.Status.Ports.HTTP))
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if t := cs.State.Terminated; t != nil {
+			return nil, c.endSessionErr(ctx, session, fmt.Sprintf("container %s exited (code %d, %s)", cs.Name, t.ExitCode, t.Reason))
+		}
+	}
+	return pod, nil
+}
+
+// endSession deletes the Session, which garbage-collects its pod (and the
+// pod's generated ResourceClaims) and frees its port block.
+func (c *SessionController) endSession(ctx context.Context, session *v1alpha1types.Session, reason string) error {
+	klog.Infof("Ending session %s/%s: %s", session.Namespace, session.Name, reason)
+	err := c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{
+		Preconditions: &metav1.Preconditions{UID: &session.UID},
+	})
+	if err != nil && !errors.IsNotFound(err) {
+		return fmt.Errorf("failed to delete session %s/%s: %w", session.Namespace, session.Name, err)
+	}
+	return nil
+}
+
+// endSessionErr is endSession for reconcile steps: errSessionEnded once the
+// Session is deleted, so the caller stops reconciling it.
+func (c *SessionController) endSessionErr(ctx context.Context, session *v1alpha1types.Session, reason string) error {
+	if err := c.endSession(ctx, session, reason); err != nil {
+		return err
+	}
+	return errSessionEnded
+}
+
+// buildPod renders the session's pod from its App, User and port block.
+func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Pod, error) {
 	// Get the user object to access resource policies
 	user, err := c.UserInformer.Namespaced(session.Namespace).Get(session.Spec.UserReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get user %s: %w", session.Spec.UserReference.Name, err)
+		return nil, fmt.Errorf("failed to get user %s: %w", session.Spec.UserReference.Name, err)
 	}
 
-	ug := userGame{
-		Game: session.Spec.GameReference.Name,
-		User: session.Spec.UserReference.Name,
-	}
-
-	var owners []metav1.OwnerReference
-	var ownerApply []*metav1ac.OwnerReferenceApplyConfiguration
-	if sessions, ok := c.trackedSessions[ug]; ok {
-		for name := range sessions {
-			sess, err := c.SessionInformer.Namespaced(session.Namespace).Get(name)
-			if err != nil {
-				if errors.IsNotFound(err) {
-					// Stale entry left behind by an earlier missed cleanup:
-					// the Session object is gone, so drop it from tracking
-					// instead of logging an error forever.
-					sessions.Delete(name)
-					delete(c.trackedGames, name)
-					continue
-				}
-				klog.Errorf("Failed to get session %s/%s: %s", session.Namespace, name, err)
-				continue
-			}
-			owner := metav1.OwnerReference{
-				APIVersion: v1alpha1.GroupVersion.String(),
-				Kind:       "Session",
-				Name:       name,
-				UID:        sess.UID,
-				Controller: ptr.To(true),
-			}
-			owners = append(owners, owner)
-			ownerApply = append(ownerApply, metav1ac.OwnerReference().
-				WithName(name).
-				WithAPIVersion(v1alpha1.GroupVersion.String()).
-				WithKind("Session").
-				WithUID(session.UID).
-				WithController(true))
-		}
-	}
-
-	// If the deployment already exists on the session's port block, only
-	// update its owners. One on another block (created before an upgrade, or
-	// before the operator re-allocated the block) is re-applied in full below,
-	// which recreates its pod on the block the session's status advertises.
-	deploymentName := c.deploymentName(session)
-	if existing, getErr := c.deploymentController.Informer().Namespaced(session.Namespace).Get(deploymentName); getErr == nil &&
-		existing.Annotations[portBlockAnnotation] == strconv.Itoa(int(session.Status.Ports.HTTP)) {
-		klog.Infof("Deployment %s/%s already exists, just updating metadata", session.Namespace, deploymentName)
-		if tokenErr := c.reconcileAgentToken(ctx, existing); tokenErr != nil {
-			return tokenErr
-		}
-		c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
-			context.Background(),
-			appsv1ac.Deployment(deploymentName, session.Namespace).
-				WithOwnerReferences(ownerApply...),
-			metav1.ApplyOptions{
-				FieldManager: "direwolf-session-controller-deployment-owners",
-			})
-
-		return nil
-	}
-
-	// Create pod from pod template
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
-		return fmt.Errorf("failed to get app: %s", err)
+		return nil, fmt.Errorf("failed to get app: %w", err)
 	}
 	// Prepare environment variables for the wolf container.
 	// The GPU is not selected here: it comes only from the App's DRA
@@ -849,7 +945,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		validatedResources, err := validateAppResources(podToCreate.Spec.Containers[i].Resources, user.Spec.Resources)
 		if err != nil {
 			// The error will be handled by the main Reconcile loop to update the session status.
-			return fmt.Errorf("resource validation for main app container failed: %w", err)
+			return nil, fmt.Errorf("resource validation for main app container failed: %w", err)
 		}
 		podToCreate.Spec.Containers[i].Resources = validatedResources
 	}
@@ -944,7 +1040,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		policies := user.Spec.SidecarPolicies
 		if policies.WolfAgent != nil {
 			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
-				return err
+				return nil, err
 			}
 			wolfAgentEnv = policies.WolfAgent.Env
 			// klog.debug("User defined env vars: %+v", wolfAgentEnv)
@@ -957,7 +1053,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		if policies.PulseAudio != nil {
 			if err := validateVolumeMounts(policies.PulseAudio.VolumeMounts, validVolumes, "pulseAudio"); err != nil {
-				return err
+				return nil, err
 			}
 			pulseAudioEnv = policies.PulseAudio.Env
 			// klog.Infof("User defined env vars: %+v", pulseAudioEnv)
@@ -970,7 +1066,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		}
 		if policies.Wolf != nil {
 			if err := validateVolumeMounts(policies.Wolf.VolumeMounts, validVolumes, "wolf"); err != nil {
-				return err
+				return nil, err
 			}
 			wolfEnv = policies.Wolf.Env
 			// klog.Infof("User defined env vars: %+v", wolfEnv)
@@ -1170,7 +1266,7 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	if app.Spec.VolumeClaimTemplate != nil {
 		wolfDataVolumeSource = corev1.VolumeSource{
 			PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-				ClaimName: c.deploymentName(session),
+				ClaimName: c.pvcName(session),
 			},
 		}
 	} else {
@@ -1215,13 +1311,12 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 			Name:         "wolf-data",
 			VolumeSource: wolfDataVolumeSource,
 		},
-		// Created by reconcileAgentToken once the Deployment exists; the
-		// kubelet retries the mount until then.
+		// Created by reconcileAgentToken before the pod.
 		corev1.Volume{
 			Name: "wolf-agent-token",
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName: agentTokenSecretName(c.deploymentName(session)),
+					SecretName: agentTokenSecretName(session.Name),
 				},
 			},
 		},
@@ -1260,72 +1355,30 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 		podToCreate.Spec.Volumes = append(podToCreate.Spec.Volumes, user.Spec.Volumes...)
 	}
 
-	// Create deployment scaled to 1 for this pod
-	// Should use deployment so that changes in spec aren't rejected.
-	deployment := appsv1.Deployment{
-		TypeMeta: metav1.TypeMeta{
-			APIVersion: "apps/v1",
-			Kind:       "Deployment",
-		},
+	// A bare pod, not a Deployment: it runs once and is never restarted, so
+	// the session ends with the game (see checkPod).
+	podToCreate.Spec.RestartPolicy = corev1.RestartPolicyNever
+	annotations := maps.Clone(podToCreate.Annotations)
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+	annotations[portBlockAnnotation] = strconv.Itoa(int(session.Status.Ports.HTTP))
+	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      c.deploymentName(session),
-			Namespace: session.Namespace,
-			Annotations: map[string]string{
-				portBlockAnnotation: strconv.Itoa(int(session.Status.Ports.HTTP)),
-			},
-			Labels: map[string]string{
-				"app":           "direwolf-worker",
-				"direwolf/app":  session.Spec.GameReference.Name,
-				"direwolf/user": session.Spec.UserReference.Name,
-			},
-			OwnerReferences: owners,
+			Name:        c.podName(session),
+			Namespace:   session.Namespace,
+			Labels:      podToCreate.Labels,
+			Annotations: annotations,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: v1alpha1.GroupVersion.String(),
+				Kind:       "Session",
+				Name:       session.Name,
+				UID:        session.UID,
+				Controller: new(true),
+			}},
 		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: ptr.To[int32](1),
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"direwolf/app":  session.Spec.GameReference.Name,
-					"direwolf/user": session.Spec.UserReference.Name,
-				},
-			},
-			Strategy: appsv1.DeploymentStrategy{
-				Type: appsv1.RecreateDeploymentStrategyType,
-			},
-			RevisionHistoryLimit:    ptr.To[int32](1),
-			ProgressDeadlineSeconds: ptr.To[int32](10),
-			Template:                podToCreate,
-		},
-	}
-
-	unstructuredDeployment, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&deployment)
-	if err != nil {
-		return fmt.Errorf("failed to convert deployment to unstructured: %s", err)
-	}
-
-	// NOTE: Kinda dumb cuz its just gona get serialized again....
-	// could just use dynamic client
-	var deploymentApplyConfig appsv1ac.DeploymentApplyConfiguration
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredDeployment, &deploymentApplyConfig)
-	if err != nil {
-		return fmt.Errorf("failed to convert unstructured to deployment: %s", err)
-	}
-
-	applied, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Apply(
-		ctx,
-		&deploymentApplyConfig,
-		metav1.ApplyOptions{
-			FieldManager: "direwolf-session-controller-deployment",
-			// The operator owns session Deployments. Without Force, a field
-			// another manager touched (kubectl edit/scale) would make this
-			// re-apply conflict forever, leaving the pod off its port block.
-			Force: true,
-		})
-
-	if err != nil {
-		return fmt.Errorf("failed to apply deployment: %s", err)
-	}
-
-	return c.reconcileAgentToken(ctx, applied)
+		Spec: podToCreate.Spec,
+	}, nil
 }
 
 // func (c *SessionController) reconcileConfigMap(
@@ -1400,7 +1453,7 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 		return nil
 	}
 
-	pvcName := c.deploymentName(session)
+	pvcName := c.pvcName(session)
 	templateSpec := app.Spec.VolumeClaimTemplate.Spec.DeepCopy()
 
 	// Default Access Mode: RWO
@@ -1495,12 +1548,19 @@ func (c *SessionController) reconcilePVC(ctx context.Context, session *v1alpha1t
 
 	return nil
 }
-func (c *SessionController) deploymentName(session *v1alpha1types.Session) string {
+
+// pvcName is per user and App, not per Session: the game's state outlives
+// its sessions.
+func (c *SessionController) pvcName(session *v1alpha1types.Session) string {
 	return fmt.Sprintf("%s-%s", session.Spec.UserReference.Name, session.Spec.GameReference.Name)
 }
 
-// allocatePorts records the session's host port block in its status. Sessions
-// sharing a Deployment share its pod, so the block is keyed by Deployment.
+// podName is the session's own: each Session runs exactly one pod.
+func (c *SessionController) podName(session *v1alpha1types.Session) string {
+	return session.Name
+}
+
+// allocatePorts records the session's host port block in its status.
 func (c *SessionController) allocatePorts(
 	ctx context.Context,
 	session *v1alpha1types.Session,
@@ -1535,14 +1595,16 @@ func (c *SessionController) claimRecordedPorts(sessions []*v1alpha1types.Session
 	}
 }
 
-// portOwner keys a session's port block: its Deployment, namespaced because
-// the node's ports are shared by every namespace the operator watches.
+// portOwner keys a session's port block: its pod, namespaced because the
+// node's ports are shared by every namespace the operator watches.
 func (c *SessionController) portOwner(session *v1alpha1types.Session) string {
-	return session.Namespace + "/" + c.deploymentName(session)
+	return session.Namespace + "/" + c.podName(session)
 }
 
-// releaseUnusedPorts frees the port block of every Deployment no remaining
-// Session refers to.
+// releaseUnusedPorts frees the port block of every pod no remaining Session
+// refers to. A terminating pod may still bind it: the next pod given the block
+// declares the same hostPorts, so the scheduler holds it until the old one is
+// gone.
 func (c *SessionController) releaseUnusedPorts() error {
 	sessions, err := c.SessionInformer.List(labels.Everything())
 	if err != nil {
@@ -1556,33 +1618,26 @@ func (c *SessionController) releaseUnusedPorts() error {
 	return nil
 }
 
-// reconcileActiveStreams calls out to wolf-agent on the running pod to ensure
-// that wolf is configured in the correct state and listening for streams on the
-// correct ports for each session trying to connect to the Pod.
+// reconcileActiveStreams calls out to wolf-agent on the session's pod to keep
+// Wolf's session in step with the Session:
+//   - attach: add a Wolf session for spec.config (first launch, or /resume
+//     after it put the client's new keys there);
+//   - detect the client going away (wolf-agent stops Wolf's session when
+//     Moonlight disconnects), and record it in status.disconnectedAt, starting
+//     the grace period Reconcile ends the session after.
 func (c *SessionController) reconcileActiveStreams(
 	ctx context.Context,
 	session *v1alpha1types.Session,
+	pod *corev1.Pod,
 ) error {
-	deploymentName := c.deploymentName(session)
-
-	// !TODO: Use informer for cache reads instead?
-	deployment, err := c.K8sClient.AppsV1().Deployments(session.Namespace).Get(ctx, deploymentName, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to get deployment: %s", err)
-	}
-
-	if deployment.Status.ObservedGeneration != deployment.Generation ||
-		deployment.Status.ReadyReplicas != deployment.Status.Replicas {
-		return fmt.Errorf("deployment %s/%s not ready (Observed %d, Latest %d) (%d/%d)", session.Namespace, deploymentName, deployment.Status.ObservedGeneration, deployment.Generation, deployment.Status.ReadyReplicas, deployment.Status.Replicas)
-	}
-
-	token, err := c.agentToken(ctx, deployment)
-	if err != nil {
-		return err
+	if pod.Status.Phase != corev1.PodRunning || pod.Status.PodIP == "" || !podReady(pod) {
+		return fmt.Errorf("pod %s/%s not ready (phase %s)", pod.Namespace, pod.Name, pod.Status.Phase)
 	}
 	// The pod is on the host network, so this is also the node IP Moonlight
 	// streams from.
-	podIP, err := c.agentPodIP(ctx, deployment)
+	podIP := pod.Status.PodIP
+
+	token, err := c.agentToken(ctx, session)
 	if err != nil {
 		return err
 	}
@@ -1592,6 +1647,7 @@ func (c *SessionController) reconcileActiveStreams(
 	// In the future it might make sense to just match on ClientID/ClientCertFingerprint
 	// but that is hardcoded for now :)
 	wolfclient := wolfapi.NewClient("https://"+net.JoinHostPort(podIP, strconv.Itoa(int(session.Status.Ports.WolfAgent))), &http.Client{
+		Timeout: wolfAgentTimeout,
 		Transport: &wolfapi.BearerTokenTransport{
 			Token: token,
 			Base: &http.Transport{
@@ -1616,14 +1672,54 @@ func (c *SessionController) reconcileActiveStreams(
 		}
 	}
 
-	if found != (session.Status.WolfSessionID != "") {
-		klog.Infof("Session %s/%s found: %v, status: %v", session.Namespace, session.Name, found, session.Status.WolfSessionID)
-		// Either the session was already added but not in the list, or
-		// the session was already in the list without being added.
-		//
-		// Either scenario is invalid. Delete the session
-		return c.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{})
+	status := &session.Status
+	// spec.config changed since the last attach: /resume brought new keys.
+	resumed := session.Generation > status.AttachedGeneration
+
+	if status.WolfSessionID != "" {
+		if found && !resumed {
+			// Streaming.
+			status.StreamURL = "rtsp://" + net.JoinHostPort(podIP, strconv.Itoa(int(status.Ports.RTSP)))
+			return nil
+		}
+		// The stream we attached is gone: the client disconnected, or
+		// resumed before Wolf noticed, in which case its old stream must go.
+		if resumed {
+			if freshErr := c.confirmFresh(ctx, session); freshErr != nil {
+				return freshErr
+			}
+			if stopErr := wolfclient.StopSession(ctx, status.WolfSessionID); stopErr != nil {
+				klog.Warningf("Session %s/%s: stopping superseded Wolf session %s: %v", session.Namespace, session.Name, status.WolfSessionID, stopErr)
+			}
+		}
+		klog.Infof("Session %s/%s: stream %s ended, keeping the pod for %s", session.Namespace, session.Name, status.WolfSessionID, c.DisconnectGracePeriod)
+		status.WolfSessionID = ""
+		status.StreamURL = ""
+		if status.DisconnectedAt == nil {
+			status.DisconnectedAt = new(metav1.Now())
+		}
 	}
+
+	if found {
+		// Wolf has a stream for our keys that we never recorded. First rule
+		// out a stale cached Session from before our own status write.
+		if freshErr := c.confirmFresh(ctx, session); freshErr != nil {
+			return freshErr
+		}
+		// The status update after AddSession was lost. The stream's ID is
+		// unknown, so it cannot be stopped or adopted: end the session.
+		return c.endSessionErr(ctx, session, "Wolf has an unrecorded stream for it")
+	}
+
+	if status.DisconnectedAt != nil && !resumed {
+		// Waiting for /resume; Reconcile ends the session after the grace
+		// period.
+		return nil
+	}
+	if freshErr := c.confirmFresh(ctx, session); freshErr != nil {
+		return freshErr
+	}
+
 	// Will need this for later
 	app, err := c.AppInformer.Namespaced(session.Namespace).Get(session.Spec.GameReference.Name)
 	if err != nil {
@@ -1725,14 +1821,12 @@ func (c *SessionController) reconcileActiveStreams(
 		if err != nil {
 			return fmt.Errorf("failed to create session: %s", err)
 		}
-		session.Status.WolfSessionID = sessionID
-	} else {
-		//!TODO: Update wolf API to include session ID in list so we can update
-		// these details/validate discrepencies
-		// assert wolf session ID non-empty and matches what we expect
+		status.WolfSessionID = sessionID
+		status.AttachedGeneration = session.Generation
+		status.DisconnectedAt = nil
 	}
 
-	session.Status.StreamURL = "rtsp://" + net.JoinHostPort(podIP, strconv.Itoa(int(session.Status.Ports.RTSP)))
+	status.StreamURL = "rtsp://" + net.JoinHostPort(podIP, strconv.Itoa(int(status.Ports.RTSP)))
 	return nil
 }
 

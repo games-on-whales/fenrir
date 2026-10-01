@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/klog/v2"
 
 	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -784,10 +785,110 @@ func busyResponse(reason string) Response {
 	return Response{StatusCode: busyStatusCode, StatusMessage: reason}
 }
 
+// resumeHandler re-attaches the client to its running session. The operator
+// keeps a session's pod through a client disconnect (its grace period), so the
+// game is still running. The client's new stream keys go into the Session's
+// spec; the operator sees the generation bump and adds a Wolf session for
+// them in the same pod. With no session to resume, this is a fresh launch.
 func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: Wolf API current cannot support a "resume" to reuse the existing
-	// display/controllers. So we relaunch instead :(
-	s.launchHandler(w, r)
+	rikey := r.URL.Query().Get("rikey")
+	rikeyID := r.URL.Query().Get("rikeyid")
+	if rikey == "" || rikeyID == "" {
+		writeErrorResponse(w, 400, errors.New("rikey and rikeyid required"))
+		return
+	}
+	clientIP, err := remoteIP(r)
+	if err != nil {
+		writeErrorResponse(w, 400, err)
+		return
+	}
+	user, ok := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
+	if !ok {
+		writeErrorResponse(w, 401, errors.New("user not found"))
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), s.LaunchTimeout)
+	defer cancel()
+
+	// From the API server, not the informer: the operator may have just
+	// ended the session.
+	sessions, err := s.SessionClient.List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{"direwolf/user": user.Name}).String(),
+	})
+	if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to list sessions: %w", err))
+		return
+	}
+	var session *v1alpha1types.Session
+	for i := range sessions.Items {
+		candidate := &sessions.Items[i]
+		if candidate.DeletionTimestamp == nil &&
+			(session == nil || session.CreationTimestamp.Before(&candidate.CreationTimestamp)) {
+			session = candidate
+		}
+	}
+	if session == nil {
+		klog.Infof("No session to resume for user %s, launching", user.Name)
+		s.launchHandler(w, r)
+		return
+	}
+
+	var generation int64
+	err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		live, getErr := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return fmt.Errorf("failed to get session: %w", getErr)
+		}
+		if live.DeletionTimestamp != nil {
+			return fmt.Errorf("session %s is ending", live.Name)
+		}
+		live.Spec.Config.AESKey = rikey
+		live.Spec.Config.AESIV = rikeyID
+		live.Spec.Config.ClientIP = clientIP
+		updated, updateErr := s.SessionClient.Update(ctx, live, metav1.UpdateOptions{FieldManager: "direwolf-resume"})
+		if updateErr != nil {
+			return fmt.Errorf("failed to update session: %w", updateErr)
+		}
+		// Same keys as before (a retried request): the generation does not
+		// move, so the operator would never re-attach a disconnected stream.
+		if updated.Generation == live.Generation && updated.Status.WolfSessionID == "" {
+			return errors.New("resume reused the previous stream keys; retry the resume")
+		}
+		generation = updated.Generation
+		return nil
+	})
+	if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to resume session %s: %w", session.Name, err))
+		return
+	}
+	klog.Infof("Resuming session %s for user %s", session.Name, user.Name)
+
+	// Wait for the operator to attach the new keys.
+	var streamURL string
+	err = wait.PollUntilContextCancel(ctx, 250*time.Millisecond, true, func(ctx context.Context) (bool, error) {
+		live, getErr := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
+		if getErr != nil {
+			return false, fmt.Errorf("failed to get session: %w", getErr)
+		}
+		if live.Status.AttachedGeneration < generation || live.Status.WolfSessionID == "" || live.Status.StreamURL == "" {
+			return false, nil
+		}
+		streamURL = live.Status.StreamURL
+		return true, nil
+	})
+	if err != nil {
+		writeErrorResponse(w, 500, fmt.Errorf("failed to resume session %s: %w", session.Name, err))
+		return
+	}
+
+	sendXML(w, LaunchResponse{
+		Response: Response{
+			StatusCode: 200,
+		},
+		RTSPSessionURL: streamURL,
+		GameSession:    1,
+	})
 }
 
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {

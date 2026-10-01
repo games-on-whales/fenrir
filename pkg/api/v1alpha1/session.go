@@ -63,15 +63,24 @@ type SessionStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 
-	// The host ports allocated to the session's pod. Freed when the last
-	// Session sharing the pod is deleted.
+	// The host ports allocated to the session's pod. Freed when the Session
+	// is deleted.
 	Ports SessionPorts `json:"ports"`
 
 	// The RTSP url to access the stream.
 	WolfSessionID string `json:"wolfSessionID,omitempty"`
 	StreamURL     string `json:"streamURL,omitempty"`
 
-	DeploymentName string `json:"deploymentName,omitempty"`
+	// The metadata.generation whose spec.config the current (or last) Wolf
+	// session was created from. /resume updates spec.config with the
+	// client's new keys, so a generation above this one asks the operator to
+	// re-attach the running pod.
+	AttachedGeneration int64 `json:"attachedGeneration,omitempty"`
+
+	// When the client's stream went away. The pod is kept for the operator's
+	// disconnect grace period so /resume can re-attach, then the Session is
+	// deleted. Cleared on re-attach.
+	DisconnectedAt *metav1.Time `json:"disconnectedAt,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

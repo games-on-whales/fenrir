@@ -146,9 +146,6 @@ rbac:
         - apiGroups: ["direwolf.games-on-whales.github.io"]
           resources: ["*"]
           verbs: ["*"]
-        - apiGroups: ["apps"]
-          resources: ["deployments"]
-          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
         - apiGroups: [""]
           resources: ["persistentvolumeclaims", "configmaps"]
           verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -156,10 +153,10 @@ rbac:
         - apiGroups: [""]
           resources: ["secrets"]
           verbs: ["get", "create", "delete"]
-        # wolf-agent is reached on its pod IP, not the session Service.
+        # One bare pod per Session (watched for exits; never recreated).
         - apiGroups: [""]
           resources: ["pods"]
-          verbs: ["get", "list"]
+          verbs: ["get", "list", "watch", "create", "delete"]
     moonlight_proxy:
       forceRename: *proxyName
       type: Role

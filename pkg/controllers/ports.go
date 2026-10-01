@@ -12,8 +12,8 @@ import (
 )
 
 // Session pods run with hostNetwork on a shared node IP, so every port a
-// session pod listens on must be unique on that node. Each session Deployment
-// gets one contiguous block, laid out as the offsets below.
+// session pod listens on must be unique on that node. Each session pod gets
+// one contiguous block, laid out as the offsets below.
 //
 // HTTP/HTTPS are in the block although Moonlight never reaches them (it talks
 // to moonlight-proxy): Wolf always binds them, and on the host network two
@@ -31,8 +31,8 @@ const (
 	sessionPortBlockSize
 )
 
-// portBlockAnnotation on a session Deployment records the first port of the
-// block its pod template was built for.
+// portBlockAnnotation on a session pod records the first port of the block it
+// was built for.
 const portBlockAnnotation = "direwolf.games-on-whales.github.io/port-block"
 
 // PortRange is an inclusive range of host ports session blocks are cut from.
@@ -81,9 +81,8 @@ func blockPorts(base int32) v1alpha1types.SessionPorts {
 	}
 }
 
-// portAllocator hands out non-overlapping port blocks, one per owner. The
-// owner is the session Deployment: sessions sharing a Deployment share its pod
-// and therefore its ports. It is safe for concurrent use.
+// portAllocator hands out non-overlapping port blocks, one per owner (a
+// session's pod). It is safe for concurrent use.
 //
 // The allocator is in-memory; the source of truth is Session.status.ports,
 // which the controller replays through Claim on startup.

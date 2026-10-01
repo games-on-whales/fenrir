@@ -385,6 +385,10 @@ func (in *SessionStatus) DeepCopyInto(out *SessionStatus) {
 		}
 	}
 	out.Ports = in.Ports
+	if in.DisconnectedAt != nil {
+		in, out := &in.DisconnectedAt, &out.DisconnectedAt
+		*out = (*in).DeepCopy()
+	}
 	return
 }
 

@@ -124,6 +124,14 @@ spec:
               Session State machine
               Pending -> Initializing -> WaitForPing -> Streaming -> Ended
             properties:
+              attachedGeneration:
+                description: |-
+                  The metadata.generation whose spec.config the current (or last) Wolf
+                  session was created from. /resume updates spec.config with the
+                  client's new keys, so a generation above this one asks the operator to
+                  re-attach the running pod.
+                format: int64
+                type: integer
               conditions:
                 description: Represents the observations of a session's state.
                 items:
@@ -184,12 +192,17 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
-              deploymentName:
+              disconnectedAt:
+                description: |-
+                  When the client's stream went away. The pod is kept for the operator's
+                  disconnect grace period so /resume can re-attach, then the Session is
+                  deleted. Cleared on re-attach.
+                format: date-time
                 type: string
               ports:
                 description: |-
-                  The host ports allocated to the session's pod. Freed when the last
-                  Session sharing the pod is deleted.
+                  The host ports allocated to the session's pod. Freed when the Session
+                  is deleted.
                 properties:
                   audioRTP:
                     format: int32
