@@ -7,10 +7,11 @@ import (
 
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	gateway "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 
 	direwolf "games-on-whales.github.io/direwolf/pkg/generated/clientset/versioned"
-	gateway "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
 )
 
 func GetKubernetesClients() (
@@ -20,18 +21,9 @@ func GetKubernetesClients() (
 	dynamic.Interface,
 	error,
 ) {
-	kubeConfig := os.Getenv("KUBECONFIG")
-	if kubeConfig == "" {
-		// Check exists before setting default
-		defaultPath := filepath.Join(os.Getenv("HOME"), ".kube", "config")
-		if _, err := os.Stat(defaultPath); err == nil {
-			kubeConfig = defaultPath
-		}
-	}
-
-	config, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
+	config, err := GetRESTConfig()
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("error building kubeconfig: %w", err)
+		return nil, nil, nil, nil, err
 	}
 
 	clientset, err := kubernetes.NewForConfig(config)
@@ -55,4 +47,24 @@ func GetKubernetesClients() (
 	}
 
 	return clientset, versionedClient, gatewayClient, dynamicClient, nil
+}
+
+// GetRESTConfig loads $KUBECONFIG, else ~/.kube/config, else the in-cluster
+// config.
+func GetRESTConfig() (*rest.Config, error) {
+	kubeConfig := os.Getenv("KUBECONFIG")
+	if kubeConfig == "" {
+		// Check exists before setting default
+		defaultPath := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		if _, err := os.Stat(defaultPath); err == nil { //nolint:gosec // HOME is our own environment
+			kubeConfig = defaultPath
+		}
+	}
+
+	config, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error building kubeconfig: %w", err)
+	}
+
+	return config, nil
 }

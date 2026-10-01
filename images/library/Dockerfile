@@ -1,6 +1,6 @@
 # Game library desktop: linuxserver's Selkies Steam image plus Heroic Games
-# Launcher (Epic/GOG/Amazon). Served over Selkies behind Authentik, so the
-# built-in Selkies password (PASSWORD/CUSTOM_USER) is deliberately left unset.
+# Launcher (Epic/GOG/Amazon). Served over Selkies behind Authentik via the
+# operator, which sets PASSWORD/CUSTOM_USER at runtime and adds them itself.
 # Run it with /dev/shm as a memory-backed emptyDir: Steam's CEF and Heroic's
 # Electron both fall over on the 64Mi container default.
 FROM lscr.io/linuxserver/steam:latest@sha256:d1c9f2c6d522169f6dcede9b17076c0e31ddbc5f9c4a102562cecddfe2d4ecdb

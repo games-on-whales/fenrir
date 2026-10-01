@@ -68,6 +68,9 @@ Three binaries in `cmd/`, all sharing `pkg/`:
     - Talos labels `kubernetes.io/hostname` with the FQDN (`talos04.xerktech.com`), and talos04
       is tainted `nvidia.com/gpu=present:NoSchedule`; miss either and every pod stays Pending.
   - Gateway API code in `session.go` is commented-out experimentation.
+  - `LibraryController` (`pkg/controllers/library*.go`, off unless `--library-port`) starts the
+    Steam + Heroic Library pod on a page visit, proxies it, and stops it when idle.
+    It and game sessions never run together (shared Steam home); see `.claude/rules/library.md`.
   - Watches session pods (label `direwolf/session=true` only) to re-reconcile their Session.
 - **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to
   Wolf's HTTP API over a mounted unix socket.

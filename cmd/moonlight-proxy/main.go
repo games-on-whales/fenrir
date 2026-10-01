@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"flag"
-	"net/netip"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -56,15 +54,9 @@ func main() {
 	klog.Info("Max concurrent sessions: ", *maxSessions)
 	klog.Info("Namespace: ", *namespace)
 
-	var trustedProxies []netip.Prefix
-	if *pinTrustedProxies != "" {
-		for cidr := range strings.SplitSeq(*pinTrustedProxies, ",") {
-			prefix, err := netip.ParsePrefix(strings.TrimSpace(cidr))
-			if err != nil {
-				klog.Fatalf("Invalid --pin-trusted-proxies entry %q: %s", cidr, err)
-			}
-			trustedProxies = append(trustedProxies, prefix.Masked())
-		}
+	trustedProxies, err := util.ParsePrefixes(*pinTrustedProxies)
+	if err != nil {
+		klog.Fatalf("--pin-trusted-proxies: %s", err)
 	}
 	if *pinPort != 0 && len(trustedProxies) == 0 {
 		klog.Fatal("--pin-port requires --pin-trusted-proxies")
@@ -128,6 +120,7 @@ func main() {
 			Cert:                  tlsCert,
 			LaunchTimeout:         *launchTimeout,
 			MaxConcurrentSessions: *maxSessions,
+			BusyCheck:             moonlight.LibraryBusyCheck(k8sClient.CoreV1().Pods(*namespace)),
 			PinPage: moonlight.PinPageOptions{
 				Port:           *pinPort,
 				TrustedProxies: trustedProxies,

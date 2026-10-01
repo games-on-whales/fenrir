@@ -45,6 +45,12 @@ controllers:
           # talos04 is a GPU node; keep in sync with moonlight_proxy's tolerations.
           - --session-tolerations=nvidia.com/gpu=present:NoSchedule
           - --session-port-range=20000-20999
+          # The Library (on-demand Steam + Heroic desktop) is off unless
+          # --library-port is set; enabling it needs, with service.library:
+          #   --library-port=8080
+          #   --library-trusted-proxies=<ingress controller pod CIDR>
+          #   --library-home-pvc=<shared Steam home PVC>
+          #   --library-games-pvc=<shared game library PVC>
         image:
           repository: ghcr.io/games-on-whales/fenrir/direwolf-operator
           tag: main
@@ -57,6 +63,7 @@ controllers:
           POD_NAMESPACE: "{{ .Release.Namespace }}"
           WOLF_IMAGE: ghcr.io/games-on-whales/wolf:stable
           AGENT_IMAGE: ghcr.io/games-on-whales/fenrir/wolf-agent:main
+          LIBRARY_IMAGE: ghcr.io/games-on-whales/fenrir/library:main
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -114,6 +121,9 @@ controllers:
             memory: 256Mi
 service:
   app:
+    # Keeps the Service named "direwolf" (the cert's dnsNames) when
+    # service.library is enabled too.
+    forceRename: '{{ include "bjw-s.common.lib.chart.names.fullname" $ }}'
     controller: moonlight_proxy
     # Clients reach the proxy on the node IP (hostNetwork), not through this.
     type: ClusterIP
@@ -124,6 +134,15 @@ service:
       https:
         protocol: TCP
         port: 47989
+  # The Library page (operator --library-port). The Ingress points here, behind
+  # Authentik; the operator adds the pod's own basic-auth password.
+  library:
+    enabled: false
+    controller: direwolf_operator
+    ports:
+      http:
+        protocol: TCP
+        port: 8080
 persistence:
   tls-cert:
     type: secret
@@ -149,14 +168,21 @@ rbac:
         - apiGroups: [""]
           resources: ["persistentvolumeclaims", "configmaps"]
           verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-        # Per-session wolf-agent bearer token (create, replace if stale).
+        # Per-session wolf-agent bearer token (create, replace if stale), and
+        # the Library's basic-auth password.
         - apiGroups: [""]
           resources: ["secrets"]
           verbs: ["get", "create", "delete"]
-        # One bare pod per Session (watched for exits; never recreated).
+        # One bare pod per Session (watched for exits; never recreated), and
+        # the Library pod (patch: its last-activity annotation).
         - apiGroups: [""]
           resources: ["pods"]
-          verbs: ["get", "list", "watch", "create", "delete"]
+          verbs: ["get", "list", "watch", "create", "delete", "patch"]
+        # Library idle check (download dirs) and `steam -shutdown`. WebSocket
+        # exec needs get as well as create.
+        - apiGroups: [""]
+          resources: ["pods/exec"]
+          verbs: ["get", "create"]
     moonlight_proxy:
       forceRename: *proxyName
       type: Role
@@ -186,6 +212,23 @@ rbac:
       subjects:
         - identifier: *proxyId
 rawResources:
+  # Only the operator, which sits behind the authenticating Ingress, may reach
+  # the Library desktop. Defence in depth: the pod also demands a password only
+  # the operator knows, as not every CNI enforces NetworkPolicy.
+  library-ingress:
+    apiVersion: networking.k8s.io/v1
+    kind: NetworkPolicy
+    spec:
+      spec:
+        podSelector:
+          matchLabels:
+            direwolf/library: "true"
+        policyTypes: ["Ingress"]
+        ingress:
+          - from:
+              - podSelector:
+                  matchLabels:
+                    app.kubernetes.io/controller: direwolf_operator
   # Create a selfsigned Issuer, in order to create a root CA certificate for signing certificates
   self-signed-issuer:
     apiVersion: cert-manager.io/v1

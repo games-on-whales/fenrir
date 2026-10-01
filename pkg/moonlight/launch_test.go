@@ -394,8 +394,9 @@ func TestLaunchFailureCleanupQueuesForBusySlot(t *testing.T) {
 	f := newLaunchFixture(t, &RESTServerOptions{
 		LaunchTimeout: 400 * time.Millisecond,
 		BusyCheck: func(context.Context) (string, error) {
-			// Call 2 is carol's: she holds the slot while alice fails.
-			if calls.Add(1) == 2 {
+			// Calls 1-2 are alice's (before and after her Create); call 3
+			// is carol's: she holds the slot while alice fails.
+			if calls.Add(1) == 3 {
 				<-release
 				return "held", nil
 			}
@@ -447,8 +448,9 @@ func TestLaunchQueuedBeforeFailureStillDrainsCleanup(t *testing.T) {
 	f := newLaunchFixture(t, &RESTServerOptions{
 		LaunchTimeout: time.Second,
 		BusyCheck: func(context.Context) (string, error) {
-			// Call 2 is carol's: she holds the slot while alice fails.
-			if calls.Add(1) == 2 {
+			// Calls 1-2 are alice's (before and after her Create); call 3
+			// is carol's: she holds the slot while alice fails.
+			if calls.Add(1) == 3 {
 				<-release
 				return "held", nil
 			}
@@ -686,10 +688,14 @@ func TestLaunchCreateErrorDeletesStoredSession(t *testing.T) {
 }
 
 func TestLaunchReadinessWaitSharesLaunchDeadline(t *testing.T) {
+	var slept atomic.Bool
 	f := newLaunchFixture(t, &RESTServerOptions{
 		LaunchTimeout: time.Second,
 		BusyCheck: func(context.Context) (string, error) {
-			time.Sleep(700 * time.Millisecond)
+			// Only the pre-create check is slow.
+			if !slept.Swap(true) {
+				time.Sleep(700 * time.Millisecond)
+			}
 			return "", nil
 		},
 	})

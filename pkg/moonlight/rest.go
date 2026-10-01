@@ -56,8 +56,9 @@ type RESTServerOptions struct {
 	MaxConcurrentSessions int
 
 	// BusyCheck, if set, is consulted on every /launch before the session
-	// limit. A non-empty reason makes the launch fail with the busy error
-	// carrying that reason (e.g. a running Library pod holds the GPU).
+	// limit, and again after the Session is created (backing it out if busy).
+	// A non-empty reason makes the launch fail with the busy error carrying
+	// that reason (e.g. the Library pod holds Steam's single-writer lock).
 	BusyCheck BusyCheck
 
 	// PinPage serves the pairing page on its own listener. Disabled when
@@ -730,7 +731,23 @@ func (s *RESTServer) createSession(ctx context.Context, user *v1alpha1types.User
 
 	session, err := create(ctx)
 	createFailed = err != nil
-	return session, "", err
+	if err != nil || s.BusyCheck == nil {
+		return session, "", err
+	}
+
+	// Check again now the Session exists: whatever BusyCheck guards (the
+	// Library) may have started between the first check and the Create.
+	// It checks for Sessions after creating itself, so whichever side looks
+	// second sees the other. Backing out goes through onCreateError.
+	reason, err := s.BusyCheck(ctx)
+	if err != nil || reason != "" {
+		createFailed = true
+		if err != nil {
+			return nil, "", fmt.Errorf("busy check failed: %w", err)
+		}
+		return nil, reason, nil
+	}
+	return session, "", nil
 }
 
 func (s *RESTServer) queueCleanup(launchID string) {

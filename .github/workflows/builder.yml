@@ -167,6 +167,14 @@ jobs:
           name: image-digest-wolf-agent
           path: agent-artifact
 
+      # The library leg may fail without failing the chart (fail-fast: false).
+      - name: Download image digest artifact (library)
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-digest-library
+          path: library-artifact
+
       - name: Update Helm chart image tags
         uses: mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d # v4.53.3
         env:
@@ -185,6 +193,12 @@ jobs:
             PX_DIGEST="$(cat proxy-artifact/image-digest-moonlight-proxy.txt)"
             yq e -i ".controllers.moonlight_proxy.containers.proxy.image.tag = \\"${REF_NAME}@${PX_DIGEST}\\"" "$VALUES_FILE"
             yq e -i ".controllers.moonlight_proxy.containers.proxy.image.repository = \\"ghcr.io/${{ github.repository_owner }}/fenrir/moonlight-proxy\\"" "$VALUES_FILE"
+
+            LIBRARY_IMAGE="ghcr.io/${{ github.repository_owner }}/fenrir/library:${REF_NAME}"
+            if [ -s library-artifact/image-digest-library.txt ]; then
+              LIBRARY_IMAGE="${LIBRARY_IMAGE}@$(cat library-artifact/image-digest-library.txt)"
+            fi
+            yq e -i ".controllers.direwolf_operator.containers.operator.env.LIBRARY_IMAGE = \\"${LIBRARY_IMAGE}\\"" "$VALUES_FILE"
             
             echo "Updated $VALUES_FILE"
 

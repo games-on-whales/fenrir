@@ -10,3 +10,13 @@ const SessionPodLabel = "direwolf/session"
 
 // SessionPodLabelValue is the value the operator sets for SessionPodLabel.
 const SessionPodLabelValue = "true"
+
+// LibraryPodLabel marks the operator's on-demand Library pod (Steam + Heroic
+// desktop). moonlight-proxy refuses launches while a pod carrying it exists:
+// the Library and game sessions share one Steam home, which has one writer.
+//
+// The value is always LibraryPodLabelValue.
+const LibraryPodLabel = "direwolf/library"
+
+// LibraryPodLabelValue is the value the operator sets for LibraryPodLabel.
+const LibraryPodLabelValue = "true"

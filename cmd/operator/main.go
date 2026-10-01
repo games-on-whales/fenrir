@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -44,6 +45,17 @@ func main() {
 		"Comma-separated taints (key[=value]:Effect) session pods tolerate, e.g. nvidia.com/gpu=present:NoSchedule")
 	disconnectGracePeriod := flag.Duration("disconnect-grace-period", 10*time.Minute,
 		"How long a session's pod is kept after its Moonlight client disconnects, so /resume can re-attach")
+	libraryPort := flag.Int("library-port", 0,
+		"Port for the Library page, reached only through the authenticating Ingress. 0 disables the Library")
+	libraryTrustedProxies := flag.String("library-trusted-proxies", "",
+		"Comma-separated CIDRs of the Ingress controller, the only peers allowed to the Library page. Required with --library-port")
+	libraryImage := flag.String("library-image", cmp.Or(os.Getenv("LIBRARY_IMAGE"), "ghcr.io/games-on-whales/fenrir/library:main"),
+		"Library (Steam + Heroic desktop) image")
+	libraryHomePVC := flag.String("library-home-pvc", "", "PVC holding the shared Steam home. Required with --library-port")
+	libraryGamesPVC := flag.String("library-games-pvc", "", "PVC holding the shared game library. Required with --library-port")
+	libraryGamesPath := flag.String("library-games-path", "/games", "Where the Library mounts the game library")
+	libraryIdleTimeout := flag.Duration("library-idle-timeout", controllers.DefaultLibraryIdleTimeout,
+		"How long the Library may go without browser traffic (and with nothing downloading) before it is stopped")
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -64,6 +76,32 @@ func main() {
 		klog.Fatalf("--disconnect-grace-period must not be negative, got %s", *disconnectGracePeriod)
 	}
 
+	libraryTrusted, err := util.ParsePrefixes(*libraryTrustedProxies)
+	if err != nil {
+		klog.Fatalf("--library-trusted-proxies: %v", err)
+	}
+	if *libraryPort != 0 && (len(libraryTrusted) == 0 || *libraryHomePVC == "" || *libraryGamesPVC == "") {
+		klog.Fatal("--library-port requires --library-trusted-proxies, --library-home-pvc and --library-games-pvc")
+	}
+	if *libraryPort < 0 || *libraryPort > 65535 {
+		klog.Fatalf("--library-port must be 0-65535, got %d", *libraryPort)
+	}
+	for _, p := range libraryTrusted {
+		if p.Bits() == 0 {
+			klog.Fatalf("--library-trusted-proxies: %s would trust every peer", p)
+		}
+	}
+	if pathErr := controllers.ValidateLibraryGamesPath(*libraryGamesPath); *libraryPort != 0 && pathErr != nil {
+		klog.Fatalf("--library-games-path: %v", pathErr)
+	}
+	if *libraryIdleTimeout <= 0 {
+		klog.Fatalf("--library-idle-timeout must be positive, got %s", *libraryIdleTimeout)
+	}
+
+	restConfig, err := util.GetRESTConfig()
+	if err != nil {
+		klog.Fatal("Error getting Kubernetes config", err)
+	}
 	k8sClient, direwolfClient, gatewayClient, _, err := util.GetKubernetesClients()
 	if err != nil {
 		klog.Fatal("Error getting Kubernetes clients", err)
@@ -91,8 +129,22 @@ func main() {
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
 
+	// The Library pod, apart from session pods: the nri-input plugin hands
+	// input devices to anything carrying the session label.
+	libraryFactory := informers.NewSharedInformerFactoryWithOptions(
+		k8sClient, 15*time.Minute, informers.WithNamespace(*namespace),
+		informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+			o.LabelSelector = labels.SelectorFromSet(labels.Set{
+				direwolfv1alpha1.LibraryPodLabel: direwolfv1alpha1.LibraryPodLabelValue,
+			}).String()
+		}))
+	libraryPodInformer := libraryFactory.Core().V1().Pods().Informer()
+	libraryFactory.Start(appContext.Done())
+	defer libraryFactory.Shutdown()
+
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
+	libraryFactory.WaitForCacheSync(appContext.Done())
 
 	// Run a leader election so that only one instance of operator is running
 	// at a time in the cluster for a single namespace.
@@ -129,6 +181,39 @@ func main() {
 		},
 	)
 
+	var libraryController *controllers.LibraryController
+	if *libraryPort != 0 {
+		libraryController = controllers.NewLibraryController(
+			*namespace,
+			k8sClient,
+			direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
+			generic.NewInformer[*corev1.Pod](libraryPodInformer),
+			controllers.NewPodExecutor(restConfig, k8sClient),
+			controllers.LibraryControllerOptions{
+				Image:        *libraryImage,
+				HomePVC:      *libraryHomePVC,
+				GamesPVC:     *libraryGamesPVC,
+				GamesPath:    *libraryGamesPath,
+				NodeSelector: nodeSelector,
+				Tolerations:  tolerations,
+				IdleTimeout:  *libraryIdleTimeout,
+			},
+		)
+		// Every replica serves the page (activity is recorded on the pod);
+		// only the leader runs the idle check.
+		libraryServer := controllers.NewLibraryServer(
+			libraryController,
+			generic.NewLister[*corev1.Pod](libraryPodInformer.GetIndexer()).Namespaced(*namespace),
+			libraryTrusted,
+		)
+		go func() {
+			if err := libraryServer.Run(appContext, *libraryPort); err != nil {
+				klog.Errorf("Library server failed: %v", err)
+				appCancel()
+			}
+		}()
+	}
+
 	leaderelection.RunOrDie(appContext, leaderelection.LeaderElectionConfig{
 		Lock:          lock,
 		LeaseDuration: 15 * time.Second,
@@ -137,6 +222,15 @@ func main() {
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				klog.Info("started leading")
+				if libraryController != nil {
+					go func() {
+						err := libraryController.Run(appContext)
+						if err != nil && !errors.Is(err, context.Canceled) {
+							klog.Errorf("error running library controller: %v", err)
+							appCancel()
+						}
+					}()
+				}
 				err := sessionController.Run(appContext)
 				if err != nil && !errors.Is(err, context.Canceled) {
 					klog.Errorf("error running session controller: %v", err)
