@@ -89,6 +89,8 @@ controllers:
         args:
           - --tls-cert=/etc/certs/tls.crt
           - --tls-key=/etc/certs/tls.key
+          # One GPU: a second user's /launch gets Moonlight's busy error.
+          - --max-concurrent-sessions=1
         image:
           repository: ghcr.io/games-on-whales/fenrir/moonlight-proxy
           tag: main

@@ -24,6 +24,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	utilrand "k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 
@@ -41,9 +42,20 @@ type RESTServerOptions struct {
 	// LaunchTimeout is how long /launch will wait for the operator to create a
 	// session and populate its stream URL before giving up. A cold start (image
 	// pull, wolf boot, wolf-agent readiness) can take longer than the default,
-	// so this is exposed as a knob instead of hard-coded. Defaults to 60s if
-	// unset.
+	// so this is exposed as a knob instead of hard-coded. Defaults to
+	// DefaultLaunchTimeout if unset.
 	LaunchTimeout time.Duration
+
+	// MaxConcurrentSessions caps how many users may stream at once (the node
+	// has one GPU). A /launch that would exceed it gets Moonlight's "busy"
+	// error instead of a Session. The caller's own sessions don't count: a
+	// relaunch replaces them. Defaults to 1 if unset; negative means no limit.
+	MaxConcurrentSessions int
+
+	// BusyCheck, if set, is consulted on every /launch before the session
+	// limit. A non-empty reason makes the launch fail with the busy error
+	// carrying that reason (e.g. a running Library pod holds the GPU).
+	BusyCheck BusyCheck
 
 	// PinPage serves the pairing page on its own listener. Disabled when
 	// PinPage.Port is 0; there is deliberately no fallback onto Port, which
@@ -54,6 +66,29 @@ type RESTServerOptions struct {
 	// tests.
 	shutdownTimeout time.Duration
 }
+
+// BusyCheck reports whether something outside the Session count occupies the
+// host. It returns a human-readable reason when busy, "" when free.
+type BusyCheck func(ctx context.Context) (reason string, err error)
+
+// ClientLaunchTimeout is how long moonlight-qt waits for /launch before giving
+// up on its own. LaunchTimeout must stay below it.
+const ClientLaunchTimeout = 120 * time.Second
+
+// DefaultLaunchTimeout sits under ClientLaunchTimeout, so the client sees our
+// error rather than its own generic timeout.
+const DefaultLaunchTimeout = 100 * time.Second
+
+// launchSlotTimeout bounds the API calls made while holding launchSlot, so a
+// stalled API server can't block every launch indefinitely.
+const launchSlotTimeout = 30 * time.Second
+
+// busyStatusCode/busyMessage mirror what Sunshine sends when an app is
+// already running, so clients show a familiar error.
+const (
+	busyStatusCode = 400
+	busyMessage    = "An app is already running on this host"
+)
 
 type RESTServer struct {
 	router       *http.ServeMux
@@ -69,6 +104,16 @@ type RESTServer struct {
 
 	SessionClient v1alpha1client.SessionInterface
 
+	// launchSlot (capacity 1) serializes the busy check with Session
+	// creation so two concurrent launches can't both pass the limit. A channel
+	// rather than a mutex so a waiter can give up when its client does.
+	launchSlot chan struct{}
+
+	// pendingCleanups holds launch IDs of failed launches whose Sessions
+	// are still to be deleted. Drained only while holding launchSlot.
+	cleanupMu       sync.Mutex
+	pendingCleanups []string
+
 	RESTServerOptions
 }
 
@@ -83,7 +128,10 @@ func NewRESTServer(
 	opts RESTServerOptions,
 ) *RESTServer {
 	if opts.LaunchTimeout <= 0 {
-		opts.LaunchTimeout = 60 * time.Second
+		opts.LaunchTimeout = DefaultLaunchTimeout
+	}
+	if opts.MaxConcurrentSessions == 0 {
+		opts.MaxConcurrentSessions = 1
 	}
 
 	ps := &RESTServer{
@@ -96,6 +144,7 @@ func NewRESTServer(
 		SessionLister:     sessionLister,
 		PodLister:         podsLister,
 		SessionClient:     sessionClient,
+		launchSlot:        make(chan struct{}, 1),
 		RESTServerOptions: opts,
 	}
 
@@ -477,63 +526,92 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
 	pairing := r.Context().Value(pairingContextKey{}).(*v1alpha1types.Pairing)
 
-	//!TOOD: May want to wait here, since we need the Service to stop pointing
-	// at the old pod. It is very likely to happen before operator syncs and
-	// can create session, but perhaps should still check after operator returns
-	// the session URL.
-	if err := s.stopSessionsForUser(user, false); err != nil && !k8serrors.IsNotFound(err) {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to stop existing sessions: %s", err))
+	// One deadline for the whole launch (queueing for the slot, the slot
+	// work and the readiness wait), so the client always gets our answer
+	// before its own ClientLaunchTimeout fires.
+	launchCtx, cancelLaunch := context.WithTimeout(r.Context(), s.LaunchTimeout)
+	defer cancelLaunch()
+
+	// Tags the Session so a failed Create whose object was stored anyway
+	// (e.g. the response timed out) can still be found and removed.
+	launchID := utilrand.String(16)
+
+	session, busyReason, err := s.createSession(launchCtx, user, func(ctx context.Context) (*v1alpha1types.Session, error) {
+		//!TOOD: May want to wait here, since we need the Service to stop pointing
+		// at the old pod. It is very likely to happen before operator syncs and
+		// can create session, but perhaps should still check after operator returns
+		// the session URL.
+		if stopErr := s.stopSessionsForUser(ctx, user, false); stopErr != nil && !k8serrors.IsNotFound(stopErr) {
+			return nil, fmt.Errorf("failed to stop existing sessions: %w", stopErr)
+		}
+
+		klog.Infof("Launching app %s for user %s", app.Name, user.Name)
+		return s.SessionClient.Create(
+			ctx,
+			&v1alpha1types.Session{
+				ObjectMeta: metav1.ObjectMeta{
+					GenerateName: fmt.Sprintf("%s-%s-", user.Name, app.Name),
+					Namespace:    pairing.Namespace,
+					Labels: map[string]string{
+						"direwolf":      "true",
+						"direwolf/app":  app.Name,
+						"direwolf/user": user.Name,
+						launchIDLabel:   launchID,
+					},
+					Annotations: map[string]string{
+						"direwolf/pairing": pairing.Name,
+					},
+				},
+				Spec: v1alpha1types.SessionSpec{
+					GameReference: v1alpha1types.GameReference{
+						Name: app.Name,
+					},
+					PairingReference: v1alpha1types.PairingReference{
+						Name: pairing.Name,
+					},
+					UserReference: v1alpha1types.UserReference{
+						Name: user.Name,
+					},
+					//!TODO: Unused. v1alpha2 Gateway types are not widely supported
+					GatewayReference: v1alpha1types.GatewayReference{
+						Name:      "unused",
+						Namespace: "unused",
+					},
+					Config: v1alpha1types.SessionInfo{
+						ClientIP:           clientIP,
+						AESIV:              rikeyID,
+						AESKey:             rikey,
+						SurroundAudioFlags: surroundFlags,
+						VideoWidth:         width,
+						VideoHeight:        height,
+						VideoRefreshRate:   refreshRate,
+					},
+				},
+			},
+			metav1.CreateOptions{
+				FieldManager: "direwolf-launch",
+			},
+		)
+	}, func() {
+		// The Create may have been stored even though it errored (e.g. the
+		// response timed out); remove it before the next launch counts it.
+		// Detached: the launch's deadline has usually passed by now.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(launchCtx), launchSlotTimeout)
+		defer cancel()
+		if cleanupErr := s.deleteLaunch(ctx, launchID); cleanupErr != nil {
+			klog.Errorf("Failed to clean up failed launch %s: %s", launchID, cleanupErr)
+		}
+	})
+	if busyReason != "" {
+		klog.Infof("Refusing launch of app %s for user %s: %s", app.Name, user.Name, busyReason)
+		// HTTP 200 with the error in the XML status, as Sunshine does:
+		// moonlight-qt treats a non-2xx HTTP status as a transport error and
+		// would not show the message.
+		sendXMLWithHTTPStatus(w, http.StatusOK, busyResponse(busyReason))
 		return
 	}
-
-	klog.Infof("Launching app %s for user %s", app.ObjectMeta.Name, user.ObjectMeta.Name)
-	session, err := s.SessionClient.Create(
-		r.Context(),
-		&v1alpha1types.Session{
-			ObjectMeta: metav1.ObjectMeta{
-				GenerateName: fmt.Sprintf("%s-%s-", user.Name, app.Name),
-				Namespace:    pairing.Namespace,
-				Labels: map[string]string{
-					"direwolf":      "true",
-					"direwolf/app":  app.ObjectMeta.Name,
-					"direwolf/user": user.ObjectMeta.Name,
-				},
-				Annotations: map[string]string{
-					"direwolf/pairing": pairing.ObjectMeta.Name,
-				},
-			},
-			Spec: v1alpha1types.SessionSpec{
-				GameReference: v1alpha1types.GameReference{
-					Name: app.ObjectMeta.Name,
-				},
-				PairingReference: v1alpha1types.PairingReference{
-					Name: pairing.ObjectMeta.Name,
-				},
-				UserReference: v1alpha1types.UserReference{
-					Name: user.ObjectMeta.Name,
-				},
-				//!TODO: Unused. v1alpha2 Gateway types are not widely supported
-				GatewayReference: v1alpha1types.GatewayReference{
-					Name:      "unused",
-					Namespace: "unused",
-				},
-				Config: v1alpha1types.SessionInfo{
-					ClientIP:           clientIP,
-					AESIV:              rikeyID,
-					AESKey:             rikey,
-					SurroundAudioFlags: surroundFlags,
-					VideoWidth:         width,
-					VideoHeight:        height,
-					VideoRefreshRate:   refreshRate,
-				},
-			},
-		},
-		metav1.CreateOptions{
-			FieldManager: "direwolf-launch",
-		},
-	)
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to create session: %s", err))
+		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %w", err))
 		return
 	}
 
@@ -542,11 +620,11 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	// The budget must absorb a cold start of the session pod: image pulls
 	// (multi-GB app images), wolf boot and wolf-agent readiness easily take
 	// 30-60s, while 25s aborted every first launch (the client then cancels
-	// and the half-started session is torn down). The poll is bound to
+	// and the half-started session is torn down). launchCtx derives from
 	// r.Context(), so if the Moonlight client gives up and disconnects the
 	// wait is cancelled early regardless of this timeout.
 	var streamURL string
-	err = wait.PollUntilContextTimeout(r.Context(), 250*time.Millisecond, s.LaunchTimeout, true, func(ctx context.Context) (bool, error) {
+	err = wait.PollUntilContextCancel(launchCtx, 250*time.Millisecond, true, func(ctx context.Context) (bool, error) {
 		session, err := s.SessionClient.Get(ctx, session.Name, metav1.GetOptions{})
 		if err != nil {
 			return false, err
@@ -559,7 +637,22 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return true, nil
 	})
 	if err != nil {
-		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %s", err))
+		// Don't leave a Session that never became ready: it would count
+		// against the session limit and lock every other user out until
+		// its owner cancels. Queued before answering, so whichever launch
+		// takes the slot next removes it before counting; and in the
+		// background, since moonlight-qt waits for the whole response and a
+		// slow cleanup must not hold it past the client's own timeout.
+		s.queueCleanup(launchID)
+		go func() {
+			s.launchSlot <- struct{}{}
+			defer func() { <-s.launchSlot }()
+			// Detached and bounded: launchCtx is done by now.
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(launchCtx), launchSlotTimeout)
+			defer cancel()
+			s.drainCleanups(ctx)
+		}()
+		writeErrorResponse(w, 500, fmt.Errorf("failed to launch app: %w", err))
 		return
 	}
 
@@ -572,6 +665,125 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// createSession runs create unless the host is busy for user, in which case
+// it returns a non-empty reason and create is not called. The check and the
+// create happen under launchSlot so the session limit holds under concurrency.
+//
+// If create fails, onCreateError runs in the background while the slot is
+// still held, so the next launch can't count a half-created Session, and the
+// caller can answer its client without waiting for the cleanup.
+func (s *RESTServer) createSession(ctx context.Context, user *v1alpha1types.User, create func(ctx context.Context) (*v1alpha1types.Session, error), onCreateError func()) (*v1alpha1types.Session, string, error) {
+	select {
+	case s.launchSlot <- struct{}{}:
+	case <-ctx.Done():
+		return nil, "", fmt.Errorf("waiting for a launch slot: %w", ctx.Err())
+	}
+	createFailed := false
+	defer func() {
+		if !createFailed {
+			<-s.launchSlot
+			return
+		}
+		go func() {
+			defer func() { <-s.launchSlot }()
+			onCreateError()
+		}()
+	}()
+
+	ctx, cancel := context.WithTimeout(ctx, launchSlotTimeout)
+	defer cancel()
+
+	// A failed launch's Session must be gone before we count.
+	s.drainCleanups(ctx)
+
+	if s.BusyCheck != nil {
+		reason, err := s.BusyCheck(ctx)
+		if err != nil {
+			return nil, "", fmt.Errorf("busy check failed: %w", err)
+		}
+		if reason != "" {
+			return nil, reason, nil
+		}
+	}
+
+	if s.MaxConcurrentSessions > 0 {
+		// Read from the API server, not the informer: a session created by the
+		// previous holder of launchMu may not have reached the cache yet.
+		sessions, err := s.SessionClient.List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to list sessions: %w", err)
+		}
+		// The limit is on users streaming, not Session objects.
+		others := map[string]struct{}{}
+		for _, session := range sessions.Items {
+			if session.Spec.UserReference.Name != user.Name {
+				others[session.Spec.UserReference.Name] = struct{}{}
+			}
+		}
+		if len(others) >= s.MaxConcurrentSessions {
+			return nil, busyMessage, nil
+		}
+	}
+
+	session, err := create(ctx)
+	createFailed = err != nil
+	return session, "", err
+}
+
+func (s *RESTServer) queueCleanup(launchID string) {
+	s.cleanupMu.Lock()
+	defer s.cleanupMu.Unlock()
+	s.pendingCleanups = append(s.pendingCleanups, launchID)
+}
+
+// drainCleanups deletes the Sessions of queued failed launches. The caller
+// must hold launchSlot. It stops when ctx is done and leaves what it didn't
+// finish queued for the next slot holder, so it never outlasts the caller's
+// own budget.
+func (s *RESTServer) drainCleanups(ctx context.Context) {
+	s.cleanupMu.Lock()
+	ids := s.pendingCleanups
+	s.pendingCleanups = nil
+	s.cleanupMu.Unlock()
+
+	for i, id := range ids {
+		err := s.deleteLaunch(ctx, id)
+		if err != nil && ctx.Err() != nil {
+			s.cleanupMu.Lock()
+			s.pendingCleanups = append(s.pendingCleanups, ids[i:]...)
+			s.cleanupMu.Unlock()
+			return
+		}
+		if err != nil {
+			// Not retried; the operator's unstarted-session reaper is the backstop.
+			klog.Errorf("Failed to clean up failed launch %s: %s", id, err)
+		}
+	}
+}
+
+// launchIDLabel marks a Session with the /launch request that created it.
+const launchIDLabel = "direwolf/launch-id"
+
+// deleteLaunch removes the Session(s) created by one /launch.
+func (s *RESTServer) deleteLaunch(ctx context.Context, launchID string) error {
+	sessions, err := s.SessionClient.List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{launchIDLabel: launchID}).String(),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to list sessions: %w", err)
+	}
+	for _, session := range sessions.Items {
+		if err := s.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{}); err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete session %s: %w", session.Name, err)
+		}
+	}
+	return nil
+}
+
+func busyResponse(reason string) Response {
+	return Response{StatusCode: busyStatusCode, StatusMessage: reason}
+}
+
 func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Wolf API current cannot support a "resume" to reuse the existing
 	// display/controllers. So we relaunch instead :(
@@ -581,7 +793,10 @@ func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {
 func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	user := r.Context().Value(userContextKey{}).(*v1alpha1types.User)
 
-	err := s.stopSessionsForUser(user, true)
+	// Detached from r.Context(): finish the cancel even if the client hangs up.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), launchSlotTimeout)
+	defer cancel()
+	err := s.stopSessionsForUser(ctx, user, true)
 	if err != nil && !k8serrors.IsNotFound(err) {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to cancel session: %s", err))
 		return
@@ -589,18 +804,20 @@ func (s *RESTServer) cancelHandler(w http.ResponseWriter, r *http.Request) {
 	sendXML(w, Response{StatusCode: 200})
 }
 
-func (s *RESTServer) stopSessionsForUser(user *v1alpha1types.User, shouldWait bool) error {
-	sessions, err := s.SessionLister.List(labels.SelectorFromSet(labels.Set{
-		"direwolf/user": user.Name,
-	}))
+func (s *RESTServer) stopSessionsForUser(ctx context.Context, user *v1alpha1types.User, shouldWait bool) error {
+	// Live List, not the informer: a Session this user created moments ago
+	// (a quick relaunch) may not be cached yet and would be left running.
+	sessions, err := s.SessionClient.List(ctx, metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(labels.Set{"direwolf/user": user.Name}).String(),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to list sessions: %w", err)
 	}
 
 	didDelete := false
-	for _, session := range sessions {
-		if err := s.SessionClient.Delete(context.Background(), session.Name, metav1.DeleteOptions{}); err != nil {
-			return fmt.Errorf("failed to delete session: %w", err)
+	for _, session := range sessions.Items {
+		if delErr := s.SessionClient.Delete(ctx, session.Name, metav1.DeleteOptions{}); delErr != nil {
+			return fmt.Errorf("failed to delete session: %w", delErr)
 		}
 		didDelete = true
 	}
@@ -689,6 +906,10 @@ func writeErrorResponse(w http.ResponseWriter, status int, err error) {
 }
 
 func sendXML(w http.ResponseWriter, resp Responsable) {
+	sendXMLWithHTTPStatus(w, resp.GetStatusCode(), resp)
+}
+
+func sendXMLWithHTTPStatus(w http.ResponseWriter, httpStatus int, resp Responsable) { //nolint:misspell // existing type name
 	bytes, err := xml.Marshal(resp)
 	if err != nil {
 		writeErrorResponse(w, 500, fmt.Errorf("failed to marshal XML: %s", err))
@@ -696,7 +917,7 @@ func sendXML(w http.ResponseWriter, resp Responsable) {
 	}
 
 	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(resp.GetStatusCode())
+	w.WriteHeader(httpStatus)
 	w.Write([]byte(xml.Header))
 	w.Write(bytes)
 

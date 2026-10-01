@@ -31,7 +31,8 @@ func main() {
 	serverKeyPath := flag.String("tls-key", "server.key", "Path to server key")
 	port := flag.Int("port", 47989, "Port to listen on")
 	securePort := flag.Int("secure-port", 47984, "Secure port to listen on")
-	launchTimeout := flag.Duration("launch-timeout", 60*time.Second, "How long to wait for a session to become ready when launching an app (cold starts may need more time)")
+	launchTimeout := flag.Duration("launch-timeout", moonlight.DefaultLaunchTimeout, "How long to wait for a session to become ready when launching an app (must be under moonlight-qt's 120s launch timeout)")
+	maxSessions := flag.Int("max-concurrent-sessions", 1, "How many users may stream at once; further launches get Moonlight's busy error (-1 = unlimited)")
 	pinPort := flag.Int("pin-port", 0, "Port for the pairing page, to be reached only through the Authentik outpost. 0 disables it")
 	pinTrustedProxies := flag.String("pin-trusted-proxies", "", "Comma-separated CIDRs of the proxy allowed to assert the user via --pin-user-header. Required with --pin-port")
 	pinUserHeader := flag.String("pin-user-header", moonlight.DefaultPinUserHeader, "Header carrying the authenticated username; must match a User name")
@@ -39,12 +40,20 @@ func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
 
+	if *launchTimeout <= 0 || *launchTimeout >= moonlight.ClientLaunchTimeout {
+		klog.Fatalf("--launch-timeout must be > 0 and < %s (moonlight-qt's own launch timeout)", moonlight.ClientLaunchTimeout)
+	}
+	if *maxSessions == 0 || *maxSessions < -1 {
+		klog.Fatal("--max-concurrent-sessions must be >= 1, or -1 for unlimited")
+	}
+
 	klog.Info("Starting moonlight-proxy")
 	klog.Info("TLS Cert: ", *serverCertPath)
 	klog.Info("TLS Key: ", *serverKeyPath)
 	klog.Info("Port: ", *port)
 	klog.Info("Secure Port: ", *securePort)
 	klog.Info("Launch timeout: ", *launchTimeout)
+	klog.Info("Max concurrent sessions: ", *maxSessions)
 	klog.Info("Namespace: ", *namespace)
 
 	var trustedProxies []netip.Prefix
@@ -114,10 +123,11 @@ func main() {
 		generic.NewLister[*v1.Pod](podInformer.GetIndexer()).Namespaced(*namespace),
 		direwolfClient.DirewolfV1alpha1().Sessions(*namespace),
 		moonlight.RESTServerOptions{
-			Port:          *port,
-			SecurePort:    *securePort,
-			Cert:          tlsCert,
-			LaunchTimeout: *launchTimeout,
+			Port:                  *port,
+			SecurePort:            *securePort,
+			Cert:                  tlsCert,
+			LaunchTimeout:         *launchTimeout,
+			MaxConcurrentSessions: *maxSessions,
 			PinPage: moonlight.PinPageOptions{
 				Port:           *pinPort,
 				TrustedProxies: trustedProxies,

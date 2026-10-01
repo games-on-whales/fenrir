@@ -43,6 +43,13 @@ import (
 	gatewayv1alpha2 "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned/typed/apis/v1alpha2"
 )
 
+// unstartedSessionTTL is how long a Session may go without a Wolf session
+// before it's reaped. It must outlast moonlight-proxy's --launch-timeout
+// (capped below moonlight-qt's 120s): cold starts (image pull,
+// wolf boot) set WolfSessionID late, and reaping earlier would kill a launch
+// the client is still waiting on.
+const unstartedSessionTTL = 3 * time.Minute
+
 var (
 	WOLF_IMAGE = func() string {
 		if im := os.Getenv("WOLF_IMAGE"); im != "" {
@@ -253,8 +260,8 @@ func (c *SessionController) Reconcile(namespace, name string, newObj *v1alpha1ty
 			delete(c.trackedGames, name)
 		}
 		return c.releaseUnusedPorts()
-	} else if newObj.Status.WolfSessionID == "" && newObj.CreationTimestamp.Add(1*time.Minute).Before(time.Now()) {
-		klog.Infof("Session %s/%s is older than 1 minute and has no wolf session ID, deleting", newObj.Namespace, newObj.Name)
+	} else if newObj.Status.WolfSessionID == "" && newObj.CreationTimestamp.Add(unstartedSessionTTL).Before(time.Now()) {
+		klog.Infof("Session %s/%s is older than %s and has no wolf session ID, deleting", newObj.Namespace, newObj.Name, unstartedSessionTTL)
 		err := c.SessionClient.Delete(context.TODO(), newObj.Name, metav1.DeleteOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			klog.Errorf("Failed to delete session %s/%s: %v", newObj.Namespace, newObj.Name, err)

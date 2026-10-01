@@ -31,3 +31,8 @@ charts/*/crds/
 charts/*/charts/
 
 packaged/
+# `go build ./cmd/<name>` output at the repo root
+/operator
+/moonlight-proxy
+/wolf-agent
+/nri-input
