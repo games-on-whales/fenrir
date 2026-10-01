@@ -73,13 +73,16 @@ func TestAgentEventLoopOmitsEventData(t *testing.T) {
 	}
 	data := []byte(`{"aes_key":"SECRETKEY0123","aes_iv":"SECRETIV42"}`)
 	client.events <- &sse.Event{Event: []byte("StreamSession"), Data: data}
-	// A second event is only received once the first has been logged.
 	client.events <- &sse.Event{Event: []byte("Done")}
+	// Closing ends the event loop after it logs "Event channel closed". Seeing
+	// that line (through lockedBuffer's mutex) orders all of the loop's klog
+	// flag reads before Cleanup resets the flags, which would race otherwise.
+	close(client.events)
 
 	var logged string
 	for range 200 {
 		klog.Flush()
-		if logged = out.String(); strings.Contains(logged, "Done") {
+		if logged = out.String(); strings.Contains(logged, "Event channel closed") {
 			break
 		}
 		time.Sleep(5 * time.Millisecond)
