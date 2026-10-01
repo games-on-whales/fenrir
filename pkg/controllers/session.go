@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
+	"path"
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -1042,6 +1044,9 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 			if err := validateVolumeMounts(policies.WolfAgent.VolumeMounts, validVolumes, "wolfAgent"); err != nil {
 				return nil, err
 			}
+			if err := validateNoHotplugOverride(policies.WolfAgent.VolumeMounts); err != nil {
+				return nil, err
+			}
 			wolfAgentEnv = policies.WolfAgent.Env
 			// klog.debug("User defined env vars: %+v", wolfAgentEnv)
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
@@ -1101,6 +1106,12 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 		maps.Copy(podToCreate.Spec.NodeSelector, c.SessionNodeSelector)
 	}
 	podToCreate.Spec.Tolerations = append(podToCreate.Spec.Tolerations, c.SessionTolerations...)
+
+	// The App's containers only: they see hotplugged controllers.
+	for i := range podToCreate.Spec.Containers {
+		ctr := &podToCreate.Spec.Containers[i]
+		ctr.VolumeMounts = withHotplugMounts(ctr.VolumeMounts)
+	}
 
 	podToCreate.Spec.Containers = append(podToCreate.Spec.Containers,
 		corev1.Container{
@@ -1196,7 +1207,7 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 					MountPath: wolfAgentTokenMountPath,
 					ReadOnly:  true,
 				},
-			}, wolfAgentVolumeMounts...),
+			}, withHotplugMounts(wolfAgentVolumeMounts)...),
 		},
 		corev1.Container{
 			Name:  "pulseaudio",
@@ -1310,6 +1321,14 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 		corev1.Volume{
 			Name:         "wolf-data",
 			VolumeSource: wolfDataVolumeSource,
+		},
+		corev1.Volume{
+			Name:         hotplugDevVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		},
+		corev1.Volume{
+			Name:         hotplugUdevVolume,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
 		},
 		// Created by reconcileAgentToken before the pod.
 		corev1.Volume{
@@ -1556,6 +1575,57 @@ func (c *SessionController) pvcName(session *v1alpha1types.Session) string {
 }
 
 // podName is the session's own: each Session runs exactly one pod.
+// Volumes through which wolf-agent hands hotplugged controllers to the App's
+// containers: it mknods their /dev/input nodes into one and writes their udev
+// database entries into the other (pkg/fakeudev). A device node in an
+// emptyDir opens like one in /dev: the device cgroup, granted by
+// cmd/nri-input, is what decides.
+const (
+	hotplugDevVolume  = "direwolf-dev-input"
+	hotplugUdevVolume = "direwolf-udev"
+)
+
+// validateNoHotplugOverride rejects wolf-agent mounts at or under the hotplug
+// paths: wolf-agent would then mknod into (and clear) something other than
+// what the App's containers see, such as the host's /dev/input.
+//
+// It catches misconfiguration, not a hostile User: a User can already mount
+// hostPath volumes into sidecars. Paths are compared as strings, so only the
+// image's known alias of /run (Alpine's /var/run symlink) is covered too.
+func validateNoHotplugOverride(mounts []corev1.VolumeMount) error {
+	udevDir := path.Dir(UdevDataPath)
+	for _, m := range mounts {
+		p := mountTarget(&m)
+		for _, reserved := range []string{InputDevPath, udevDir, "/var" + udevDir} {
+			if p == reserved || strings.HasPrefix(p, reserved+"/") {
+				return fmt.Errorf("validation failed: volumeMount %q in wolfAgent sidecar policy mounts over %s, which the operator reserves for hotplugged devices", m.Name, reserved)
+			}
+		}
+	}
+	return nil
+}
+
+// mountTarget is where m lands in the container. The apiserver accepts a
+// relative mountPath, which the runtime resolves against the container root.
+func mountTarget(m *corev1.VolumeMount) string {
+	return path.Join("/", m.MountPath)
+}
+
+// withHotplugMounts adds the hotplug volume mounts to mounts, except where
+// mounts already has something at that path (e.g. an App mounting the host's
+// /dev/input itself), which a second mount would collide with.
+func withHotplugMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {
+	for _, m := range []corev1.VolumeMount{
+		{Name: hotplugDevVolume, MountPath: InputDevPath},
+		{Name: hotplugUdevVolume, MountPath: path.Dir(UdevDataPath)},
+	} {
+		if !slices.ContainsFunc(mounts, func(o corev1.VolumeMount) bool { return mountTarget(&o) == m.MountPath }) {
+			mounts = append(mounts, m)
+		}
+	}
+	return mounts
+}
+
 func (c *SessionController) podName(session *v1alpha1types.Session) string {
 	return session.Name
 }

@@ -17,16 +17,27 @@ import (
 // /run/udev there) for libudev consumers (SDL/Steam) to see them.
 const UdevDataPath = "/run/udev/data"
 
+// InputDevPath is where the agent creates the /dev/input nodes of hotplugged
+// devices. It must be a volume shared with the app container, mounted at
+// /dev/input in both (see inputDevVolume).
+const InputDevPath = "/dev/input"
+
 // Represents the controller that runs inside the Pod itself
 type Agent struct {
 	WolfClient wolfapi.Client
+
+	// Where hotplugged devices are published; InputDevPath and
+	// UdevDataPath outside tests.
+	inputDevPath, udevDataPath string
 }
 
 func NewAgent(
 	wolfClient wolfapi.Client,
 ) *Agent {
 	res := &Agent{
-		WolfClient: wolfClient,
+		WolfClient:   wolfClient,
+		inputDevPath: InputDevPath,
+		udevDataPath: UdevDataPath,
 	}
 
 	return res
@@ -76,6 +87,7 @@ func (a *Agent) watchEvents(ctx context.Context) error {
 						utilruntime.HandleError(fmt.Errorf("failed to stop session: %w", err))
 						continue
 					}
+					a.clearDevices()
 				// Wolf hotplugged a virtual input device. Play the role of
 				// fake-udev: publish the udev db entry and broadcast a
 				// synthetic udev netlink event in the pod's network
@@ -114,12 +126,35 @@ func logEvent(ev *sse.Event) {
 	klog.Infof("Event Comment: %v", ev.Comment)
 }
 
+// clearDevices drops every published device node and udev entry. Wolf
+// destroys a stopped session's devices without unplug events; left behind,
+// a 0666 node would open whichever device the kernel gives its minor next,
+// possibly another session's keyboard. A resumed stream plugs anew.
+func (a *Agent) clearDevices() {
+	for _, dir := range []string{a.inputDevPath, a.udevDataPath} {
+		if err := fakeudev.ClearDir(dir); err != nil {
+			utilruntime.HandleError(fmt.Errorf("failed to clear %s: %w", dir, err))
+		}
+	}
+}
+
 func (a *Agent) handleDevicePlug(ev wolfapi.PlugDeviceEvent) {
 	// Wolf reports MAJOR/MINOR as "0" when it cannot stat the device node
 	// in its own container; resolve the real numbers from sysfs so both
 	// the netlink event and the hwdb filename are correct.
 	for _, udevEvent := range ev.UdevEvents {
 		fakeudev.ResolveDevNumbers(udevEvent)
+		// Before the event is sent: SDL opens DEVNAME as soon as it hears it.
+		// Events without a /dev/input node (the parent input device, hidraw)
+		// have nothing to create here.
+		if !fakeudev.IsInputDeviceNode(udevEvent) {
+			continue
+		}
+		if err := fakeudev.CreateDeviceNode(a.inputDevPath, udevEvent); err != nil {
+			utilruntime.HandleError(fmt.Errorf("failed to create device node: %w", err))
+		} else {
+			klog.InfoS("Created device node", "devname", udevEvent["DEVNAME"], "session", ev.SessionID)
+		}
 	}
 
 	for _, entry := range ev.UdevHwDbEntries {
@@ -131,7 +166,7 @@ func (a *Agent) handleDevicePlug(ev wolfapi.PlugDeviceEvent) {
 				filename = "c" + maj + ":" + ev.UdevEvents[0]["MINOR"]
 			}
 		}
-		if err := fakeudev.WriteHwDbEntry(UdevDataPath, filename, entry.Content); err != nil {
+		if err := fakeudev.WriteHwDbEntry(a.udevDataPath, filename, entry.Content); err != nil {
 			utilruntime.HandleError(fmt.Errorf("failed to write udev hwdb entry %q: %w", filename, err))
 		} else {
 			klog.InfoS("Wrote udev hwdb entry", "file", filename, "session", ev.SessionID)
@@ -150,6 +185,12 @@ func (a *Agent) handleDevicePlug(ev wolfapi.PlugDeviceEvent) {
 func (a *Agent) handleDeviceUnplug(ev wolfapi.UnplugDeviceEvent) {
 	for _, udevEvent := range ev.UdevEvents {
 		fakeudev.ResolveDevNumbers(udevEvent)
+		if !fakeudev.IsInputDeviceNode(udevEvent) {
+			continue
+		}
+		if err := fakeudev.RemoveDeviceNode(a.inputDevPath, udevEvent); err != nil {
+			utilruntime.HandleError(fmt.Errorf("failed to remove device node: %w", err))
+		}
 	}
 
 	for _, entry := range ev.UdevHwDbEntries {
@@ -159,7 +200,7 @@ func (a *Agent) handleDeviceUnplug(ev wolfapi.UnplugDeviceEvent) {
 				filename = "c" + maj + ":" + ev.UdevEvents[0]["MINOR"]
 			}
 		}
-		if err := fakeudev.RemoveHwDbEntry(UdevDataPath, filename); err != nil {
+		if err := fakeudev.RemoveHwDbEntry(a.udevDataPath, filename); err != nil {
 			utilruntime.HandleError(fmt.Errorf("failed to remove udev hwdb entry %q: %w", filename, err))
 		}
 	}

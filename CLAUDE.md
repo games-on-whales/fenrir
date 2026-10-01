@@ -74,8 +74,9 @@ Three binaries in `cmd/`, all sharing `pkg/`:
   - Watches session pods (label `direwolf/session=true` only) to re-reconcile their Session.
 - **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to
   Wolf's HTTP API over a mounted unix socket.
-  - Syncs desired sessions into Wolf and emulates udev (writes `/run/udev/data`, a volume shared
-    with the game container) so SDL/Steam see hotplugged controllers.
+  - Syncs desired sessions into Wolf and emulates udev (mknods `/dev/input/*` nodes and writes
+    `/run/udev/data`, emptyDirs shared with the game container) so SDL/Steam see hotplugged
+    controllers. Rationale and Talos test: `.claude/rules/input-hotplug.md`.
   - Its `/api/v1/` proxy drives Wolf (can run arbitrary containers) and, under hostNetwork, is
     reachable on the node IP. It requires a per-Session bearer token (Secret
     `<session>-wolf-agent-token`, `pkg/controllers/agent_token.go`); the operator dials the pod IP.
