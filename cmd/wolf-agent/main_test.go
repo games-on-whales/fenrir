@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +14,10 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
@@ -326,5 +330,157 @@ func TestCertFileFollowsRotation(t *testing.T) {
 	}
 	if !bytes.Equal(served(f), second) {
 		t.Error("unreadable files did not fall back to the last good cert")
+	}
+}
+
+// startServer serves handler via newServer on loopback, with timeouts
+// shortened by tune, and returns its address.
+func startServer(t *testing.T, handler http.Handler, tune func(*http.Server)) string {
+	t.Helper()
+	certPEM, keyPEM, err := util.GenerateEphemeralCert("ECC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(0, handler, &tls.Config{Certificates: []tls.Certificate{cert}})
+	tune(srv)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = srv.ServeTLS(ln, "", "") }()
+	t.Cleanup(func() { _ = srv.Close() })
+	return ln.Addr().String()
+}
+
+// assertClosedByServer fails unless the server closes conn: Read returns EOF
+// (or a reset), not our own 5s timeout.
+func assertClosedByServer(t *testing.T, conn net.Conn) {
+	t.Helper()
+	if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 4096)
+	for {
+		_, err := conn.Read(buf)
+		if err == nil {
+			continue // e.g. a 401 before the close
+		}
+		if os.IsTimeout(err) {
+			t.Fatalf("connection still open: %v", err)
+		}
+		return
+	}
+}
+
+func dialTLS(t *testing.T, addr string) *tls.Conn {
+	t.Helper()
+	d := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // test server's ephemeral cert
+	conn, err := d.DialContext(context.Background(), "tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn.(*tls.Conn) //nolint:forcetypeassert // tls.Dialer always returns *tls.Conn
+}
+
+// A client that connects and never completes the TLS handshake (no token
+// needed) must be dropped, or connections pile up until fds run out.
+func TestServerDropsSilentConnections(t *testing.T) {
+	addr := startServer(t, http.NotFoundHandler(), func(s *http.Server) { s.ReadHeaderTimeout = 100 * time.Millisecond })
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	assertClosedByServer(t, conn)
+}
+
+// A request declaring a body it never sends must be dropped too, on any path
+// (net/http drains an unread body after the handler, e.g. after a 401).
+func TestServerDropsWithheldBody(t *testing.T) {
+	unauthorized := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) })
+	addr := startServer(t, unauthorized, func(s *http.Server) { s.ReadTimeout = 100 * time.Millisecond })
+
+	for name, req := range map[string]string{
+		"content-length": "POST /api/v1/sessions/add HTTP/1.1\r\nHost: x\r\nContent-Length: 100\r\n\r\n",
+		"chunked":        "POST /livez HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			conn := dialTLS(t, addr)
+			if _, err := conn.Write([]byte(req)); err != nil {
+				t.Fatal(err)
+			}
+			assertClosedByServer(t, conn)
+		})
+	}
+}
+
+// ReadTimeout bounds reading the request only: a response may stream for much
+// longer (as /api/v1/events does).
+func TestServerStreamsPastReadTimeout(t *testing.T) {
+	stream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			t.Errorf("reading body: %v", err)
+			return
+		}
+		for i := range 6 {
+			fmt.Fprintf(w, "event %d\n", i)
+			w.(http.Flusher).Flush() //nolint:forcetypeassert // net/http's writer flushes
+			select {
+			case <-r.Context().Done():
+				t.Errorf("request canceled mid-stream after event %d", i)
+				return
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	})
+	addr := startServer(t, stream, func(s *http.Server) { s.ReadTimeout = 50 * time.Millisecond })
+
+	// HTTP/2, where a read deadline firing resets the stream.
+	client := &http.Client{Transport: &http.Transport{
+		TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // test server's ephemeral cert
+		ForceAttemptHTTP2: true,
+	}}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "https://"+addr+"/", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.ProtoMajor != 2 {
+		t.Fatalf("served %s, want HTTP/2", resp.Proto)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("stream cut off: %v (got %q)", err, body)
+	}
+	if got := strings.Count(string(body), "event"); got != 6 {
+		t.Errorf("got %d events, want 6: %q", got, body)
+	}
+}
+
+func TestServerTimeouts(t *testing.T) {
+	srv := newServer(1, http.NotFoundHandler(), &tls.Config{})
+	if srv.ReadHeaderTimeout <= 0 || srv.ReadHeaderTimeout > 30*time.Second {
+		t.Errorf("ReadHeaderTimeout = %v, want (0, 30s]", srv.ReadHeaderTimeout)
+	}
+	if srv.ReadTimeout <= 0 || srv.ReadTimeout > 30*time.Second {
+		t.Errorf("ReadTimeout = %v, want (0, 30s]", srv.ReadTimeout)
+	}
+	if srv.IdleTimeout <= 0 || srv.IdleTimeout > 5*time.Minute {
+		t.Errorf("IdleTimeout = %v, want (0, 5m]", srv.IdleTimeout)
+	}
+	if idle := selfTransport().IdleConnTimeout; idle <= 0 || idle >= srv.IdleTimeout {
+		t.Errorf("loopback client idles %v, want (0, server's %v)", idle, srv.IdleTimeout)
+	}
+	if srv.WriteTimeout != 0 {
+		t.Error("WriteTimeout would cut off the /api/v1/events stream")
 	}
 }
