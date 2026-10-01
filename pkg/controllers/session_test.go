@@ -2,12 +2,14 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"reflect"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -548,5 +550,59 @@ func TestSessionPodCarriesAppTemplateMetadata(t *testing.T) {
 	}
 	if want := map[string]string{"xerktech.com/gpu-claim": "direwolf-gpu", "direwolf/user": "spoof"}; !reflect.DeepEqual(app.Spec.Template.Labels, want) {
 		t.Errorf("cached App template labels = %v, want them untouched: %v", app.Spec.Template.Labels, want)
+	}
+}
+
+// TestBuildPodLeavesCachedObjects builds pods for two sessions of one App at
+// once, as the controller's two workers can. The App and User are the informer
+// cache's own, so building a pod must copy their maps and slices, not write
+// into them; under -race any such write is reported.
+func TestBuildPodLeavesCachedObjects(t *testing.T) {
+	sc, _, sess, _ := reconcileFixtures(t, "../../examples/user.yaml", "../../examples/steam.yaml")
+	app, err := sc.AppInformer.Namespaced(sess.Namespace).Get(sess.Spec.GameReference.Name)
+	if err != nil {
+		t.Fatalf("get cached app: %v", err)
+	}
+	user, err := sc.UserInformer.Namespaced(sess.Namespace).Get(sess.Spec.UserReference.Name)
+	if err != nil {
+		t.Fatalf("get cached user: %v", err)
+	}
+	app.Spec.Template.Labels = map[string]string{"team": "games"}
+	app.Spec.Template.Annotations = map[string]string{"note": "x"}
+	// Decoded slices carry spare capacity, which an append would write into.
+	agentMounts := make([]corev1.VolumeMount, 1, 4)
+	agentMounts[0] = corev1.VolumeMount{Name: "extra", MountPath: "/extra"}
+	user.Spec.SidecarPolicies = &v1alpha1api.SidecarPolicies{
+		WolfAgent: &v1alpha1api.SidecarPolicy{VolumeMounts: agentMounts},
+	}
+	user.Spec.Volumes = append(user.Spec.Volumes, corev1.Volume{
+		Name: "extra", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+	})
+
+	var wg sync.WaitGroup
+	for i := range 2 {
+		s := sess.DeepCopy()
+		s.Name = fmt.Sprintf("sess-%d", i)
+		wg.Go(func() {
+			pod, err := sc.buildPod(s)
+			if err != nil {
+				t.Errorf("buildPod: %v", err)
+				return
+			}
+			if pod.Labels["team"] != "games" || pod.Annotations["note"] != "x" {
+				t.Errorf("pod labels %v / annotations %v lost the App's own", pod.Labels, pod.Annotations)
+			}
+		})
+	}
+	wg.Wait()
+
+	if want := map[string]string{"team": "games"}; !reflect.DeepEqual(app.Spec.Template.Labels, want) {
+		t.Errorf("cached App template labels = %v, want %v", app.Spec.Template.Labels, want)
+	}
+	if want := map[string]string{"note": "x"}; !reflect.DeepEqual(app.Spec.Template.Annotations, want) {
+		t.Errorf("cached App template annotations = %v, want %v", app.Spec.Template.Annotations, want)
+	}
+	if spare := agentMounts[:2][1]; spare.Name != "" {
+		t.Errorf("buildPod wrote %q into the cached User's wolf-agent mounts", spare.Name)
 	}
 }

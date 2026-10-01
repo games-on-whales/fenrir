@@ -1067,7 +1067,9 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 			wolfAgentEnv = policies.WolfAgent.Env
 			// klog.debug("User defined env vars: %+v", wolfAgentEnv)
 			wolfAgentResources = mergeResourceRequirements(wolfAgentDefaultResources, policies.WolfAgent.Resources)
-			wolfAgentVolumeMounts = policies.WolfAgent.VolumeMounts
+			// Cloned: hotplug mounts are appended to it, which would write the
+			// cached User's spare capacity from concurrent workers.
+			wolfAgentVolumeMounts = slices.Clone(policies.WolfAgent.VolumeMounts)
 			wolfAgentSecurityContext = policies.WolfAgent.SecurityContext
 			if policies.WolfAgent.HostIPC != nil && *policies.WolfAgent.HostIPC {
 				podHostIPC = true
