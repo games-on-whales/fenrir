@@ -35,7 +35,8 @@ type UserSpec struct {
 	// +optional
 	SidecarPolicies *SidecarPolicies `json:"sidecarPolicies,omitempty"`
 }
-//TODO
+
+// TODO
 // This will also need rework
 // Since I forgot that we might actually need to inject more than
 // Just the volume mounts and security context
