@@ -525,3 +525,28 @@ func TestBuildPodRejectsWolfAgentHotplugOverride(t *testing.T) {
 		t.Errorf("buildPod err = %v, want the hotplug override rejected", err)
 	}
 }
+
+func TestSessionPodCarriesAppTemplateMetadata(t *testing.T) {
+	sc, _, sess, pod := reconcileFixtures(t, "../../examples/user.yaml", "testdata/app-pod-labels.yaml")
+	if got := pod.Labels["xerktech.com/gpu-claim"]; got != "direwolf-gpu" {
+		t.Errorf("pod label xerktech.com/gpu-claim = %q, want the App template's direwolf-gpu", got)
+	}
+	if got := pod.Annotations["example.com/note"]; got != "kept" {
+		t.Errorf("pod annotation example.com/note = %q, want the App template's kept", got)
+	}
+	if got := pod.Labels["direwolf/app"]; got != sess.Spec.GameReference.Name {
+		t.Errorf("pod label direwolf/app = %q, want %q", got, sess.Spec.GameReference.Name)
+	}
+	if got := pod.Labels["direwolf/user"]; got != sess.Spec.UserReference.Name {
+		t.Errorf("pod label direwolf/user = %q, want the operator's %q over the template's", got, sess.Spec.UserReference.Name)
+	}
+
+	// The operator's own labels must not leak back into the informer's App.
+	app, err := sc.AppInformer.Namespaced(sess.Namespace).Get(sess.Spec.GameReference.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"xerktech.com/gpu-claim": "direwolf-gpu", "direwolf/user": "spoof"}; !reflect.DeepEqual(app.Spec.Template.Labels, want) {
+		t.Errorf("cached App template labels = %v, want them untouched: %v", app.Spec.Template.Labels, want)
+	}
+}

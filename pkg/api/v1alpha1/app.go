@@ -39,7 +39,6 @@ type AppSpec struct {
 	AppAssetWebP []byte `json:"appAssetWebP" xml:"-"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:X-kubernetes-preserve-unknown-fields:true
 	Template *v1.PodTemplateSpec `json:"template" xml:"-"`
 
 	// Unstructured wolf configuration for app to be merged with the default

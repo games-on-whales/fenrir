@@ -1,0 +1,23 @@
+# An App whose pod template carries its own labels and annotations, which the
+# operator must copy onto the session pod alongside its own labels — which win
+# when the template sets the same key.
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: App
+metadata:
+  name: firefox
+spec:
+  id: 3
+  title: Firefox
+  isHDRSupported: false
+  appAssetWebP: ""
+  template:
+    metadata:
+      labels:
+        xerktech.com/gpu-claim: direwolf-gpu
+        direwolf/user: spoof
+      annotations:
+        example.com/note: kept
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/games-on-whales/firefox:edge

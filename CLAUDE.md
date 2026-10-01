@@ -22,6 +22,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Codegen after editing `pkg/api/v1alpha1/*.go`: `hack/update-codegen.sh` (bash + python3).
   - Regenerates `zz_generated.*`, `pkg/generated/` (clientset/listers/informers/applyconfig),
     `crds/`, and `schemas/`. All are committed — never hand-edit them.
+  - Keep `crd:generateEmbeddedObjectMeta=true`: without it an embedded template's `metadata` is a
+    bare `{type: object}` and the API server prunes its labels/annotations on admission (XERK-1347).
+    Unit tests seed fake clients that never prune; `TestCRDsKeepEmbeddedMetadata` guards it.
 - Chart: `charts/direwolf-operator` has no `crds/` dir in git; CI copies `crds/*.yaml` in before
   `helm lint --strict` / `helm template --kube-version 1.36.0` (kubeVersion floor is >=1.28).
 
