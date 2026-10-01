@@ -822,9 +822,12 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 	// ResourceClaims (see appResourceClaims), which the DRA driver injects via CDI.
 	// TODO: find a better method of injecting env vars / configs into the pod.
 	wolfEnvVars := map[string]string{
-		"PUID":                   "1000",
-		"PGID":                   "1000",
-		"UNAME":                  "ubuntu",
+		"PUID": "1000",
+		"PGID": "1000",
+		// Wolf's image starts supervisord with `user=root`; the GOW entrypoint
+		// gosu's to UNAME first, so any other user exits with "Can't drop
+		// privilege as nonroot user" and ends every Session at once.
+		"UNAME":                  "root",
 		"XDG_RUNTIME_DIR":        "/tmp/.X11-unix",
 		"PULSE_SERVER":           "unix:/tmp/.X11-unix/pulse-socket",
 		"HOST_APPS_STATE_FOLDER": "/mnt/data/wolf",
@@ -1938,9 +1941,12 @@ func wolfSessionFor(session *v1alpha1types.Session, podIP string) (wolfapi.Sessi
 			RunGID:              1000,
 			RunUID:              1000,
 			ControllersOverride: []string{"XBOX"},
-			MouseAcceleration:   1.0,
-			VScrollAcceleration: 1.0,
-			HScrollAcceleration: 1.0,
+			// XBOX, not Wolf's AUTO: AUTO promotes a gyro-capable client to a
+			// PlayStation pad, which needs /dev/uhid, and Talos has no uhid.
+			MotionControllerOverride: "XBOX",
+			MouseAcceleration:        1.0,
+			VScrollAcceleration:      1.0,
+			HScrollAcceleration:      1.0,
 		},
 		AESKey: session.Spec.Config.AESKey,
 		AESIV:  session.Spec.Config.AESIV,

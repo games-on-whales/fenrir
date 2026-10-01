@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"testing"
 
 	v1alpha1types "games-on-whales.github.io/direwolf/pkg/api/v1alpha1"
@@ -45,5 +46,38 @@ func TestWolfSessionForClientIP(t *testing.T) {
 				t.Errorf("unexpected session %+v", got)
 			}
 		})
+	}
+}
+
+// Wolf rejects an AddSession whose client_settings omits any ClientSettings
+// field ("Field named 'motion_controller_override' not found"), and the
+// session then never starts. AUTO would promote a gyro pad to PlayStation,
+// which needs uhid that Talos lacks, so it must be XBOX.
+func TestWolfSessionForClientSettings(t *testing.T) {
+	session := &v1alpha1types.Session{}
+	session.Spec.Config.ClientIP = "192.0.2.10"
+
+	got, err := wolfSessionFor(session, "10.0.0.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(got.ClientSettings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"run_uid", "run_gid", "controllers_override", "mouse_acceleration",
+		"v_scroll_acceleration", "h_scroll_acceleration", "motion_controller_override",
+	} {
+		if _, ok := fields[key]; !ok {
+			t.Errorf("client_settings has no %q: %s", key, raw)
+		}
+	}
+	if got.ClientSettings.MotionControllerOverride != "XBOX" {
+		t.Errorf("MotionControllerOverride = %q, want XBOX", got.ClientSettings.MotionControllerOverride)
 	}
 }
