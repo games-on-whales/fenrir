@@ -1766,7 +1766,7 @@ func (c *SessionController) reconcileActiveStreams(
 	wolfclient := wolfapi.NewClient("https://"+net.JoinHostPort(podIP, strconv.Itoa(int(session.Status.Ports.WolfAgent))), &http.Client{
 		Timeout: wolfAgentTimeout,
 		Transport: &wolfapi.BearerTokenTransport{
-			Token: token,
+			Token: wolfapi.StaticToken(token),
 			Base: &http.Transport{
 				// wolf-agent serves a self-signed cert. XERK-1320 tracks
 				// pinning it; until then the token goes to an unverified peer.

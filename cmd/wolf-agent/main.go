@@ -42,7 +42,7 @@ func main() {
 
 	// The /api/v1/ proxy drives Wolf, which can run arbitrary containers, so
 	// refuse to start without a token rather than serve it unauthenticated.
-	token, err := readToken(*tokenFile)
+	token, err := newTokenFile(*tokenFile)
 	if err != nil {
 		klog.Fatal("Failed to load bearer token: ", err)
 	}
@@ -104,7 +104,7 @@ func main() {
 	mux.HandleFunc("/livez", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("/api/v1/", wolfapi.RequireBearerToken(token, proxyHandler(&client, &ready)))
+	mux.Handle("/api/v1/", apiHandler(token, &client, &ready))
 
 	// Start HTTPS server
 	server := &http.Server{
@@ -122,9 +122,16 @@ func main() {
 	}
 }
 
+// apiHandler serves /api/v1/: the Wolf proxy behind the bearer token, checked
+// against the token file's current contents on every request. It takes the
+// *tokenFile rather than a token so the file can't be snapshotted at startup.
+func apiHandler(token *tokenFile, client *http.Client, ready *atomic.Bool) http.Handler {
+	return wolfapi.RequireBearerToken(token.Token, proxyHandler(client, ready))
+}
+
 // proxyHandler forwards /api/v1/ requests to Wolf over client (the unix
 // socket), streaming the response so SSE works. Callers must wrap it in
-// wolfapi.RequireBearerToken.
+// wolfapi.RequireBearerToken; see apiHandler.
 func proxyHandler(client *http.Client, ready *atomic.Bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		klog.Info("Received request:", r.Method, r.URL.Path)
@@ -205,13 +212,14 @@ func proxyHandler(client *http.Client, ready *atomic.Bool) http.Handler {
 }
 
 // selfClient builds the wolfapi client the in-pod agent controller uses to
-// reach Wolf through this process's own authenticated proxy.
-func selfClient(port int, token string) wolfapi.Client {
+// reach Wolf through this process's own authenticated proxy. It sends the
+// token file's current contents, so it keeps working after a rotation.
+func selfClient(port int, token *tokenFile) wolfapi.Client {
 	return wolfapi.NewClient(
 		fmt.Sprintf("https://localhost:%d", port),
 		&http.Client{
 			Transport: &wolfapi.BearerTokenTransport{
-				Token: token,
+				Token: token.Token,
 				Base: &http.Transport{
 					TLSClientConfig: &tls.Config{
 						InsecureSkipVerify: true, //nolint:gosec // loopback to our own self-signed listener
@@ -237,6 +245,41 @@ func readToken(path string) (string, error) {
 		return "", fmt.Errorf("token file %s is empty", path)
 	}
 	return token, nil
+}
+
+// tokenFile serves the bearer token from a file, re-read on every request.
+// The kubelet rewrites the token Secret's mount when the operator regenerates
+// the Secret, and the operator uses the new token at once, so a token read once
+// at startup would 401 it until the pod restarts. The file is a few bytes on
+// tmpfs; caching on its stat misses a same-size rewrite within one mtime tick.
+type tokenFile struct {
+	path    string
+	failing atomic.Bool // logs only on transitions, not on every request
+}
+
+// newTokenFile checks the token at path is usable, so wolf-agent refuses to
+// start rather than reject every request.
+func newTokenFile(path string) (*tokenFile, error) {
+	if _, err := readToken(path); err != nil {
+		return nil, err
+	}
+	return &tokenFile{path: path}, nil
+}
+
+// Token returns the current token, or "" (which rejects every request) when
+// the file cannot be read or is empty.
+func (f *tokenFile) Token() string {
+	tok, err := readToken(f.path)
+	if err != nil {
+		if !f.failing.Swap(true) {
+			klog.ErrorS(err, "Bearer token unavailable; rejecting requests", "path", f.path)
+		}
+		return ""
+	}
+	if f.failing.Swap(false) {
+		klog.InfoS("Bearer token available again", "path", f.path)
+	}
+	return tok
 }
 
 func UnixHTTPClient(sockAddr string) http.Client {

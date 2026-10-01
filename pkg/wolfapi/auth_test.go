@@ -38,7 +38,7 @@ func TestRequireBearerToken(t *testing.T) {
 				req.Header.Set("Authorization", tt.header)
 			}
 			rec := httptest.NewRecorder()
-			wolfapi.RequireBearerToken(tt.token, ok).ServeHTTP(rec, req)
+			wolfapi.RequireBearerToken(wolfapi.StaticToken(tt.token), ok).ServeHTTP(rec, req)
 			if rec.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
 			}
@@ -52,7 +52,7 @@ func TestRequireBearerToken(t *testing.T) {
 // TestBearerTokenTransportAuthenticates checks the client and server halves
 // agree end to end, and that the transport does not mutate the caller's request.
 func TestBearerTokenTransportAuthenticates(t *testing.T) {
-	srv := httptest.NewServer(wolfapi.RequireBearerToken("s3cret",
+	srv := httptest.NewServer(wolfapi.RequireBearerToken(wolfapi.StaticToken("s3cret"),
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNoContent)
 		})))
@@ -62,7 +62,7 @@ func TestBearerTokenTransportAuthenticates(t *testing.T) {
 		token string
 		want  int
 	}{{"s3cret", http.StatusNoContent}, {"wrong", http.StatusUnauthorized}} {
-		client := &http.Client{Transport: &wolfapi.BearerTokenTransport{Token: tc.token}}
+		client := &http.Client{Transport: &wolfapi.BearerTokenTransport{Token: wolfapi.StaticToken(tc.token)}}
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/api/v1/sessions", http.NoBody)
 		if err != nil {
 			t.Fatal(err)
