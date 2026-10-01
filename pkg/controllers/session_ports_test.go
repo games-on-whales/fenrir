@@ -2,7 +2,9 @@ package controllers
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -170,7 +172,7 @@ type fakeAgent struct {
 func newFakeAgent(t *testing.T) *fakeAgent {
 	t.Helper()
 	a := &fakeAgent{sessions: "[]"}
-	a.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	a.Server = httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/sessions":
 			fmt.Fprintf(w, `{"success":true,"sessions":%s}`, a.sessions)
@@ -195,8 +197,30 @@ func newFakeAgent(t *testing.T) *fakeAgent {
 			http.NotFound(w, r)
 		}
 	}))
+	a.TLS = &tls.Config{Certificates: []tls.Certificate{testAgentKeyPair(t)}}
+	a.StartTLS()
 	t.Cleanup(a.Close)
 	return a
+}
+
+// testAgentCert is the serving cert every fakeAgent presents and tokenSecret
+// pins.
+var testAgentCert = sync.OnceValues(func() ([][]byte, error) {
+	certPEM, keyPEM, err := generateAgentCert()
+	return [][]byte{certPEM, keyPEM}, err
+})
+
+func testAgentKeyPair(t *testing.T) tls.Certificate {
+	t.Helper()
+	pems, err := testAgentCert()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.X509KeyPair(pems[0], pems[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pair
 }
 
 // base is the port block whose wolf-agent port is the fake agent's.
@@ -228,9 +252,17 @@ func readyPod(sess *v1alpha1types.Session) *corev1.Pod {
 }
 
 func tokenSecret(sess *v1alpha1types.Session) *corev1.Secret {
+	pems, err := testAgentCert()
+	if err != nil {
+		panic(err)
+	}
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: agentTokenSecretName(sess.Name), Namespace: sess.Namespace},
-		Data:       map[string][]byte{wolfAgentTokenKey: []byte("token")},
+		Data: map[string][]byte{
+			wolfAgentTokenKey:       []byte("token"),
+			corev1.TLSCertKey:       pems[0],
+			corev1.TLSPrivateKeyKey: pems[1],
+		},
 	}
 }
 
@@ -261,5 +293,74 @@ func TestReconcileActiveStreamsUsesPortBlock(t *testing.T) {
 	}
 	if agent.last.ClientIP != "192.0.2.10" {
 		t.Errorf("Wolf AddSession client_ip = %q, want the Moonlight client's IP", agent.last.ClientIP)
+	}
+}
+
+// Anything else bound to the agent port (another host-networked process, say
+// while wolf-agent restarts) must fail the handshake before seeing the token,
+// whether it serves its own cert or another session's.
+func TestReconcileActiveStreamsPinsAgentCert(t *testing.T) {
+	otherCert, otherKey, err := generateAgentCert()
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPair, err := tls.X509KeyPair(otherCert, otherKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, cfg := range map[string]*tls.Config{
+		"stranger cert":          nil, // httptest's own cert
+		"another session's cert": {Certificates: []tls.Certificate{otherPair}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var mu sync.Mutex
+			var gotAuth []string
+			stranger := httptest.NewUnstartedServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				gotAuth = append(gotAuth, r.Header.Get("Authorization"))
+				mu.Unlock()
+			}))
+			stranger.TLS = cfg
+			stranger.StartTLS()
+			t.Cleanup(stranger.Close)
+			agent := &fakeAgent{Server: stranger}
+
+			probe := newPortsFixture(t)
+			sess := probe.session("alex-1", "alex")
+			sess.Status.Ports = blockPorts(agent.base(t))
+			f := newPortsFixture(t, tokenSecret(sess))
+
+			if err := f.sc.reconcileActiveStreams(context.Background(), sess, readyPod(sess)); err == nil {
+				t.Fatal("reconcileActiveStreams succeeded against an unpinned cert")
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(gotAuth) != 0 {
+				t.Errorf("stranger received %d requests (Authorization %q)", len(gotAuth), gotAuth)
+			}
+		})
+	}
+}
+
+// A token Secret from before the cert was pinned cannot be verified against,
+// so the Session ends rather than handing its token to an unverified peer.
+func TestReconcileActiveStreamsEndsSessionWithoutAgentCert(t *testing.T) {
+	agent := newFakeAgent(t)
+	probe := newPortsFixture(t)
+	sess := probe.session("alex-1", "alex")
+	sess.Status.Ports = blockPorts(agent.base(t))
+	secret := tokenSecret(sess)
+	delete(secret.Data, corev1.TLSCertKey)
+	f := newPortsFixture(t, secret)
+	if _, err := f.dw.DirewolfV1alpha1().Sessions(portsTestNS).Create(context.Background(), sess, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := f.sc.reconcileActiveStreams(context.Background(), sess, readyPod(sess))
+	if !errors.Is(err, errSessionEnded) {
+		t.Fatalf("err = %v, want errSessionEnded", err)
+	}
+	if _, err := f.dw.DirewolfV1alpha1().Sessions(portsTestNS).Get(context.Background(), sess.Name, metav1.GetOptions{}); err == nil {
+		t.Error("session still exists")
 	}
 }

@@ -89,6 +89,14 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if !slices.Contains(agent.Args, "--token-file="+wolfAgentTokenMountPath+"/"+wolfAgentTokenKey) {
 		t.Errorf("wolf-agent args missing --token-file: %v", agent.Args)
 	}
+	for _, arg := range []string{
+		"--tls-cert=" + wolfAgentTokenMountPath + "/" + corev1.TLSCertKey,
+		"--tls-key=" + wolfAgentTokenMountPath + "/" + corev1.TLSPrivateKeyKey,
+	} {
+		if !slices.Contains(agent.Args, arg) {
+			t.Errorf("wolf-agent args missing %s: %v", arg, agent.Args)
+		}
+	}
 
 	// Every listener must be on the session's block, so session pods sharing
 	// the node IP never collide.
@@ -134,7 +142,7 @@ func TestSessionControllerReconcilePath(t *testing.T) {
 	if !tokenVolume {
 		t.Error("pod has no wolf-agent-token secret volume")
 	}
-	if _, tokenErr := sc.agentToken(ctx, sess); tokenErr != nil {
+	if _, tokenErr := testAgentToken(ctx, sc, sess); tokenErr != nil {
 		t.Errorf("token secret not created by reconcilePod: %v", tokenErr)
 	}
 

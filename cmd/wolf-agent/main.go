@@ -52,6 +52,7 @@ func main() {
 	if err != nil {
 		klog.Fatal("Failed to load certificates:", err)
 	}
+	certs := newCertFile(*serverCertPath, *serverKeyPath, &cert)
 
 	// Start a thread to watch for the wolf.sock to appear
 	var ready atomic.Bool
@@ -108,11 +109,9 @@ func main() {
 
 	// Start HTTPS server
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", *serverPort),
-		Handler: mux,
-		TLSConfig: &tls.Config{
-			Certificates: []tls.Certificate{cert},
-		},
+		Addr:      fmt.Sprintf(":%d", *serverPort),
+		Handler:   mux,
+		TLSConfig: serverTLSConfig(certs),
 	}
 
 	klog.Infof("Listening on port %d\n", *serverPort)
@@ -280,6 +279,44 @@ func (f *tokenFile) Token() string {
 		klog.InfoS("Bearer token available again", "path", f.path)
 	}
 	return tok
+}
+
+// certFile serves the TLS cert from --tls-cert/--tls-key, re-read on every
+// handshake. The operator pins the cert in the token Secret, and regenerates
+// cert and token together (see tokenFile): a cert loaded once at startup would
+// fail its pin until the pod restarts. A read that fails (e.g. straddling the
+// kubelet's swap of the mount) serves the last good cert.
+type certFile struct {
+	certPath, keyPath string
+	last              atomic.Pointer[tls.Certificate]
+	failing           atomic.Bool // logs only on transitions, not on every handshake
+}
+
+// serverTLSConfig serves certs' current cert. It takes the *certFile rather
+// than a cert so the cert can't be snapshotted at startup.
+func serverTLSConfig(certs *certFile) *tls.Config {
+	return &tls.Config{GetCertificate: certs.GetCertificate}
+}
+
+func newCertFile(certPath, keyPath string, initial *tls.Certificate) *certFile {
+	f := &certFile{certPath: certPath, keyPath: keyPath}
+	f.last.Store(initial)
+	return f
+}
+
+func (f *certFile) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(f.certPath, f.keyPath)
+	if err != nil {
+		if !f.failing.Swap(true) {
+			klog.ErrorS(err, "TLS cert unreadable; serving the last good one", "cert", f.certPath)
+		}
+		return f.last.Load(), nil
+	}
+	if f.failing.Swap(false) {
+		klog.InfoS("TLS cert readable again", "cert", f.certPath)
+	}
+	f.last.Store(&cert)
+	return &cert, nil
 }
 
 func UnixHTTPClient(sockAddr string) http.Client {

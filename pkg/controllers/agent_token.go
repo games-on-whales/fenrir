@@ -2,9 +2,18 @@ package controllers
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/pem"
+	stderrors "errors"
 	"fmt"
+	"math/big"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -17,9 +26,18 @@ import (
 // containers), so it rejects any /api/v1/ request without the per-session
 // bearer token below. Session pods use hostNetwork, so its port (from the
 // session's port block) is reachable on the node IP by anything on the LAN.
+//
+// The same Secret holds a per-session serving cert the operator pins: any
+// other host-networked process can bind the agent port (e.g. while wolf-agent
+// restarts), and must not be handed the token.
 const (
 	wolfAgentTokenKey       = "token"
 	wolfAgentTokenMountPath = "/etc/wolf-agent"
+	// wolfAgentServerName is the cert's only SAN. The operator dials an IP,
+	// so it verifies against this name and the pinned cert, not the address.
+	wolfAgentServerName = "wolf-agent"
+	// Outlives any session; the cert is pinned, not trusted for its dates.
+	wolfAgentCertValidity = 365 * 24 * time.Hour
 )
 
 func agentTokenSecretName(sessionName string) string {
@@ -67,6 +85,11 @@ func (c *SessionController) reconcileAgentToken(ctx context.Context, session *v1
 		return fmt.Errorf("failed to generate wolf-agent token: %w", err)
 	}
 
+	certPEM, keyPEM, err := generateAgentCert()
+	if err != nil {
+		return err
+	}
+
 	_, err = secrets.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -80,7 +103,11 @@ func (c *SessionController) reconcileAgentToken(ctx context.Context, session *v1
 			}},
 		},
 		Type: corev1.SecretTypeOpaque,
-		Data: map[string][]byte{wolfAgentTokenKey: []byte(hex.EncodeToString(raw))},
+		Data: map[string][]byte{
+			wolfAgentTokenKey:       []byte(hex.EncodeToString(raw)),
+			corev1.TLSCertKey:       certPEM,
+			corev1.TLSPrivateKeyKey: keyPEM,
+		},
 	}, metav1.CreateOptions{})
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return fmt.Errorf("failed to create wolf-agent token secret %s/%s: %w", session.Namespace, name, err)
@@ -88,18 +115,64 @@ func (c *SessionController) reconcileAgentToken(ctx context.Context, session *v1
 	return nil
 }
 
-// agentToken reads the bearer token wolf-agent in session's pod expects.
-func (c *SessionController) agentToken(ctx context.Context, session *v1alpha1types.Session) (string, error) {
+// generateAgentCert makes wolf-agent's self-signed serving cert and key.
+func generateAgentCert() (certPEM, keyPEM []byte, err error) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate wolf-agent key: %w", err)
+	}
+	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to generate wolf-agent cert serial: %w", err)
+	}
+	now := time.Now()
+	tmpl := &x509.Certificate{
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: wolfAgentServerName},
+		DNSNames:              []string{wolfAgentServerName},
+		NotBefore:             now.Add(-time.Hour), // tolerate node clock skew
+		NotAfter:              now.Add(wolfAgentCertValidity),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create wolf-agent cert: %w", err)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal wolf-agent key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}),
+		pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), nil
+}
+
+// errAgentCertMissing marks a token Secret from before wolf-agent's cert was
+// pinned: its pod serves a cert the operator cannot verify.
+var errAgentCertMissing = stderrors.New("wolf-agent token secret has no serving cert")
+
+// agentCredentials reads the bearer token wolf-agent in session's pod expects
+// and the TLS config that pins the cert it serves.
+func (c *SessionController) agentCredentials(ctx context.Context, session *v1alpha1types.Session) (string, *tls.Config, error) {
 	name := agentTokenSecretName(session.Name)
 	secret, err := c.K8sClient.CoreV1().Secrets(session.Namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return "", fmt.Errorf("failed to get wolf-agent token secret %s/%s: %w", session.Namespace, name, err)
+		return "", nil, fmt.Errorf("failed to get wolf-agent token secret %s/%s: %w", session.Namespace, name, err)
 	}
 	token := string(secret.Data[wolfAgentTokenKey])
 	if token == "" {
-		return "", fmt.Errorf("wolf-agent token secret %s/%s has no %q key", session.Namespace, name, wolfAgentTokenKey)
+		return "", nil, fmt.Errorf("wolf-agent token secret %s/%s has no %q key", session.Namespace, name, wolfAgentTokenKey)
 	}
-	return token, nil
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(secret.Data[corev1.TLSCertKey]) {
+		return "", nil, fmt.Errorf("%w: %s/%s", errAgentCertMissing, session.Namespace, name)
+	}
+	return token, &tls.Config{
+		RootCAs:    roots,
+		ServerName: wolfAgentServerName,
+		MinVersion: tls.VersionTLS12,
+	}, nil
 }
 
 func podReady(pod *corev1.Pod) bool {

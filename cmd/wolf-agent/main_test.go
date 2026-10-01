@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"games-on-whales.github.io/direwolf/pkg/util"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
 )
 
@@ -239,5 +242,89 @@ func TestTokenFileRotation(t *testing.T) {
 	swap("v4", "again\n")
 	if got := status("again"); got != http.StatusNoContent {
 		t.Errorf("token file restored: status %d, want 204", got)
+	}
+}
+
+// The operator regenerates the cert with the token and pins the new one at
+// once, so the served cert must follow the files; a bad read keeps the last
+// good cert rather than failing the handshake.
+func TestCertFileFollowsRotation(t *testing.T) {
+	dir := t.TempDir()
+	certPath, keyPath := filepath.Join(dir, "tls.crt"), filepath.Join(dir, "tls.key")
+	write := func() []byte {
+		t.Helper()
+		certPEM, keyPEM, err := util.GenerateEphemeralCert("ECC")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(certPath, certPEM, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(keyPath, keyPEM, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		pair, err := tls.X509KeyPair(certPEM, keyPEM)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return pair.Certificate[0]
+	}
+	served := func(f *certFile) []byte {
+		t.Helper()
+		c, err := f.GetCertificate(nil)
+		if err != nil || c == nil {
+			t.Fatalf("GetCertificate = %v, %v", c, err)
+		}
+		return c.Certificate[0]
+	}
+
+	first := write()
+	initial, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newCertFile(certPath, keyPath, &initial)
+	if !bytes.Equal(served(f), first) {
+		t.Error("not serving the initial cert")
+	}
+
+	// The server's TLS config, built before the rotation as main() builds it.
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	tlsLn := tls.NewListener(ln, serverTLSConfig(f))
+	go func() {
+		for {
+			c, acceptErr := tlsLn.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_ = c.(*tls.Conn).HandshakeContext(context.Background()) //nolint:forcetypeassert // tls.NewListener yields *tls.Conn
+			_ = c.Close()
+		}
+	}()
+
+	second := write()
+	if !bytes.Equal(served(f), second) {
+		t.Error("still serving the old cert after rotation")
+	}
+	d := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}} //nolint:gosec // inspecting the served cert
+	conn, err := d.DialContext(context.Background(), "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if !bytes.Equal(conn.(*tls.Conn).ConnectionState().PeerCertificates[0].Raw, second) { //nolint:forcetypeassert // tls.Dialer yields *tls.Conn
+		t.Error("server's TLS config serves a stale cert")
+	}
+
+	// Half-swapped: a key that doesn't match the cert.
+	if err := os.WriteFile(keyPath, []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(served(f), second) {
+		t.Error("unreadable files did not fall back to the last good cert")
 	}
 }
