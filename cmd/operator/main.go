@@ -60,6 +60,12 @@ func main() {
 		"App copied for each installed Steam game (its pod template runs $"+controllers.LaunchCommandEnv+"). Empty: Steam games are not catalogued. Needs --library-port")
 	catalogueHeroicApp := flag.String("catalogue-heroic-app", "",
 		"App copied for each installed Epic/GOG game, launched through Heroic. Empty: Heroic games are not catalogued. Needs --library-port")
+	rommURL := flag.String("romm-url", "",
+		"RomM's base URL, e.g. http://romm.games.svc:8080; its token is read from $ROMM_TOKEN. Empty: ROMs are not catalogued")
+	rommApp := flag.String("romm-app", "",
+		"App copied for each playable RomM ROM (a RetroArch session; its pod template mounts RomM's library at "+controllers.RomMLibraryPath+" and runs $"+controllers.LaunchCommandEnv+"). Required with --romm-url")
+	rommCollection := flag.Int("romm-collection-id", 0,
+		"Only catalogue the ROMs in this RomM collection. 0: every ROM")
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -103,6 +109,10 @@ func main() {
 	}
 	if *libraryIdleTimeout <= 0 {
 		klog.Fatalf("--library-idle-timeout must be positive, got %s", *libraryIdleTimeout)
+	}
+
+	if (*rommURL == "") != (*rommApp == "") {
+		klog.Fatal("--romm-url and --romm-app go together")
 	}
 
 	restConfig, err := util.GetRESTConfig()
@@ -229,6 +239,15 @@ func main() {
 		}()
 	}
 
+	var romm *controllers.RomM
+	if *rommURL != "" {
+		romm, err = controllers.NewRomM(direwolfClient.DirewolfV1alpha1().Apps(*namespace),
+			*rommURL, os.Getenv("ROMM_TOKEN"), *rommApp, *rommCollection)
+		if err != nil {
+			klog.Fatalf("RomM: %v", err)
+		}
+	}
+
 	leaderelection.RunOrDie(appContext, leaderelection.LeaderElectionConfig{
 		Lock:          lock,
 		LeaseDuration: 15 * time.Second,
@@ -243,6 +262,13 @@ func main() {
 						if err != nil && !errors.Is(err, context.Canceled) {
 							klog.Errorf("error running library controller: %v", err)
 							appCancel()
+						}
+					}()
+				}
+				if romm != nil {
+					go func() {
+						if err := romm.Run(appContext); err != nil && !errors.Is(err, context.Canceled) {
+							klog.Errorf("error running RomM sync: %v", err)
 						}
 					}()
 				}

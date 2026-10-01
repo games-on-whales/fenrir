@@ -56,6 +56,13 @@ controllers:
           # pod template must run $DIREWOLF_LAUNCH_COMMAND:
           #   --catalogue-steam-app=<base App for Steam games>
           #   --catalogue-heroic-app=<base App for Epic/GOG games>
+          # RomM ROMs (one App per playable ROM, a RetroArch session) are off
+          # unless --romm-url is set; the base App is examples/retroarch.yaml,
+          # and the token (a RomM client API token with roms.read) is
+          # ROMM_TOKEN, from Secret direwolf-romm key token:
+          #   --romm-url=http://romm.<namespace>.svc:8080
+          #   --romm-app=retroarch
+          #   --romm-collection-id=<only this RomM collection's ROMs>
         image:
           repository: ghcr.io/games-on-whales/fenrir/direwolf-operator
           tag: main
@@ -69,6 +76,12 @@ controllers:
           WOLF_IMAGE: ghcr.io/games-on-whales/wolf:stable
           AGENT_IMAGE: ghcr.io/games-on-whales/fenrir/wolf-agent:main
           LIBRARY_IMAGE: ghcr.io/games-on-whales/fenrir/library:main
+          ROMM_TOKEN:
+            valueFrom:
+              secretKeyRef:
+                name: direwolf-romm
+                key: token
+                optional: true
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true

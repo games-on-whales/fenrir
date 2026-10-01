@@ -112,7 +112,12 @@ const steamFullyInstalled = 4
 // too). The URLs come from files in the Library, which its desktop user can
 // write, so anything else would let them point the operator at in-cluster
 // services and read the reply back as an App's box art.
-var artHosts = []string{"steamstatic.com", "akamaihd.net", "epicgames.com", "unrealengine.com", "gog-statics.com", "gog.com"}
+// RomM's covers come from its metadata sources (IGDB, SteamGridDB, libretro
+// thumbnails, MobyGames).
+var artHosts = []string{
+	"steamstatic.com", "akamaihd.net", "epicgames.com", "unrealengine.com", "gog-statics.com", "gog.com",
+	"igdb.com", "steamgriddb.com", "libretro.com", "mobygames.com",
+}
 
 type CatalogueOptions struct {
 	// SteamBaseApp and HeroicBaseApp name the Apps whose spec (pod template,
@@ -121,6 +126,10 @@ type CatalogueOptions struct {
 	// existing catalogue Apps are left alone.
 	SteamBaseApp  string
 	HeroicBaseApp string
+	// RomMBaseApp names the App RomM ROM entries are copied from. Only ever
+	// set on RomM's own Catalogue: a Catalogue syncs every store it has a
+	// base for, so the Library's would delete every RomM App as uninstalled.
+	RomMBaseApp string
 }
 
 // catalogueGame is one installed game found in the Library.
@@ -129,6 +138,9 @@ type catalogueGame struct {
 	ID     string // Steam appid or Heroic appName
 	Title  string
 	ArtURL []string // tried in order
+	// Launch is the launch command line of a RomM game (core and ROM path);
+	// the other stores' are derived from Store and ID.
+	Launch string
 }
 
 // Catalogue keeps one App per installed game in sync with the Library's Steam
@@ -661,7 +673,10 @@ func catalogueMoonlightID(store, id string) int {
 // launchCommand is the shell command line that starts the game. IDs are
 // checked (numeric, heroicAppName) before they get here.
 func launchCommand(game catalogueGame) string {
-	if game.Store == v1alpha1types.CatalogueStoreSteam {
+	switch game.Store {
+	case v1alpha1types.CatalogueStoreRomM:
+		return game.Launch
+	case v1alpha1types.CatalogueStoreSteam:
 		return "steam -applaunch " + game.ID
 	}
 	runner := "legendary"
@@ -698,6 +713,7 @@ func (c *Catalogue) Sync(ctx context.Context, games []catalogueGame, artBudget t
 	}{
 		{c.SteamBaseApp, []string{v1alpha1types.CatalogueStoreSteam}},
 		{c.HeroicBaseApp, []string{v1alpha1types.CatalogueStoreEpic, v1alpha1types.CatalogueStoreGOG}},
+		{c.RomMBaseApp, []string{v1alpha1types.CatalogueStoreRomM}},
 	} {
 		if b.name == "" {
 			continue

@@ -17,7 +17,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Build one binary: `go build ./cmd/<operator|moonlight-proxy|wolf-agent>`
 - Image: `docker build --build-arg APP_NAME=<cmd name> .` — one Dockerfile, `APP_NAME` picks the cmd.
 - Non-Go images live in `images/<name>/` (own Dockerfile + context), e.g. `images/library`
-  (linuxserver/steam + Heroic). CI builds them via matrix `include:` entries carrying `context:`.
+  (linuxserver/steam + Heroic), `images/retroarch` (GoW RetroArch + pinned cores).
+  CI builds them via matrix `include:` entries carrying `context:`.
 - Codegen after editing `pkg/api/v1alpha1/*.go`: `hack/update-codegen.sh` (bash + python3).
   - Regenerates `zz_generated.*`, `pkg/generated/` (clientset/listers/informers/applyconfig),
     `crds/`, and `schemas/`. All are committed — never hand-edit them.
@@ -73,6 +74,8 @@ Three binaries in `cmd/`, all sharing `pkg/`:
     It and game sessions never run together (shared Steam home); see `.claude/rules/library.md`.
   - The catalogue (`pkg/controllers/catalogue.go`, off unless `--catalogue-*-app`) scans the
     Library pod for Steam/Heroic installs and keeps one App per game; see `.claude/rules/catalogue.md`.
+  - RomM sync (`pkg/controllers/romm.go`, off unless `--romm-url`) keeps one RetroArch App per
+    playable RomM ROM, via the catalogue's App sync; see `.claude/rules/romm.md`.
   - `App.spec.gpu` becomes a per-Session DRA ResourceClaim (`pkg/controllers/gpu_claim.go`).
   - Watches session pods (label `direwolf/session=true` only) to re-reconcile their Session.
 - **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to

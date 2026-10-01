@@ -30,4 +30,7 @@ const (
 	CatalogueStoreSteam = "steam"
 	CatalogueStoreEpic  = "epic"
 	CatalogueStoreGOG   = "gog"
+	// CatalogueStoreRomM marks an App made from a RomM ROM entry (a RetroArch
+	// session); synced from RomM's API, not the Library.
+	CatalogueStoreRomM = "romm"
 )
