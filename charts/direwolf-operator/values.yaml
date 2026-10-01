@@ -51,6 +51,11 @@ controllers:
           #   --library-trusted-proxies=<ingress controller pod CIDR>
           #   --library-home-pvc=<shared Steam home PVC>
           #   --library-games-pvc=<shared game library PVC>
+          # The catalogue (one App per installed game, read from the Library)
+          # is off unless a base App is named; each is copied per game and its
+          # pod template must run $DIREWOLF_LAUNCH_COMMAND:
+          #   --catalogue-steam-app=<base App for Steam games>
+          #   --catalogue-heroic-app=<base App for Epic/GOG games>
         image:
           repository: ghcr.io/games-on-whales/fenrir/direwolf-operator
           tag: main
@@ -178,7 +183,11 @@ rbac:
         - apiGroups: [""]
           resources: ["pods"]
           verbs: ["get", "list", "watch", "create", "delete", "patch"]
-        # Library idle check (download dirs) and `steam -shutdown`. WebSocket
+        # App.spec.gpu: one claim per Session, owned by it (garbage collected).
+        - apiGroups: ["resource.k8s.io"]
+          resources: ["resourceclaims"]
+          verbs: ["get", "create"]
+        # Library idle check (download dirs), catalogue scan and `steam -shutdown`. WebSocket
         # exec needs get as well as create.
         - apiGroups: [""]
           resources: ["pods/exec"]

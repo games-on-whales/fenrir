@@ -2,6 +2,7 @@ package v1alpha1
 
 import (
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -54,6 +55,33 @@ type AppSpec struct {
 	// all other volumes must be defined in the pod template's spec.volumes field.
 	// +kubebuilder:validation:Optional
 	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty" xml:"-"`
+
+	// Hidden Apps are left out of the Moonlight app list (e.g. the base Apps
+	// the catalogue scanner copies). A per-game setting the scanner keeps.
+	// +kubebuilder:validation:Optional
+	Hidden bool `json:"hidden,omitempty" xml:"-"`
+
+	// GPU the session pod gets through a DRA ResourceClaim the operator
+	// creates per Session. Omitted: no GPU from this field (the pod template
+	// may still reference its own claims). A per-game setting the scanner keeps.
+	// +kubebuilder:validation:Optional
+	GPU *AppGPU `json:"gpu,omitempty" xml:"-"`
+}
+
+// AppGPU is the GPU share a session of the App gets.
+// +kubebuilder:validation:XValidation:rule="!has(self.memory) || quantity(string(self.memory)).isGreaterThan(quantity('0'))",message="memory must be positive"
+type AppGPU struct {
+	// VRAM to reserve on one card (the claim's capacity.requests.memory).
+	// Omitted: the whole card.
+	// +kubebuilder:validation:Optional
+	Memory *resource.Quantity `json:"memory,omitempty"`
+
+	// DRA DeviceClass to allocate from.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default="gpu.nvidia.com"
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$`
+	DeviceClassName string `json:"deviceClassName,omitempty"`
 }
 
 // TODO so I can easily find it

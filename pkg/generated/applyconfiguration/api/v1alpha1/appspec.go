@@ -44,6 +44,13 @@ type AppSpecApplyConfiguration struct {
 	// If not provided, an emptyDir volume will be used.
 	// all other volumes must be defined in the pod template's spec.volumes field.
 	VolumeClaimTemplate *v1.PersistentVolumeClaimTemplate `json:"volumeClaimTemplate,omitempty"`
+	// Hidden Apps are left out of the Moonlight app list (e.g. the base Apps
+	// the catalogue scanner copies). A per-game setting the scanner keeps.
+	Hidden *bool `json:"hidden,omitempty"`
+	// GPU the session pod gets through a DRA ResourceClaim the operator
+	// creates per Session. Omitted: no GPU from this field (the pod template
+	// may still reference its own claims). A per-game setting the scanner keeps.
+	GPU *AppGPUApplyConfiguration `json:"gpu,omitempty"`
 }
 
 // AppSpecApplyConfiguration constructs a declarative configuration of the AppSpec type for use with
@@ -107,5 +114,21 @@ func (b *AppSpecApplyConfiguration) WithWolfConfig(value *WolfConfigApplyConfigu
 // If called multiple times, the VolumeClaimTemplate field is set to the value of the last call.
 func (b *AppSpecApplyConfiguration) WithVolumeClaimTemplate(value v1.PersistentVolumeClaimTemplate) *AppSpecApplyConfiguration {
 	b.VolumeClaimTemplate = &value
+	return b
+}
+
+// WithHidden sets the Hidden field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Hidden field is set to the value of the last call.
+func (b *AppSpecApplyConfiguration) WithHidden(value bool) *AppSpecApplyConfiguration {
+	b.Hidden = &value
+	return b
+}
+
+// WithGPU sets the GPU field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the GPU field is set to the value of the last call.
+func (b *AppSpecApplyConfiguration) WithGPU(value *AppGPUApplyConfiguration) *AppSpecApplyConfiguration {
+	b.GPU = value
 	return b
 }

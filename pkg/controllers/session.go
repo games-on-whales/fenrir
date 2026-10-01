@@ -736,6 +736,10 @@ func (c *SessionController) reconcilePod(ctx context.Context, session *v1alpha1t
 	if tokenErr := c.reconcileAgentToken(ctx, session); tokenErr != nil {
 		return nil, tokenErr
 	}
+	// Before the pod, which references it by name.
+	if claimErr := c.reconcileGPUClaim(ctx, session); claimErr != nil {
+		return nil, claimErr
+	}
 	created, err := c.K8sClient.CoreV1().Pods(session.Namespace).Create(ctx, pod, metav1.CreateOptions{
 		FieldManager: "direwolf-session-controller-pod",
 	})
@@ -869,6 +873,9 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 	if app.Spec.Template != nil {
 		podToCreate.ObjectMeta = app.Spec.Template.ObjectMeta
 		podToCreate.Spec = *app.Spec.Template.Spec.DeepCopy()
+	}
+	if err := addAppGPUClaim(&podToCreate.Spec, app, session); err != nil {
+		return nil, err
 	}
 
 	if podToCreate.Labels == nil {

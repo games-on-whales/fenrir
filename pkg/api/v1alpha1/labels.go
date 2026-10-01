@@ -20,3 +20,14 @@ const LibraryPodLabel = "direwolf/library"
 
 // LibraryPodLabelValue is the value the operator sets for LibraryPodLabel.
 const LibraryPodLabelValue = "true"
+
+// CatalogueLabel marks an App the operator's catalogue scanner created from
+// an installed game; its value is the store (CatalogueStoreSteam, ...). The
+// scanner only ever updates or deletes Apps carrying it.
+const CatalogueLabel = "direwolf/catalogue"
+
+const (
+	CatalogueStoreSteam = "steam"
+	CatalogueStoreEpic  = "epic"
+	CatalogueStoreGOG   = "gog"
+)

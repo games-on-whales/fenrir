@@ -42,6 +42,9 @@ const (
 	libraryAuthSecret = "direwolf-library-auth"
 	libraryAuthKey    = "password"
 	libraryAuthUser   = "abc"
+	// libraryUnixUser is the image's desktop (and Steam) user, not to be
+	// confused with the basic-auth name above.
+	libraryUnixUser = "abc"
 	// libraryHTTPPort is Selkies' plain-HTTP port in linuxserver images.
 	libraryHTTPPort = 3000
 	// libraryHome is HOME for the image's abc user, so the Steam home PVC
@@ -77,6 +80,46 @@ const heroicDownloadQueue = libraryHome + "/.config/heroic/store/download-manage
 // exit is an error.
 type PodExecutor func(ctx context.Context, namespace, pod, container string, command []string) (string, error)
 
+// maxExecOutput caps what an exec may return: the Library's desktop user can
+// write the files the catalogue scan reads, and the operator has 256Mi.
+const maxExecOutput = 32 << 20
+
+// cappedBuffer collects output and fails writes past max bytes. It wraps
+// rather than embeds bytes.Buffer: an embedded ReadFrom or WriteString would
+// let io.Copy and friends skip the cap. The overflow is also recorded:
+// client-go only logs a failed stdout/stderr copy and returns no error, so
+// the caller must check Overflowed or get silently truncated output.
+type cappedBuffer struct {
+	buf        bytes.Buffer
+	max        int
+	overflowed bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	if b.overflowed || b.buf.Len()+len(p) > b.max {
+		b.overflowed = true
+		return 0, fmt.Errorf("exec output over %d bytes", b.max)
+	}
+	return b.buf.Write(p) //nolint:wrapcheck // bytes.Buffer only fails on OOM
+}
+
+func (b *cappedBuffer) String() string { return b.buf.String() }
+
+// Overflowed reports whether output was dropped past max.
+func (b *cappedBuffer) Overflowed() bool { return b.overflowed }
+
+// execResult is an exec's stdout, or an error if it failed or either stream
+// went over its cap (truncated output must never pass for the whole of it).
+func execResult(stdout, stderr *cappedBuffer, err error) (string, error) {
+	if err == nil && (stdout.Overflowed() || stderr.Overflowed()) {
+		err = fmt.Errorf("exec output over its cap (stdout %d, stderr %d bytes)", stdout.max, stderr.max)
+	}
+	if err != nil {
+		return "", fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return stdout.String(), nil
+}
+
 // NewPodExecutor execs through the API server (pods/exec).
 func NewPodExecutor(config *rest.Config, client kubernetes.Interface) PodExecutor {
 	return func(ctx context.Context, namespace, pod, container string, command []string) (string, error) {
@@ -92,12 +135,18 @@ func NewPodExecutor(config *rest.Config, client kubernetes.Interface) PodExecuto
 		if err != nil {
 			return "", fmt.Errorf("creating exec stream: %w", err)
 		}
-		var stdout, stderr bytes.Buffer
-		if err := executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &stdout, Stderr: &stderr}); err != nil {
-			return stdout.String(), fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
-		}
-		return stdout.String(), nil
+		return streamCapped(func(opts remotecommand.StreamOptions) error {
+			return executor.StreamWithContext(ctx, opts)
+		})
 	}
+}
+
+// streamCapped runs an exec stream into capped buffers and returns its
+// stdout through execResult.
+func streamCapped(stream func(remotecommand.StreamOptions) error) (string, error) {
+	stdout := &cappedBuffer{max: maxExecOutput}
+	stderr := &cappedBuffer{max: 64 << 10}
+	return execResult(stdout, stderr, stream(remotecommand.StreamOptions{Stdout: stdout, Stderr: stderr}))
 }
 
 type LibraryControllerOptions struct {
@@ -132,6 +181,8 @@ type LibraryController struct {
 	SessionClient v1alpha1client.SessionInterface
 	PodInformer   generic.Informer[*corev1.Pod]
 	Exec          PodExecutor
+	// Catalogue, if set, is scanned while the Library runs and as it stops.
+	Catalogue *Catalogue
 
 	controller generic.Controller[*corev1.Pod]
 	now        func() time.Time
@@ -176,7 +227,14 @@ func (c *LibraryController) Reconcile(namespace, name string, pod *corev1.Pod) e
 	if pod == nil || name != LibraryPodName || pod.DeletionTimestamp != nil {
 		return nil
 	}
-	requeueAfter, err := c.reconcileIdle(context.Background(), pod)
+	ctx := context.Background()
+	if c.Catalogue != nil && podReady(pod) && c.Catalogue.ScanDue() {
+		c.scanCatalogue(ctx, pod, catalogueArtBudget)
+	}
+	requeueAfter, err := c.reconcileIdle(ctx, pod)
+	if c.Catalogue != nil && requeueAfter > catalogueScanInterval {
+		requeueAfter = catalogueScanInterval
+	}
 	if requeueAfter > 0 {
 		c.controller.EnqueueAfter(namespace, name, requeueAfter)
 	}
@@ -244,6 +302,11 @@ func (c *LibraryController) stop(ctx context.Context, pod *corev1.Pod) error {
 		if err != nil {
 			klog.Errorf("Steam did not shut down cleanly, deleting the Library pod anyway: %v", err)
 		}
+		// Last look, now Steam has written its manifests out. No art: the
+		// Steam lock is held until the pod is gone; the next run fetches it.
+		if c.Catalogue != nil {
+			c.scanCatalogue(ctx, pod, 0)
+		}
 	}
 	err := c.K8sClient.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{
 		Preconditions: &metav1.Preconditions{UID: &pod.UID},
@@ -252,6 +315,14 @@ func (c *LibraryController) stop(ctx context.Context, pod *corev1.Pod) error {
 		return fmt.Errorf("failed to delete Library pod: %w", err)
 	}
 	return nil
+}
+
+// scanCatalogue syncs the catalogue from the Library. A failed scan changes
+// nothing and holds up the Library (or its shutdown) for a bounded time only.
+func (c *LibraryController) scanCatalogue(ctx context.Context, pod *corev1.Pod, artBudget time.Duration) {
+	if err := c.Catalogue.Scan(ctx, pod, artBudget); err != nil {
+		klog.Errorf("Catalogue scan failed: %v", err)
+	}
 }
 
 // steamShutdownCommand runs `steam -shutdown` as the desktop user (only if

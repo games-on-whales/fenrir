@@ -9,6 +9,8 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"image/png"
 	"io"
 	"maps"
@@ -427,6 +429,9 @@ func (s *RESTServer) appListHandler(w http.ResponseWriter, r *http.Request) {
 
 	appsList := make([]App, 0, len(apps))
 	for _, app := range apps {
+		if app.Spec.Hidden {
+			continue
+		}
 		appsList = append(appsList, App{
 			AppSpec: app.Spec,
 		})
@@ -982,9 +987,9 @@ func (s *RESTServer) appAssetHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(200)
 
-	img, err := webp.Decode(bytes.NewReader(app.Spec.AppAssetWebP))
+	img, err := decodeAppAsset(app.Spec.AppAssetWebP)
 	if err != nil {
-		klog.Infof("Failed to decode webp: %s", err)
+		klog.Infof("Failed to decode app asset: %s", err)
 		return
 	}
 
@@ -1001,6 +1006,20 @@ func (s *RESTServer) appAssetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	klog.Infof("Sent app asset for %s", appID)
+}
+
+// decodeAppAsset decodes an App's cover: WebP, or the PNG/JPEG box art the
+// catalogue fetches.
+func decodeAppAsset(data []byte) (image.Image, error) {
+	var errs []error
+	for _, decode := range []func(io.Reader) (image.Image, error){webp.Decode, png.Decode, jpeg.Decode} {
+		img, err := decode(bytes.NewReader(data))
+		if err == nil {
+			return img, nil
+		}
+		errs = append(errs, err)
+	}
+	return nil, errors.Join(errs...)
 }
 
 func writeErrorResponse(w http.ResponseWriter, status int, err error) {
@@ -1123,8 +1142,9 @@ func (s *RESTServer) getAppByID(appID string) (*v1alpha1types.App, error) {
 		return nil, err
 	}
 
+	// A hidden App is not in the app list, so it can't be launched either.
 	for _, app := range apps {
-		if app.Spec.ID == intParsedAppID {
+		if app.Spec.ID == intParsedAppID && !app.Spec.Hidden {
 			return app, nil
 		}
 	}

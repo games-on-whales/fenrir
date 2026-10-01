@@ -56,6 +56,10 @@ func main() {
 	libraryGamesPath := flag.String("library-games-path", "/games", "Where the Library mounts the game library")
 	libraryIdleTimeout := flag.Duration("library-idle-timeout", controllers.DefaultLibraryIdleTimeout,
 		"How long the Library may go without browser traffic (and with nothing downloading) before it is stopped")
+	catalogueSteamApp := flag.String("catalogue-steam-app", "",
+		"App copied for each installed Steam game (its pod template runs $"+controllers.LaunchCommandEnv+"). Empty: Steam games are not catalogued. Needs --library-port")
+	catalogueHeroicApp := flag.String("catalogue-heroic-app", "",
+		"App copied for each installed Epic/GOG game, launched through Heroic. Empty: Heroic games are not catalogued. Needs --library-port")
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -93,6 +97,9 @@ func main() {
 	}
 	if pathErr := controllers.ValidateLibraryGamesPath(*libraryGamesPath); *libraryPort != 0 && pathErr != nil {
 		klog.Fatalf("--library-games-path: %v", pathErr)
+	}
+	if *libraryPort == 0 && (*catalogueSteamApp != "" || *catalogueHeroicApp != "") {
+		klog.Fatal("--catalogue-steam-app and --catalogue-heroic-app need --library-port: the catalogue is read from the Library")
 	}
 	if *libraryIdleTimeout <= 0 {
 		klog.Fatalf("--library-idle-timeout must be positive, got %s", *libraryIdleTimeout)
@@ -199,6 +206,14 @@ func main() {
 				IdleTimeout:  *libraryIdleTimeout,
 			},
 		)
+		if *catalogueSteamApp != "" || *catalogueHeroicApp != "" {
+			libraryController.Catalogue = controllers.NewCatalogue(
+				direwolfClient.DirewolfV1alpha1().Apps(*namespace),
+				libraryController.Exec,
+				*libraryGamesPath,
+				controllers.CatalogueOptions{SteamBaseApp: *catalogueSteamApp, HeroicBaseApp: *catalogueHeroicApp},
+			)
+		}
 		// Every replica serves the page (activity is recorded on the pod);
 		// only the leader runs the idle check.
 		libraryServer := controllers.NewLibraryServer(

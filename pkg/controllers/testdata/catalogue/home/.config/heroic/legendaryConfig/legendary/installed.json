@@ -1,0 +1,4 @@
+{
+  "Quail": {"app_name": "Quail", "title": "Hades", "install_path": "/games/Heroic/Hades", "executable": "Hades.exe", "platform": "Windows", "is_dlc": false},
+  "Fortnite_DLC": {"app_name": "Fortnite_DLC", "title": "Some DLC", "install_path": "/games/Heroic/DLC", "is_dlc": true}
+}

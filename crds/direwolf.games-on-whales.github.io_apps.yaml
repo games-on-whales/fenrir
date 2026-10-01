@@ -41,6 +41,36 @@ spec:
                 description: PNG image of the app
                 format: byte
                 type: string
+              gpu:
+                description: |-
+                  GPU the session pod gets through a DRA ResourceClaim the operator
+                  creates per Session. Omitted: no GPU from this field (the pod template
+                  may still reference its own claims). A per-game setting the scanner keeps.
+                properties:
+                  deviceClassName:
+                    default: gpu.nvidia.com
+                    description: DRA DeviceClass to allocate from.
+                    maxLength: 253
+                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                    type: string
+                  memory:
+                    anyOf:
+                    - type: integer
+                    - type: string
+                    description: |-
+                      VRAM to reserve on one card (the claim's capacity.requests.memory).
+                      Omitted: the whole card.
+                    pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                    x-kubernetes-int-or-string: true
+                type: object
+                x-kubernetes-validations:
+                - message: memory must be positive
+                  rule: '!has(self.memory) || quantity(string(self.memory)).isGreaterThan(quantity(''0''))'
+              hidden:
+                description: |-
+                  Hidden Apps are left out of the Moonlight app list (e.g. the base Apps
+                  the catalogue scanner copies). A per-game setting the scanner keeps.
+                type: boolean
               id:
                 description: |-
                   Globally unique ID of the application. If there is a collision, the app

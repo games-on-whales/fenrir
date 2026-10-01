@@ -71,6 +71,9 @@ Three binaries in `cmd/`, all sharing `pkg/`:
   - `LibraryController` (`pkg/controllers/library*.go`, off unless `--library-port`) starts the
     Steam + Heroic Library pod on a page visit, proxies it, and stops it when idle.
     It and game sessions never run together (shared Steam home); see `.claude/rules/library.md`.
+  - The catalogue (`pkg/controllers/catalogue.go`, off unless `--catalogue-*-app`) scans the
+    Library pod for Steam/Heroic installs and keeps one App per game; see `.claude/rules/catalogue.md`.
+  - `App.spec.gpu` becomes a per-Session DRA ResourceClaim (`pkg/controllers/gpu_claim.go`).
   - Watches session pods (label `direwolf/session=true` only) to re-reconcile their Session.
 - **wolf-agent** (`pkg/controllers/agent.go`, `pkg/wolfapi`, `pkg/fakeudev`): sidecar talking to
   Wolf's HTTP API over a mounted unix socket.

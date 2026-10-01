@@ -1,0 +1,8 @@
+// Steam writes no comments, but KeyValues allows them.
+"AppState"
+{
+	"appid"		"1245620"
+	"name"		"ELDEN RING \"Shadow\" Edition"
+	"StateFlags"		"6"
+	"installdir"		"ELDEN RING"
+}

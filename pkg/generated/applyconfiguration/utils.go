@@ -34,6 +34,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 	// Group=direwolf.games-on-whales.github.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithKind("App"):
 		return &apiv1alpha1.AppApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("AppGPU"):
+		return &apiv1alpha1.AppGPUApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("AppSpec"):
 		return &apiv1alpha1.AppSpecApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("GameReference"):
