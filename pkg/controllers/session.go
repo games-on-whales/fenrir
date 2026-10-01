@@ -1642,10 +1642,12 @@ func withHotplugMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {
 // the container. Wolf otherwise defaults to /dev/dri/renderD128, but a DRA
 // claim exposes only the allocated card's node, whose minor depends on the
 // card (renderD129 for the second one): the encoder then fails with "Failed to
-// open drm node /dev/dri/renderD128" and Moonlight gets no video. A
-// WOLF_RENDER_NODE set by the App (wolfConfig.runtimeVariables.renderNode) or
-// a User's wolf policy is kept.
-var wolfCommand = []string{"/bin/sh", "-c", `if [ -z "${WOLF_RENDER_NODE:-}" ]; then
+// open drm node /dev/dri/renderD128" and Moonlight gets no video. The Wolf
+// image itself sets ENV WOLF_RENDER_NODE=/dev/dri/renderD128, so the test is
+// "not a device here", not "unset". A WOLF_RENDER_NODE from the App
+// (wolfConfig.runtimeVariables.renderNode) or a User's wolf policy that does
+// exist in the container is kept.
+var wolfCommand = []string{"/bin/sh", "-c", `if [ ! -c "${WOLF_RENDER_NODE:-}" ]; then
   for n in /dev/dri/renderD*; do
     if [ -c "$n" ]; then export WOLF_RENDER_NODE="$n"; break; fi
   done

@@ -432,8 +432,13 @@ func TestWolfCommandPicksClaimedRenderNode(t *testing.T) {
 	if got, want := run(), dri+"/renderD129"; got != want {
 		t.Errorf("WOLF_RENDER_NODE = %q, want %q", got, want)
 	}
-	if got := run("WOLF_RENDER_NODE=/dev/dri/renderD130"); got != "/dev/dri/renderD130" {
-		t.Errorf("set WOLF_RENDER_NODE overridden: got %q", got)
+	// The Wolf image's own ENV points at a node this card doesn't have.
+	if got, want := run("WOLF_RENDER_NODE="+dri+"/renderD128"), dri+"/renderD129"; got != want {
+		t.Errorf("image default kept: WOLF_RENDER_NODE = %q, want %q", got, want)
+	}
+	// A node that exists (set by the App or a User policy) is kept.
+	if got := run("WOLF_RENDER_NODE=/dev/null"); got != "/dev/null" {
+		t.Errorf("existing WOLF_RENDER_NODE overridden: got %q", got)
 	}
 }
 
