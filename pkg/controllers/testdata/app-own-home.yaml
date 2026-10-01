@@ -1,0 +1,23 @@
+# An App that mounts its own home (a shared Steam home), so the operator must
+# not inject its per-App wolf-data mount at /home/retro as well.
+apiVersion: direwolf.games-on-whales.github.io/v1alpha1
+kind: App
+metadata:
+  name: steam
+spec:
+  id: 2
+  title: Steam
+  isHDRSupported: false
+  appAssetWebP: ""
+  template:
+    spec:
+      volumes:
+        - name: steam-home
+          persistentVolumeClaim:
+            claimName: steam-home
+      containers:
+        - name: app
+          image: ghcr.io/games-on-whales/steam:edge
+          volumeMounts:
+            - name: steam-home
+              mountPath: /home/retro

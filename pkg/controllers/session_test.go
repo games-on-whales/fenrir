@@ -405,6 +405,22 @@ func TestSessionPodKeepsAppsOwnInputMount(t *testing.T) {
 	}
 }
 
+func TestSessionPodKeepsAppsOwnHome(t *testing.T) {
+	// A Steam App mounts the Steam home it shares with the Library at
+	// /home/retro; a second (wolf-data) mount there makes the pod invalid.
+	_, _, _, pod := reconcileFixtures(t, "../../examples/user.yaml", "testdata/app-own-home.yaml") //nolint:dogsled // only the Pod matters here
+	if got := mountsAt(t, &pod.Spec, "app")[AppHomePath]; got != "steam-home" {
+		t.Errorf("app %s = %q, want the App's own steam-home", AppHomePath, got)
+	}
+}
+
+func TestSessionPodMountsAppHomeByDefault(t *testing.T) {
+	_, _, _, pod := reconcileFixtures(t, "../../examples/user.yaml", "../../examples/steam.yaml") //nolint:dogsled // only the Pod matters here
+	if got := mountsAt(t, &pod.Spec, "app")[AppHomePath]; got != "wolf-data" {
+		t.Errorf("app %s = %q, want wolf-data", AppHomePath, got)
+	}
+}
+
 func TestValidateNoHotplugOverride(t *testing.T) {
 	for p, wantErr := range map[string]bool{
 		"/dev/input":        true,

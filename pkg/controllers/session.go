@@ -918,9 +918,14 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 				Name:      "wolf-runtime",
 				MountPath: "/tmp/.X11-unix",
 			},
+		)
+		// The per-App home, unless the App mounts its own there: a Steam App
+		// mounts the Steam home it shares with the Library, and a second mount
+		// at the same path makes the pod invalid ("mountPath must be unique").
+		podToCreate.Spec.Containers[i].VolumeMounts = withMountUnlessTaken(podToCreate.Spec.Containers[i].VolumeMounts,
 			corev1.VolumeMount{
 				Name:      "wolf-data",
-				MountPath: "/home/retro",
+				MountPath: AppHomePath,
 				SubPath:   fmt.Sprintf("state/%s", app.Name),
 			},
 		)
@@ -1625,10 +1630,20 @@ func mountTarget(m *corev1.VolumeMount) string {
 // mounts already has something at that path (e.g. an App mounting the host's
 // /dev/input itself), which a second mount would collide with.
 func withHotplugMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {
-	for _, m := range []corev1.VolumeMount{
-		{Name: hotplugDevVolume, MountPath: InputDevPath},
-		{Name: hotplugUdevVolume, MountPath: path.Dir(UdevDataPath)},
-	} {
+	return withMountUnlessTaken(mounts,
+		corev1.VolumeMount{Name: hotplugDevVolume, MountPath: InputDevPath},
+		corev1.VolumeMount{Name: hotplugUdevVolume, MountPath: path.Dir(UdevDataPath)},
+	)
+}
+
+// AppHomePath is HOME in the GOW app images. The operator mounts the App's own
+// state there (wolf-data, state/<app>) unless the App mounts something itself.
+const AppHomePath = "/home/retro"
+
+// withMountUnlessTaken appends each of add to mounts unless mounts already
+// has something at its path.
+func withMountUnlessTaken(mounts []corev1.VolumeMount, add ...corev1.VolumeMount) []corev1.VolumeMount {
+	for _, m := range add {
 		if !slices.ContainsFunc(mounts, func(o corev1.VolumeMount) bool { return mountTarget(&o) == m.MountPath }) {
 			mounts = append(mounts, m)
 		}
