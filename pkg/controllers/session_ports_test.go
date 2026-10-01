@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -163,6 +164,8 @@ type fakeAgent struct {
 	*httptest.Server
 	sessions string // JSON array for /api/v1/sessions
 
+	open atomic.Int32 // client connections not yet closed
+
 	mu      sync.Mutex
 	added   int
 	last    wolfapi.Session // body of the last add
@@ -198,6 +201,15 @@ func newFakeAgent(t *testing.T) *fakeAgent {
 		}
 	}))
 	a.TLS = &tls.Config{Certificates: []tls.Certificate{testAgentKeyPair(t)}}
+	a.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		switch state {
+		case http.StateNew:
+			a.open.Add(1)
+		case http.StateClosed, http.StateHijacked:
+			a.open.Add(-1)
+		case http.StateActive, http.StateIdle:
+		}
+	}
 	a.StartTLS()
 	t.Cleanup(a.Close)
 	return a
@@ -362,5 +374,31 @@ func TestReconcileActiveStreamsEndsSessionWithoutAgentCert(t *testing.T) {
 	}
 	if _, err := f.dw.DirewolfV1alpha1().Sessions(portsTestNS).Get(context.Background(), sess.Name, metav1.GetOptions{}); err == nil {
 		t.Error("session still exists")
+	}
+}
+
+// Each poll builds its own transport; it must not leave its connection open,
+// since wolf-agent never closes idle ones.
+func TestReconcileActiveStreamsClosesAgentConnections(t *testing.T) {
+	agent := newFakeAgent(t)
+	probe := newPortsFixture(t)
+	sess := probe.session("alex-1", "alex")
+	sess.Status.Ports = blockPorts(agent.base(t))
+	f := newPortsFixture(t, tokenSecret(sess))
+	if _, err := f.dw.DirewolfV1alpha1().Sessions(portsTestNS).Create(context.Background(), sess, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 10 {
+		if err := f.sc.reconcileActiveStreams(context.Background(), sess, readyPod(sess)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for agent.open.Load() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d connections to wolf-agent left open after 10 polls", agent.open.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

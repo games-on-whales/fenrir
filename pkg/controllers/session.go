@@ -1769,14 +1769,15 @@ func (c *SessionController) reconcileActiveStreams(
 	// Ensure they match each of our k8s sessions. Hash on AESKey/IV
 	// In the future it might make sense to just match on ClientID/ClientCertFingerprint
 	// but that is hardcoded for now :)
+	// Pinned to the session's own cert: a stranger bound to the agent port
+	// fails the handshake before seeing the token.
+	transport := &http.Transport{TLSClientConfig: tlsConfig}
+	// A fresh transport per poll: close its keep-alive connection, which
+	// wolf-agent never times out, or every poll leaks one.
+	defer transport.CloseIdleConnections()
 	wolfclient := wolfapi.NewClient("https://"+net.JoinHostPort(podIP, strconv.Itoa(int(session.Status.Ports.WolfAgent))), &http.Client{
-		Timeout: wolfAgentTimeout,
-		Transport: &wolfapi.BearerTokenTransport{
-			Token: wolfapi.StaticToken(token),
-			// Pinned to the session's own cert: a stranger bound to the
-			// agent port fails the handshake before seeing the token.
-			Base: &http.Transport{TLSClientConfig: tlsConfig},
-		},
+		Timeout:   wolfAgentTimeout,
+		Transport: &wolfapi.BearerTokenTransport{Token: wolfapi.StaticToken(token), Base: transport},
 	})
 	sessions, err := wolfclient.ListSessions(ctx)
 	if err != nil {
