@@ -7,6 +7,7 @@ import (
 
 	"games-on-whales.github.io/direwolf/pkg/fakeudev"
 	"games-on-whales.github.io/direwolf/pkg/wolfapi"
+	"github.com/r3labs/sse/v2"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/klog/v2"
 )
@@ -58,11 +59,7 @@ func (a *Agent) watchEvents(ctx context.Context) error {
 					return
 				}
 
-				klog.Infof("Received event: %s", ev.Event)
-				klog.Infof("Event ID: %s", ev.ID)
-				klog.Infof("Event Data: %s", ev.Data)
-				klog.Infof("Event Retry: %d", ev.Retry)
-				klog.Infof("Event Comment: %v", ev.Comment)
+				logEvent(ev)
 
 				switch wolfapi.WolfEventType(ev.Event) {
 				// Wolf handles a moonlight disconnect as a "Pause".
@@ -105,6 +102,16 @@ func (a *Agent) watchEvents(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+// logEvent logs ev without its data: Wolf's session events carry the
+// stream's AES key and IV.
+func logEvent(ev *sse.Event) {
+	klog.Infof("Received event: %s", ev.Event)
+	klog.Infof("Event ID: %s", ev.ID)
+	klog.Infof("Event Data: %d bytes", len(ev.Data))
+	klog.Infof("Event Retry: %d", ev.Retry)
+	klog.Infof("Event Comment: %v", ev.Comment)
 }
 
 func (a *Agent) handleDevicePlug(ev wolfapi.PlugDeviceEvent) {
