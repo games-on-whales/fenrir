@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"os"
+	"os/exec"
 	"reflect"
 	"slices"
 	"strconv"
@@ -403,6 +404,50 @@ func TestSessionPodKeepsAppsOwnInputMount(t *testing.T) {
 	if got["/run/udev"] != hotplugUdevVolume {
 		t.Errorf("app /run/udev = %q, want %s", got["/run/udev"], hotplugUdevVolume)
 	}
+}
+
+func TestWolfCommandPicksClaimedRenderNode(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	dri := t.TempDir()
+	script := strings.ReplaceAll(wolfCommand[2], "/dev/dri/", dri+"/")
+	script = strings.ReplaceAll(script, "exec /entrypoint.sh", `echo "$WOLF_RENDER_NODE"`)
+	run := func(env ...string) string {
+		cmd := exec.CommandContext(t.Context(), "sh", "-c", script)
+		cmd.Env = env
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := run(); got != "" {
+		t.Errorf("no render node: WOLF_RENDER_NODE = %q, want unset", got)
+	}
+	// [ -c ] needs a char device; /dev/null stands in for the claimed node.
+	if err := os.Symlink("/dev/null", dri+"/renderD129"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := run(), dri+"/renderD129"; got != want {
+		t.Errorf("WOLF_RENDER_NODE = %q, want %q", got, want)
+	}
+	if got := run("WOLF_RENDER_NODE=/dev/dri/renderD130"); got != "/dev/dri/renderD130" {
+		t.Errorf("set WOLF_RENDER_NODE overridden: got %q", got)
+	}
+}
+
+func TestSessionPodStartsWolfThroughRenderNodeWrapper(t *testing.T) {
+	_, _, _, pod := reconcileFixtures(t, "../../examples/user.yaml", "../../examples/steam.yaml") //nolint:dogsled // only the Pod matters here
+	for _, c := range pod.Spec.Containers {
+		if c.Name == "wolf" {
+			if !slices.Equal(c.Command, wolfCommand) {
+				t.Errorf("wolf command = %q, want wolfCommand", c.Command)
+			}
+			return
+		}
+	}
+	t.Fatal("no wolf container")
 }
 
 func TestSessionPodKeepsAppsOwnHome(t *testing.T) {

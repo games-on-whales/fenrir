@@ -1245,9 +1245,10 @@ func (c *SessionController) buildPod(session *v1alpha1types.Session) (*corev1.Po
 			}, pulseAudioVolumeMounts...),
 		},
 		corev1.Container{
-			Name:  "wolf",
-			Image: WOLF_IMAGE,
-			Env:   append(wolfEnvVarsSlice, wolfEnv...),
+			Name:    "wolf",
+			Image:   WOLF_IMAGE,
+			Command: wolfCommand,
+			Env:     append(wolfEnvVarsSlice, wolfEnv...),
 			// Declared so they become hostPorts; see HostNetwork above.
 			Ports: []corev1.ContainerPort{
 				{Name: "http", ContainerPort: ports.HTTP, Protocol: corev1.ProtocolTCP},
@@ -1635,6 +1636,21 @@ func withHotplugMounts(mounts []corev1.VolumeMount) []corev1.VolumeMount {
 		corev1.VolumeMount{Name: hotplugUdevVolume, MountPath: path.Dir(UdevDataPath)},
 	)
 }
+
+// wolfCommand starts Wolf through the GOW image's own /entrypoint.sh, first
+// pointing WOLF_RENDER_NODE at the render node the session's GPU claim put in
+// the container. Wolf otherwise defaults to /dev/dri/renderD128, but a DRA
+// claim exposes only the allocated card's node, whose minor depends on the
+// card (renderD129 for the second one): the encoder then fails with "Failed to
+// open drm node /dev/dri/renderD128" and Moonlight gets no video. A
+// WOLF_RENDER_NODE set by the App (wolfConfig.runtimeVariables.renderNode) or
+// a User's wolf policy is kept.
+var wolfCommand = []string{"/bin/sh", "-c", `if [ -z "${WOLF_RENDER_NODE:-}" ]; then
+  for n in /dev/dri/renderD*; do
+    if [ -c "$n" ]; then export WOLF_RENDER_NODE="$n"; break; fi
+  done
+fi
+exec /entrypoint.sh`}
 
 // AppHomePath is HOME in the GOW app images. The operator mounts the App's own
 // state there (wolf-data, state/<app>) unless the App mounts something itself.
