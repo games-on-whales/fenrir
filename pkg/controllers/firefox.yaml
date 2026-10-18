@@ -18,4 +18,4 @@ spec:
     spec:
       containers:
         - name: app
-          image: ghcr.io/games-on-whales/firefox:edge
+          image: ghcr.io/games-on-whales/firefox:fedora-44

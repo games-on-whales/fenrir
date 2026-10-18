@@ -2,7 +2,7 @@ name: Verify Docker Build
 
 on:
   pull_request:
-    branches: [main]
+    branches: [beta]
 
 permissions:
   contents: read

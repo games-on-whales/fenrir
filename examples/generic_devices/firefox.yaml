@@ -1,5 +1,5 @@
 ---
-# yaml-language-server: $schema=https://github.com/games-on-whales/fenrir/raw/refs/heads/main/schemas/direwolf.games-on-whales.github.io/app_v1alpha1.json
+# yaml-language-server: $schema=https://github.com/games-on-whales/fenrir/raw/refs/heads/beta/schemas/direwolf.games-on-whales.github.io/app_v1alpha1.json
 apiVersion: direwolf.games-on-whales.github.io/v1alpha1
 kind: App
 metadata:
@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: app
-        image: ghcr.io/games-on-whales/firefox:edge
+        image: ghcr.io/games-on-whales/firefox:fedora-44
         resources:
           limits:
             squat.ai/dri: "1"

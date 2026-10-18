@@ -15,7 +15,7 @@ spec:
       hostIPC: true
       containers:
       - name: app
-        image: ghcr.io/games-on-whales/steam:edge
+        image: ghcr.io/games-on-whales/steam:fedora-44
         securityContext:
           capabilities:
             add: ["SYS_ADMIN", "SYS_NICE", "SYS_PTRACE", "NET_RAW", "MKNOD", "NET_ADMIN"]
