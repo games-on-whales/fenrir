@@ -47,6 +47,12 @@ spec:
         component: moonlight-proxy
     spec:
       serviceAccountName: direwolf-moonlight-proxy
+      ## If the operator runs with SESSION_NODE_TAINT, tolerate it so this
+      ## pod is not evicted from nodes with an active session.
+      # tolerations:
+      # - key: games-on-whales.io/session-active
+      #   operator: Exists
+      #   effect: NoExecute
       containers:
         - name: moonlight-proxy
           # Dev image for use with skaffold

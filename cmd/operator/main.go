@@ -8,6 +8,9 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -27,9 +30,18 @@ func main() {
 	holderIdentity := flag.String("holder-identity", os.Getenv("POD_NAME"), "Holder identity")
 	namespace := flag.String("namespace", os.Getenv("POD_NAMESPACE"), "Namespace to watch")
 	lbSharingKey := flag.String("lb-sharing-key", os.Getenv("POD_NAMESPACE"), "LoadBalancer sharing key")
+	sessionNodeTaint := flag.String("session-node-taint", os.Getenv("SESSION_NODE_TAINT"),
+		"Taint key (e.g. games-on-whales.io/session-active) applied with effect NoExecute to nodes "+
+			"running a lobby, evicting pods that do not tolerate it. Empty disables.")
 
 	klog.InitFlags(nil)
 	flag.Parse()
+
+	if *sessionNodeTaint != "" {
+		if errs := validation.IsQualifiedName(*sessionNodeTaint); len(errs) > 0 {
+			klog.Fatalf("Invalid --session-node-taint %q: %v", *sessionNodeTaint, errs)
+		}
+	}
 
 	// gatewayClient reserved for future Gateway API work (TCPRoutes/UDPRoutes).
 	k8sClient, direwolfClient, _, _, err := util.GetKubernetesClients()
@@ -55,6 +67,20 @@ func main() {
 	k8sFactory.Start(appContext.Done())
 	defer k8sFactory.Shutdown()
 
+	// Lobby pods are only watched when the session node taint is enabled.
+	var podInformer generic.Informer[*corev1.Pod]
+	if *sessionNodeTaint != "" {
+		podFactory := informers.NewSharedInformerFactoryWithOptions(
+			k8sClient, 15*time.Minute, informers.WithNamespace(*namespace),
+			informers.WithTweakListOptions(func(o *metav1.ListOptions) {
+				o.LabelSelector = "app=direwolf-worker"
+			}))
+		podInformer = generic.NewInformer[*corev1.Pod](podFactory.Core().V1().Pods().Informer())
+		podFactory.Start(appContext.Done())
+		defer podFactory.Shutdown()
+		podFactory.WaitForCacheSync(appContext.Done())
+	}
+
 	klog.Info("Waiting for caches to sync")
 	k8sFactory.WaitForCacheSync(appContext.Done())
 	direwolfFactory.WaitForCacheSync(appContext.Done())
@@ -76,7 +102,8 @@ func main() {
 	}
 
 	opts := controllers.SessionControllerOptions{
-		LBSharingKey: *lbSharingKey,
+		LBSharingKey:        *lbSharingKey,
+		SessionNodeTaintKey: *sessionNodeTaint,
 	}
 
 	// Lobby Controller — owns StatefulSets, ResourceClaims, and pod/node discovery.
@@ -87,6 +114,7 @@ func main() {
 		generic.NewInformer[*direwolfv1alpha1.App](appInformer),
 		generic.NewInformer[*direwolfv1alpha1.Profile](profileInformer),
 		generic.NewInformer[*appsv1.StatefulSet](statefulsetInformer),
+		podInformer,
 		opts,
 	)
 
