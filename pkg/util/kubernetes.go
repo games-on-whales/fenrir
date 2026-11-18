@@ -34,6 +34,13 @@ func GetKubernetesClients() (
 		return nil, nil, nil, nil, fmt.Errorf("error building kubeconfig: %w", err)
 	}
 
+	// client-go defaults to 5 QPS / 10 burst, which saturates in seconds on
+	// the moonlight-proxy's /launch and /cancel paths (each of which makes
+	// a handful of Get/List/Create calls). Bump to values that comfortably
+	// cover a few back-to-back interactive sessions.
+	config.QPS = 100
+	config.Burst = 200
+
 	clientset, err = kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("error creating clientset: %w", err)
