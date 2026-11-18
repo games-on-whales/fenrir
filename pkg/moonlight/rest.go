@@ -640,13 +640,19 @@ func (s *RESTServer) launchHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sendXML(w, LaunchResponse{
+	resp := LaunchResponse{
 		Response: Response{
 			StatusCode: 200,
 		},
 		RTSPSessionURL: streamURL,
-		GameSession:    1,
-	})
+	}
+	// resumeHandler delegates here; Moonlight's /resume path requires <resume>.
+	if r.URL.Path == "/resume" {
+		resp.Resume = 1
+	} else {
+		resp.GameSession = 1
+	}
+	sendXML(w, resp)
 }
 
 func (s *RESTServer) resumeHandler(w http.ResponseWriter, r *http.Request) {

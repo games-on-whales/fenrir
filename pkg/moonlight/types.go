@@ -68,5 +68,7 @@ type App struct {
 type LaunchResponse struct {
 	Response       `xml:",inline"`
 	RTSPSessionURL string `xml:"sessionUrl0"`
-	GameSession    int    `xml:"gamesession"`
+	GameSession    int    `xml:"gamesession,omitempty"`
+	// Moonlight's /resume path requires <resume>; /launch reads <gamesession>.
+	Resume int `xml:"resume,omitempty"`
 }
