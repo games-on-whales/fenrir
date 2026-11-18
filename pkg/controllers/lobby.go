@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 // It is responsible for:
 //   - 1. Creating the statefulset and their lobby resourceClaims
 //   - 2. Updating the statefulset, and lobby readiness
+//   - 3. Optionally tainting nodes that host an active lobby (SessionNodeTaintKey)
 //
 // The statefulset readiness is what allows the session Controller to prepare the streamUrl for the user
 type LobbyController struct {
@@ -46,6 +48,10 @@ type LobbyController struct {
 
 	controller            generic.Controller[*direwolfv1alpha1.Lobby]
 	statefulSetController generic.Controller[*appsv1.StatefulSet]
+	podController         generic.Controller[*corev1.Pod]
+
+	// sessionTaintMu serializes session node taint sweeps across workers.
+	sessionTaintMu sync.Mutex
 
 	SessionControllerOptions
 }
@@ -58,6 +64,7 @@ func NewLobbyController(
 	appInformer generic.Informer[*direwolfv1alpha1.App],
 	profileInformer generic.Informer[*direwolfv1alpha1.Profile],
 	statefulSetInformer generic.Informer[*appsv1.StatefulSet],
+	podInformer generic.Informer[*corev1.Pod],
 	options SessionControllerOptions,
 ) *LobbyController {
 	res := &LobbyController{
@@ -92,6 +99,25 @@ func NewLobbyController(
 		},
 	)
 
+	// Lobby pods are only watched when the session node taint is enabled:
+	// pod binding/deletion is what moves the taint, and StatefulSet status
+	// does not change when a pod is bound to a node.
+	if podInformer != nil && options.SessionNodeTaintKey != "" {
+		res.podController = generic.NewController(
+			podInformer,
+			func(_, _ string, pod *corev1.Pod) error {
+				if pod == nil {
+					return res.reconcileSessionNodeTaints(context.TODO())
+				}
+				return res.reconcileDependant(pod)
+			},
+			generic.ControllerOptions{
+				Name:    "lobby-controller-pod",
+				Workers: 1,
+			},
+		)
+	}
+
 	return res
 }
 
@@ -101,6 +127,20 @@ func (c *LobbyController) Run(ctx context.Context) error {
 
 	if !cache.WaitForCacheSync(lobbyCtx.Done(), c.LobbyInformer.HasSynced) {
 		return errors.New("failed to sync lobby informer")
+	}
+
+	// Release taints left behind for lobbies deleted while the operator was down.
+	if err := c.reconcileSessionNodeTaints(lobbyCtx); err != nil {
+		klog.Errorf("Failed initial session node taint sync: %v", err)
+	}
+
+	if c.podController != nil {
+		go func() {
+			defer cancel()
+			if err := c.podController.Run(lobbyCtx); err != nil {
+				klog.Errorf("Failed to run pod controller: %v", err)
+			}
+		}()
 	}
 
 	go func() {
@@ -127,7 +167,8 @@ func (c *LobbyController) Reconcile(namespace, name string, newObj *direwolfv1al
 
 	if newObj == nil {
 		// Deletion is handled by Kubernetes GC via owner references.
-		return nil
+		// The deleted lobby no longer counts towards its node's session taint.
+		return c.reconcileSessionNodeTaints(context.TODO())
 	}
 
 	oldStatus := newObj.Status.DeepCopy()
@@ -211,7 +252,13 @@ func (c *LobbyController) Reconcile(namespace, name string, newObj *direwolfv1al
 		})
 	}
 
-	// 4. Write status
+	// 4. Session node taint (no-op unless enabled)
+	taintErr := c.reconcileSessionNodeTaints(context.TODO())
+	if taintErr != nil {
+		klog.Errorf("Failed to reconcile session node taints: %v", taintErr)
+	}
+
+	// 5. Write status
 	if !reflect.DeepEqual(newObj.Status, oldStatus) {
 		_, err := c.LobbyClient.UpdateStatus(
 			context.TODO(),
@@ -225,7 +272,7 @@ func (c *LobbyController) Reconcile(namespace, name string, newObj *direwolfv1al
 		}
 	}
 
-	return nil
+	return taintErr
 }
 
 func (c *LobbyController) reconcileDependant(obj metav1.Object) error {
@@ -432,6 +479,7 @@ func (c *LobbyController) reconcileStatefulSet(ctx context.Context, lobby *direw
 	podToCreate.Labels[direwolfv1alpha1.LabelApp] = lobby.Spec.AppReference.Name
 	podToCreate.Labels[direwolfv1alpha1.LabelProfile] = lobby.Spec.ProfileReference.Name
 	podToCreate.Spec.TerminationGracePeriodSeconds = ptr.To[int64](3)
+	addSessionNodeTaintToleration(&podToCreate.Spec, c.SessionNodeTaintKey)
 
 	var volumeClaimTemplates []corev1.PersistentVolumeClaim
 	for _, template := range app.Spec.VolumeClaimTemplates {

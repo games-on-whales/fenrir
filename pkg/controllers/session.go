@@ -30,6 +30,10 @@ type profileGame struct {
 type SessionControllerOptions struct {
 	LBSharingKey     string
 	PreferInternalIP bool
+	// SessionNodeTaintKey, when non-empty, makes the lobby controller apply a
+	// NoExecute taint with this key to every node running a lobby pod, and
+	// remove it once no lobbies remain on the node. Empty disables it.
+	SessionNodeTaintKey string
 }
 
 type WolfDRAInfo struct {
